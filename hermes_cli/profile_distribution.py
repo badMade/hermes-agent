@@ -480,6 +480,7 @@ def plan_install(
     from hermes_cli import __version__ as hermes_version
 
     staged, provenance = _stage_source(source, workdir)
+    _validate_staged_payload(staged)
     manifest = read_manifest(staged)
     if manifest is None:
         raise DistributionError(
@@ -523,6 +524,58 @@ def plan_install(
     )
 
 
+def _relative_payload_path(root: Path, path: Path) -> str:
+    """Return a stable relative path for distribution error messages."""
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def _ensure_source_within_staged(staged_root: Path, source: Path) -> None:
+    """Reject source paths whose canonical location escapes the staged root."""
+    resolved_root = staged_root.resolve(strict=True)
+    resolved_source = source.resolve(strict=True)
+    try:
+        resolved_source.relative_to(resolved_root)
+    except ValueError as exc:
+        rel = _relative_payload_path(staged_root, source)
+        raise DistributionError(
+            f"Refusing to install distribution path outside staged root: {rel}"
+        ) from exc
+
+
+def _validate_staged_payload(staged_root: Path) -> None:
+    """Reject unsafe filesystem entries before copying an untrusted distribution."""
+    _ensure_source_within_staged(staged_root, staged_root)
+    for entry in staged_root.rglob("*"):
+        rel = _relative_payload_path(staged_root, entry)
+        if entry.is_symlink():
+            raise DistributionError(
+                f"Refusing to install distribution containing symlink: {rel}"
+            )
+        _ensure_source_within_staged(staged_root, entry)
+        if not entry.is_dir() and not entry.is_file():
+            raise DistributionError(
+                f"Refusing to install unsupported distribution entry: {rel}"
+            )
+
+
+def _remove_destination_path(dest: Path) -> None:
+    """Remove an existing target path without following destination symlinks."""
+    if dest.is_symlink() or dest.is_file():
+        dest.unlink()
+    elif dest.is_dir():
+        shutil.rmtree(dest)
+
+
+def _copy_file_no_follow(source: Path, dest: Path) -> None:
+    """Copy a file after replacing any existing destination symlink."""
+    if dest.exists() or dest.is_symlink():
+        _remove_destination_path(dest)
+    shutil.copy2(source, dest)
+
+
 def _copy_dist_payload(
     staged: Path,
     target: Path,
@@ -537,6 +590,7 @@ def _copy_dist_payload(
     shadowing a real ``.env``.
     """
     target.mkdir(parents=True, exist_ok=True)
+    _validate_staged_payload(staged)
 
     for entry in staged.iterdir():
         name = entry.name
@@ -544,7 +598,7 @@ def _copy_dist_payload(
         if name in USER_OWNED_EXCLUDE:
             continue
         if name == ENV_TEMPLATE_FILENAME:
-            shutil.copy2(entry, target / ENV_EXAMPLE_FILENAME)
+            _copy_file_no_follow(entry, target / ENV_EXAMPLE_FILENAME)
             continue
         if name == "config.yaml" and preserve_config and (target / "config.yaml").exists():
             # Leave user's config.yaml alone on update
@@ -552,15 +606,16 @@ def _copy_dist_payload(
 
         dest = target / name
         if entry.is_dir():
-            if dest.exists():
-                shutil.rmtree(dest)
+            if dest.exists() or dest.is_symlink():
+                _remove_destination_path(dest)
             shutil.copytree(
                 entry,
                 dest,
+                symlinks=False,
                 ignore=lambda d, names: [n for n in names if n in USER_OWNED_EXCLUDE],
             )
         else:
-            shutil.copy2(entry, dest)
+            _copy_file_no_follow(entry, dest)
 
     # Emit .env.EXAMPLE from manifest if the staged tree didn't ship one
     if manifest.env_requires and not (target / ENV_EXAMPLE_FILENAME).exists():
