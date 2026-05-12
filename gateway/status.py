@@ -209,8 +209,19 @@ def _read_json_file(path: Path) -> Optional[dict[str, Any]]:
     return payload if isinstance(payload, dict) else None
 
 
-def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
-    atomic_json_write(path, payload, indent=None, separators=(",", ":"))
+def _write_json_file(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    preserve_symlink: bool = True,
+) -> None:
+    atomic_json_write(
+        path,
+        payload,
+        indent=None,
+        preserve_symlink=preserve_symlink,
+        separators=(",", ":"),
+    )
 
 
 def _read_pid_record(pid_path: Optional[Path] = None) -> Optional[dict]:
@@ -805,7 +816,7 @@ def write_takeover_marker(target_pid: int) -> bool:
             "replacer_pid": os.getpid(),
             "written_at": _utc_now_iso(),
         }
-        _write_json_file(_get_takeover_marker_path(), record)
+        _write_json_file(_get_takeover_marker_path(), record, preserve_symlink=False)
         return True
     except (OSError, PermissionError):
         return False
@@ -853,7 +864,7 @@ def write_planned_stop_marker(target_pid: int) -> bool:
             "stopper_pid": os.getpid(),
             "written_at": _utc_now_iso(),
         }
-        _write_json_file(_get_planned_stop_marker_path(), record)
+        _write_json_file(_get_planned_stop_marker_path(), record, preserve_symlink=False)
         return True
     except (OSError, PermissionError):
         return False

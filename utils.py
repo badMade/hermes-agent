@@ -87,6 +87,7 @@ def atomic_json_write(
     data: Any,
     *,
     indent: int = 2,
+    preserve_symlink: bool = True,
     **dump_kwargs: Any,
 ) -> None:
     """Write JSON data to a file atomically.
@@ -99,6 +100,10 @@ def atomic_json_write(
         path: Target file path (will be created or overwritten).
         data: JSON-serializable data to write.
         indent: JSON indentation (default 2).
+        preserve_symlink: When True, update the real symlink target to keep
+            managed profile symlinks attached. When False, replace the path
+            itself so marker writes in user-writable directories cannot follow
+            attacker-controlled symlinks.
         **dump_kwargs: Additional keyword args forwarded to json.dump(), such
             as default=str for non-native types.
     """
@@ -123,8 +128,14 @@ def atomic_json_write(
             )
             f.flush()
             os.fsync(f.fileno())
-        # Preserve symlinks — swap in-place on the real file (GitHub #16743).
-        real_path = atomic_replace(tmp_path, path)
+        if preserve_symlink:
+            # Preserve symlinks — swap in-place on the real file (GitHub #16743).
+            real_path = atomic_replace(tmp_path, path)
+        else:
+            # Marker files may be written by a privileged CLI into a service
+            # user's HERMES_HOME; replace any symlink instead of following it.
+            os.replace(tmp_path, path)
+            real_path = str(path)
         _restore_file_mode(real_path, original_mode)
     except BaseException:
         # Intentionally catch BaseException so temp-file cleanup still runs for
