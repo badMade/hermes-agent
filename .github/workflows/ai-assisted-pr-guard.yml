@@ -18,7 +18,7 @@ jobs:
           if [[ "$PR_LABELS" == *"self-heal"* ]]; then
             echo "Accepted via self-heal label."
             echo "status=pass" >> $GITHUB_OUTPUT
-          elif echo "$PR_BODY" | grep -q 'AI-Assisted: no' && echo "$PR_BODY" | grep -qE 'Originator:\s*scripts/self_heal\.\*' && echo "$PR_BODY" | grep -q 'Change-Type: mechanical-repair'; then
+          elif echo "$PR_BODY" | grep -q 'AI-Assisted: no' && echo "$PR_BODY" | grep -qE 'Originator:\s*scripts/self_heal.*' && echo "$PR_BODY" | grep -q 'Change-Type: mechanical-repair'; then
             echo "Accepted via mechanical-repair body fields."
             echo "status=pass" >> $GITHUB_OUTPUT
           else
