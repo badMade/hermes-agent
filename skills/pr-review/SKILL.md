@@ -11,24 +11,30 @@ metadata:
     category: software-development
     related_skills: [github-code-review, github-pr-workflow]
     config:
-      rules_path:
+      - key: pr_review.rules_path
         description: "Directory holding pr-rules/*.md. Resolved relative to repo root, then ~/.hermes/."
         default: "pr-rules"
-      edge_case_board:
-        description: "Kanban board name for the edge-case ledger. Empty disables edge-case checks."
+        prompt: "PR-rules directory"
+      - key: pr_review.edge_case_board
+        description: "Kanban board slug for the edge-case ledger. Empty disables edge-case checks."
         default: "pr-edge-cases"
-      ai_assisted_marker:
+        prompt: "Edge-case kanban board slug"
+      - key: pr_review.ai_assisted_marker
         description: "Required PR title prefix when AI tooling was used on the branch."
         default: "[AI-Assisted]"
-      session_link_pattern:
+        prompt: "AI-assisted title marker"
+      - key: pr_review.session_link_pattern
         description: "Regex the PR body must match to record the originating AI session."
         default: "(Claude chat|Cursor session|AI session):\\s*https?://"
-      parallel_languages:
+        prompt: "AI-session link regex"
+      - key: pr_review.parallel_languages
         description: "Delegate per-language review to subagents in parallel."
         default: true
-      emit_telemetry:
-        description: "Write per-rule findings to ~/.hermes/pr-rules/.usage.json for the curator."
+        prompt: "Parallel per-language review (true/false)"
+      - key: pr_review.emit_telemetry
+        description: "Append per-rule findings to ~/.hermes/pr-review/findings.jsonl for the curator."
         default: true
+        prompt: "Emit per-rule telemetry (true/false)"
 ---
 
 # PR Review
@@ -58,10 +64,13 @@ into the PR body.
 
 If a PR is open (`gh pr view --json title,body,headRefName`), verify:
 
-1. Title starts with `${ai_assisted_marker}` **or** body contains `AI-Assisted: no`.
-2. Body matches `${session_link_pattern}` (or `AI-Assisted: no` is present).
+1. Title starts with the value of `pr_review.ai_assisted_marker` **or** body contains `AI-Assisted: no`.
+2. Body matches the regex in `pr_review.session_link_pattern` (or `AI-Assisted: no` is present).
 3. Body fills every section of `.github/PULL_REQUEST_TEMPLATE.md` — no placeholder
    text remaining (search for `<!--` template comments and bare `<...>` markers).
+
+The injected `[Skill config: ...]` block at the end of this skill message lists the
+resolved values for every `pr_review.*` key.
 
 If a PR is not yet open, run the same checks against the staged PR body if one exists
 in `.github/pr-body.draft.md`, otherwise warn and continue.
@@ -100,7 +109,7 @@ If TDD evidence is absent, list the offending commit SHAs under `## Blocking`.
 
 ### Phase 3 — Load rules (polyglot dispatch)
 
-ALWAYS load `${rules_path}/common.md` first.
+ALWAYS load `<pr_review.rules_path>/common.md` first.
 
 Then for each touched path, load the matching rule file. Subagent dispatch:
 
@@ -114,7 +123,7 @@ Then for each touched path, load the matching rule file. Subagent dispatch:
 | `**/Dockerfile*`, `**/docker-compose*.yml`   | `containers.md` (if exists)                                    | `pr-review-iac`  |
 | `services/<name>/**`                         | `service-<name>.md` (if exists)                                | inline           |
 
-If `parallel_languages: true` and ≥2 languages are touched, dispatch via `delegate_task`
+If `pr_review.parallel_languages` is true and ≥2 languages are touched, dispatch via `delegate_task`
 with a `tasks: [...]` batch — one subagent per language, each loading only its own rule
 file. Concurrency is capped by `delegation.max_concurrent_children`. Aggregate the
 results in the parent before emitting output.
@@ -125,19 +134,28 @@ what's relevant. Cite the section you read in your findings.
 
 ### Phase 4 — Edge-case ledger sweep
 
-If `${edge_case_board}` is non-empty, query its kanban:
+If `pr_review.edge_case_board` is non-empty, list open tasks on that board and
+filter client-side. `--board` is a global flag on `hermes kanban` and must come
+**before** the subcommand:
 
 ```bash
-hermes kanban ls --board "${edge_case_board}" --state observed,recurring --json
+BOARD=<pr_review.edge_case_board>
+hermes kanban --board "$BOARD" list --json
 ```
 
-For each entry:
+The edge-case lifecycle (`observed` / `recurring` / `proposed` / `rule` / `archived` /
+`rejected`) is **not** native kanban status — kanban statuses are limited to
+`triage,todo,ready,running,blocked,done,archived`. The ledger encodes its state
+in a `lifecycle:<state>` tag (or `[ec-<state>]` title prefix) on each task. After
+fetching JSON, filter client-side for `lifecycle:observed` or `lifecycle:recurring`.
 
-- If `state == recurring` and the entry's `detection_idea` regex matches the diff,
+For each matching entry:
+
+- If `lifecycle:recurring` and the entry's `detection_idea` regex matches the diff,
   emit a finding under `## Should fix` prefixed with `[EC-YYYY-NNNN]`. Call
   `kanban_comment` on the entry recording this sighting (increments its counter;
   at 3+ sightings the curator transitions it toward rule-promotion).
-- If `state == observed` and the regex matches, emit under `## Nice to have` with
+- If `lifecycle:observed` and the regex matches, emit under `## Nice to have` with
   text "potential edge-case match — please verify."
 
 Skip silently if the board doesn't exist or has no eligible entries.
@@ -173,7 +191,7 @@ If during review you saw a real issue **not already covered by a loaded rule**, 
 
 ```
 ## Suggested rule (for human review)
-- File: `${rules_path}/<area>.md`, "Lessons learned" section
+- File: `<pr_review.rules_path>/<area>.md`, "Lessons learned" section
 - Proposed bullet: "<one imperative sentence>"
 - Evidence: this PR (cite file:line). Promotion needs ≥2 more sightings or
   one production incident before opening a baseline ADR.
@@ -185,9 +203,11 @@ accumulates.
 
 ### Phase 7 — Telemetry
 
-If `emit_telemetry: true`, append one JSON record per finding to
-`$(hermes home)/pr-rules/.usage.json` (sidecar, same shape as
-`tools/skill_usage.py`):
+If `pr_review.emit_telemetry` is true, append one JSON record per finding to a
+new sidecar at `$(get_hermes_home)/pr-review/findings.jsonl` (per-event log,
+distinct from `~/.hermes/skills/.usage.json` which `tools/skill_usage.py` owns
+for per-skill counters). Reuse that module's atomic-write + file-lock pattern
+(`_usage_file_lock`, tempfile + `os.replace`); the schema is new:
 
 ```json
 {"ts": "2026-05-12T14:22:11Z", "rule_id": "PY-007", "pr": "owner/repo#1842",
@@ -222,7 +242,7 @@ uses the ratio to prune noisy rules monthly.
 - If the skill says `## Blocking — None.`, that is a real signal, not flattery. The
   monthly pruning ritual removes rules that never block; what remains is high-value.
 - If `delegate_task` fan-out is slower than inline review for tiny diffs (< ~200 lines
-  touched), set `parallel_languages: false` in `config.yaml`.
-- Pinned rules (curator-pinned in `~/.hermes/pr-rules/.usage.json`) are exempt from
+  touched), set `skills.config.pr_review.parallel_languages: false` in `config.yaml`.
+- Pinned rules (curator-pinned in `~/.hermes/pr-review/rule-state.json`) are exempt from
   pruning and from the LLM-review pass. Use sparingly.
 - Don't run this in a loop on every push. Once per PR, after you think you're done.
