@@ -94,6 +94,28 @@ def _get_session_platform() -> str:
         return os.getenv("HERMES_SESSION_PLATFORM", "") or ""
 
 
+def _is_explicit_cron_approval_context() -> bool:
+    """True only for context-local cron execution.
+
+    ``HERMES_CRON_SESSION`` remains in ``os.environ`` for legacy cron-only
+    processes, but gateway can run the cron ticker in the same process as
+    live user sessions. A process-global cron flag must therefore never
+    override task-local gateway identity.
+    """
+    try:
+        from gateway.session_context import get_explicit_session_env
+
+        explicit = get_explicit_session_env("HERMES_CRON_SESSION")
+        if explicit is not None:
+            return bool(explicit)
+    except Exception:
+        pass
+
+    if os.getenv("HERMES_GATEWAY_SESSION") or _get_session_platform():
+        return False
+    return bool(os.getenv("HERMES_CRON_SESSION"))
+
+
 def _is_gateway_approval_context() -> bool:
     """True when this call is inside a gateway/API session.
 
@@ -101,14 +123,12 @@ def _is_gateway_approval_context() -> bool:
     Newer concurrent gateway paths bind HERMES_SESSION_PLATFORM via
     contextvars so approval mode does not depend on process-global flags.
 
-    Cron jobs are NEVER gateway-approval contexts even when they originate
-    from a gateway platform (cron binds HERMES_SESSION_PLATFORM via
-    contextvars for delivery routing). Cron approvals are governed by
-    ``approvals.cron_mode`` config, not interactive resolve — letting cron
-    fall through to the gateway branch would submit a pending approval
-    with no listener and block the job indefinitely.
+    Cron jobs are NEVER gateway-approval contexts. Cron approvals are
+    governed by ``approvals.cron_mode`` config, not interactive resolve —
+    letting cron fall through to the gateway branch would submit a pending
+    approval with no listener and block the job indefinitely.
     """
-    if os.getenv("HERMES_CRON_SESSION"):
+    if _is_explicit_cron_approval_context():
         return False
     if os.getenv("HERMES_GATEWAY_SESSION"):
         return True
@@ -931,7 +951,7 @@ def check_dangerous_command(command: str, env_type: str,
 
     if not is_cli and not is_gateway:
         # Cron sessions: respect cron_mode config
-        if os.getenv("HERMES_CRON_SESSION"):
+        if _is_explicit_cron_approval_context():
             if _get_cron_approval_mode() == "deny":
                 return {
                     "approved": False,
@@ -1062,7 +1082,7 @@ def check_all_command_guards(command: str, env_type: str,
     # flows, we do not block on approvals and we skip external guard work.
     if not is_cli and not is_gateway and not is_ask:
         # Cron sessions: respect cron_mode config
-        if os.getenv("HERMES_CRON_SESSION"):
+        if _is_explicit_cron_approval_context():
             if _get_cron_approval_mode() == "deny":
                 # Run detection to get a description for the block message
                 is_dangerous, _pk, description = detect_dangerous_command(command)
