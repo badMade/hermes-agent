@@ -72,16 +72,7 @@ def apply_anthropic_cache_control(
     if not api_messages:
         return []
 
-    messages = []
-    for msg in api_messages:
-        if not isinstance(msg, dict):
-            messages.append(msg)
-            continue
-        m = msg.copy()
-        if isinstance(m.get("content"), list):
-            # Copy the content list and its dict elements to allow safe mutation by _apply_cache_marker
-            m["content"] = [c.copy() if isinstance(c, dict) else c for c in m["content"]]
-        messages.append(m)
+    messages = [msg.copy() if isinstance(msg, dict) else msg for msg in api_messages]
 
     marker = _build_marker(cache_ttl)
 
@@ -168,16 +159,7 @@ def apply_anthropic_cache_control_long_lived(
     if not api_messages:
         return []
 
-    messages = []
-    for msg in api_messages:
-        if not isinstance(msg, dict):
-            messages.append(msg)
-            continue
-        m = msg.copy()
-        if isinstance(m.get("content"), list):
-            # Copy the content list and its dict elements to allow safe mutation by _apply_cache_marker and _mark_system_stable_block
-            m["content"] = [c.copy() if isinstance(c, dict) else c for c in m["content"]]
-        messages.append(m)
+    messages = [msg.copy() if isinstance(msg, dict) else msg for msg in api_messages]
 
     long_marker = _build_marker(long_lived_ttl)
     rolling_marker = _build_marker(rolling_ttl)
