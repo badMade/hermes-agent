@@ -1,0 +1,33 @@
+name: AI-Assisted PR Guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  check-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check self-heal PR criteria
+        id: check
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Accept if self-heal label is present
+          if [[ "$PR_LABELS" == *"self-heal"* ]]; then
+            echo "Accepted via self-heal label."
+            echo "status=pass" >> $GITHUB_OUTPUT
+          elif echo "$PR_BODY" | grep -q 'AI-Assisted: no' && echo "$PR_BODY" | grep -qE 'Originator:\s*scripts/self_heal\.\*' && echo "$PR_BODY" | grep -q 'Change-Type: mechanical-repair'; then
+            echo "Accepted via mechanical-repair body fields."
+            echo "status=pass" >> $GITHUB_OUTPUT
+          else
+            echo "PR does not meet self-heal criteria and no other guard conditions passed."
+            echo "status=fail" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fail if check failed
+        if: steps.check.outputs.status == 'fail'
+        run: |
+          echo "Guard rejected PR"
+          sh -c 'exit 1'

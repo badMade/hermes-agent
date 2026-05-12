@@ -1,0 +1,2 @@
+schedule: "0 0 * * *"   # AUTO-UPDATED
+rationale: "Bootstrap schedule based on standard tier cadence."

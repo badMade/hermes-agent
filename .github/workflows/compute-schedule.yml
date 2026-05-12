@@ -1,0 +1,51 @@
+name: Compute Schedule
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Overridden by dynamic script
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  compute-schedule:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv sync --group selfheal
+
+      - name: Compute new schedule
+        id: compute
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/compute_schedule.py
+          git diff --quiet || echo "has_diff=true" >> $GITHUB_OUTPUT
+
+      - name: Create Pull Request
+        if: steps.compute.outputs.has_diff == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch_name="selfheal-schedule-$(date +%s)"
+          git checkout -b "$branch_name"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/self-heal-schedule.yml
+          git commit -m "Update schedule"
+          # Disable real push
+          # git push origin "$branch_name"
+
+          # gh pr create --title "[AI-Assisted] [Self-Heal Schedule] Update cadence" --body "Schedule updated based on telemetry." --label "automation,self-heal,self-heal-schedule"

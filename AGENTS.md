@@ -987,3 +987,5 @@ not the specific names.
 
 Reviewers should reject new change-detector tests; authors should convert
 them into invariants before re-requesting review.
+
+- Self-healing CI: see docs/self-heal.md. Bot PRs labeled `self-heal` bypass TDD + refactor-separation gates via Change-Type=mechanical-repair.
