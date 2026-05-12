@@ -88,18 +88,16 @@ class TestConfigureWindowsStdio:
 
         monkeypatch.setattr(stdio, "_reconfigure_stream", fake_reconfigure)
         monkeypatch.setattr(stdio, "_flip_console_code_page_to_utf8", fake_flip)
-        # Pretend notepad.exe is on PATH (it always is on real Windows hosts,
-        # but not on the Linux CI runner — mock it so the editor default
-        # survives).
-        monkeypatch.setattr(stdio, "_default_windows_editor", lambda: "notepad")
+        trusted_notepad = r"C:/Windows/System32/notepad.exe"
+        monkeypatch.setattr(stdio, "_default_windows_editor", lambda: trusted_notepad)
 
         result = stdio.configure_windows_stdio()
         assert result is True
         assert os.environ.get("PYTHONIOENCODING") == "utf-8"
         assert os.environ.get("PYTHONUTF8") == "1"
-        # EDITOR must be set so prompt_toolkit's open_in_editor finds
-        # a working program on Windows (it defaults to /usr/bin/nano).
-        assert os.environ.get("EDITOR") == "notepad"
+        # EDITOR must be set to a trusted absolute path so Windows does not
+        # search the current directory for a shadowing notepad.exe.
+        assert os.environ.get("EDITOR") == trusted_notepad
         assert len(cp_calls) == 1  # SetConsoleOutputCP path hit
         assert len(reconfigure_calls) == 3  # stdout, stderr, stdin
 
@@ -111,7 +109,7 @@ class TestConfigureWindowsStdio:
         monkeypatch.setenv("EDITOR", "code --wait")
         monkeypatch.setattr(stdio, "_reconfigure_stream", lambda *a, **kw: None)
         monkeypatch.setattr(stdio, "_flip_console_code_page_to_utf8", lambda: None)
-        monkeypatch.setattr(stdio, "_default_windows_editor", lambda: "notepad")
+        monkeypatch.setattr(stdio, "_default_windows_editor", lambda: r"C:/Windows/System32/notepad.exe")
 
         stdio.configure_windows_stdio()
         assert os.environ["EDITOR"] == "code --wait"
@@ -125,13 +123,24 @@ class TestConfigureWindowsStdio:
         monkeypatch.setenv("VISUAL", "nvim")
         monkeypatch.setattr(stdio, "_reconfigure_stream", lambda *a, **kw: None)
         monkeypatch.setattr(stdio, "_flip_console_code_page_to_utf8", lambda: None)
-        monkeypatch.setattr(stdio, "_default_windows_editor", lambda: "notepad")
+        trusted_notepad = r"C:/Windows/System32/notepad.exe"
+        monkeypatch.setattr(stdio, "_default_windows_editor", lambda: trusted_notepad)
 
         stdio.configure_windows_stdio()
         # EDITOR should NOT be set when VISUAL already is (prompt_toolkit
         # checks VISUAL first anyway, but we also shouldn't override it).
-        assert os.environ.get("EDITOR", "") != "notepad"
+        assert os.environ.get("EDITOR", "") != trusted_notepad
         assert os.environ["VISUAL"] == "nvim"
+
+    def test_default_windows_editor_uses_trusted_system_notepad(self, monkeypatch):
+        """Default Notepad path must not be current-directory/PATH hijackable."""
+        from hermes_cli import stdio
+
+        trusted_notepad = r"C:/Windows/System32/notepad.exe"
+        monkeypatch.setenv("SystemRoot", r"C:\Windows")
+        monkeypatch.setattr(stdio.os.path, "isfile", lambda path: path.replace("\\", "/") == trusted_notepad)
+
+        assert stdio._default_windows_editor() == trusted_notepad
 
     def test_respects_existing_env_var(self, monkeypatch):
         """User's explicit PYTHONIOENCODING wins over our default."""
@@ -171,6 +180,33 @@ class TestConfigureWindowsStdio:
         buf = io.StringIO()
         # Must not raise
         stdio._reconfigure_stream(buf)
+
+
+# ---------------------------------------------------------------------------
+# hermes config edit
+# ---------------------------------------------------------------------------
+
+
+def test_config_edit_uses_trusted_windows_notepad(monkeypatch, tmp_path):
+    """Windows fallback must execute trusted Notepad, not a bare command."""
+    from hermes_cli import config as config_module
+
+    trusted_notepad = r"C:/Windows/System32/notepad.exe"
+    config_path = tmp_path / "config.yaml"
+    captured = {}
+
+    monkeypatch.delenv("EDITOR", raising=False)
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setattr(config_module, "is_managed", lambda: False)
+    monkeypatch.setattr(config_module, "get_config_path", lambda: config_path)
+    monkeypatch.setattr(config_module, "save_config", lambda config: config_path.write_text("{}"))
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(config_module.os.path, "isfile", lambda path: path.replace("\\", "/") == trusted_notepad)
+    monkeypatch.setattr(config_module.subprocess, "run", lambda args: captured.setdefault("args", args))
+
+    config_module.edit_config()
+
+    assert captured["args"] == [trusted_notepad, str(config_path)]
 
 
 # ---------------------------------------------------------------------------

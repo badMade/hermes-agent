@@ -163,9 +163,9 @@ def _default_windows_editor() -> str:
 
     Priority order, first match wins:
 
-    1. ``notepad`` — ships with every Windows install, no deps, works as a
-       blocking editor (``subprocess.call(["notepad", file])`` blocks until
-       the user closes the window).  This is the "always-works" default.
+    1. ``%SystemRoot%\\System32\\notepad.exe`` — ships with every Windows
+       install, no deps, works as a blocking editor, and avoids Windows
+       current-directory/PATH executable hijacking.
 
     The prompt_toolkit buffer's ``open_in_editor`` and Hermes's
     ``hermes config edit`` both honour ``$EDITOR``.  Users who prefer a
@@ -179,13 +179,19 @@ def _default_windows_editor() -> str:
     Set this before launching Hermes (User env var in Windows Settings, or
     export in a PowerShell profile) and Hermes picks it up automatically.
     """
-    import shutil
+    return _trusted_system_notepad_path()
 
-    # notepad.exe is always in %SystemRoot%\System32 on Windows, so shutil.which
-    # will reliably find it.  Return the bare name so prompt_toolkit's shlex
-    # split doesn't trip over a path containing spaces.
-    if shutil.which("notepad"):
-        return "notepad"
+
+def _trusted_system_notepad_path() -> str:
+    """Return the trusted Windows system Notepad path, if present."""
+    import ntpath
+
+    system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\Windows"
+    candidate = ntpath.join(system_root, "System32", "notepad.exe")
+    if os.path.isfile(candidate):
+        # prompt_toolkit passes EDITOR through shlex.split(posix=True); forward
+        # slashes keep the absolute Windows path intact without shell quoting.
+        return candidate.replace("\\", "/")
     # On the extreme off-chance notepad is missing (WinPE, Nano Server), fall
     # back to nothing and let prompt_toolkit's silent no-op do its thing.
     return ""
