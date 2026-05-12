@@ -326,6 +326,11 @@ DANGEROUS_PATTERNS = [
     (r'\b(python[23]?|perl|ruby|node)\s+-[ec]\s+', "script execution via -e/-c flag"),
     (r'\b(curl|wget)\b.*\|\s*(ba)?sh\b', "pipe remote content to shell"),
     (r'\b(bash|sh|zsh|ksh)\s+<\s*<?\s*\(\s*(curl|wget)\b', "execute remote script via process substitution"),
+    # Wrapper for the same upstream remote installer used by the Computer
+    # Use post-setup hook. Gate the benign-looking CLI command just like the
+    # underlying curl-to-shell execution it triggers.
+    (r'\b(?:[\w./-]*hermes|python[0-9.]*\s+-m\s+hermes_cli\.main)\s+computer-use\s+install\b',
+     "computer-use installer executes remote shell script"),
     (rf'\btee\b.*["\']?{_SENSITIVE_WRITE_TARGET}', "overwrite system file via tee"),
     (rf'>>?\s*["\']?{_SENSITIVE_WRITE_TARGET}', "overwrite system file via redirection"),
     (rf'\btee\b.*["\']?{_PROJECT_SENSITIVE_WRITE_TARGET}["\']?{_COMMAND_TAIL}', "overwrite project env/config via tee"),

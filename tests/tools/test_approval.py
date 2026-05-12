@@ -89,6 +89,20 @@ class TestDetectDangerousSudo:
         assert is_dangerous is True
         assert key is not None
 
+    def test_computer_use_install_wrapper(self):
+        is_dangerous, key, desc = detect_dangerous_command("hermes computer-use install")
+        assert is_dangerous is True
+        assert key is not None
+        assert "remote shell" in desc.lower()
+
+    def test_computer_use_install_module_wrapper(self):
+        is_dangerous, key, desc = detect_dangerous_command(
+            "python -m hermes_cli.main computer-use install"
+        )
+        assert is_dangerous is True
+        assert key is not None
+        assert "remote shell" in desc.lower()
+
 
 class TestDetectSqlPatterns:
     def test_drop_table(self):
