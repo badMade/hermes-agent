@@ -6775,6 +6775,7 @@ def _install_psutil_android_compat(
     contains the same logic for ``scripts/install.sh`` (fresh installs).
     Both copies should be removed together.
     """
+    import hashlib
     import tarfile
     import tempfile
     import urllib.request
@@ -6784,13 +6785,48 @@ def _install_psutil_android_compat(
         "d1ddf4abb55e93cebc4f2ed8b5d6dbad109ecb8d63748dd2b20ab5e57ebe/"
         "psutil-7.2.2.tar.gz"
     )
+    psutil_sha256 = "0746f5f8d406af344fd547f1c8daa5f5c33dbc293bb8d6a16d80b4bb88f59372"
+
+    def verify_archive_hash(archive: Path) -> None:
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        if digest != psutil_sha256:
+            raise RuntimeError(
+                "downloaded psutil sdist hash mismatch: "
+                f"expected {psutil_sha256}, got {digest}"
+            )
+
+    def safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
+        destination = destination.resolve()
+        members = tar.getmembers()
+        for member in members:
+            if not (member.isfile() or member.isdir()):
+                raise RuntimeError(f"unsafe psutil sdist member type: {member.name}")
+
+            target = (destination / member.name).resolve()
+            if target != destination and destination not in target.parents:
+                raise RuntimeError(f"unsafe psutil sdist path: {member.name}")
+
+        for member in members:
+            target = (destination / member.name).resolve()
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source = tar.extractfile(member)
+            if source is None:
+                raise RuntimeError(f"unable to read psutil sdist member: {member.name}")
+            with source, target.open("wb") as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(member.mode & 0o777)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         archive = tmp_path / "psutil.tar.gz"
         urllib.request.urlretrieve(psutil_url, archive)
+        verify_archive_hash(archive)
         with tarfile.open(archive) as tar:
-            tar.extractall(tmp_path)
+            safe_extract_tar(tar, tmp_path)
 
         src_root = next(
             p for p in tmp_path.iterdir() if p.is_dir() and p.name.startswith("psutil-")
