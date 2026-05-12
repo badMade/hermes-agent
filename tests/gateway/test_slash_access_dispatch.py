@@ -107,6 +107,7 @@ def _make_runner(*, platform_extra: dict | None = None,
     runner._send_voice_reply = AsyncMock()
     runner._capture_gateway_honcho_if_configured = lambda *args, **kwargs: None
     runner._emit_gateway_run_progress = AsyncMock()
+    runner._draining = False
     return runner
 
 
@@ -315,6 +316,47 @@ async def test_plugin_registered_command_is_gated(monkeypatch):
     assert "/myplugin is admin-only here" in result
 
 
+@pytest.mark.asyncio
+async def test_non_admin_denied_for_unlisted_quick_exec_command():
+    runner = _make_runner(
+        platform_extra={
+            "allow_admin_from": ["111"],
+            "user_allowed_commands": [],
+        }
+    )
+    runner.config.quick_commands = {
+        "deploy": {"type": "exec", "command": "printf quick-command-ran"}
+    }
+
+    result = await runner._handle_message(
+        _make_event("/deploy", _make_source(user_id="999"))
+    )
+
+    assert result is not None
+    assert "⛔" in result
+    assert "/deploy is admin-only here" in result
+    assert "quick-command-ran" not in result
+
+
+@pytest.mark.asyncio
+async def test_user_allowed_quick_exec_command_runs():
+    runner = _make_runner(
+        platform_extra={
+            "allow_admin_from": ["111"],
+            "user_allowed_commands": ["deploy"],
+        }
+    )
+    runner.config.quick_commands = {
+        "deploy": {"type": "exec", "command": "printf quick-command-ran"}
+    }
+
+    result = await runner._handle_message(
+        _make_event("/deploy", _make_source(user_id="999"))
+    )
+
+    assert result == "quick-command-ran"
+
+
 # ---------------------------------------------------------------------------
 # Running-agent fast-path gating — admin/user split must hold even when an
 # agent is already running. The fast-path block in _handle_message dispatches
@@ -324,6 +366,29 @@ async def test_plugin_registered_command_is_gated(monkeypatch):
 # We must apply the gate there too — otherwise non-admins could bypass
 # gating just because an agent happens to be busy.
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_running_agent_fastpath_denies_unlisted_quick_command():
+    runner = _make_runner(
+        platform_extra={
+            "allow_admin_from": ["111"],
+            "user_allowed_commands": [],
+        }
+    )
+    runner.config.quick_commands = {
+        "deploy": {"type": "exec", "command": "printf quick-command-ran"}
+    }
+    src = _make_source(user_id="999")
+    sk = build_session_key(src)
+    runner._running_agents[sk] = MagicMock()
+    runner._running_agents_ts[sk] = 0
+
+    result = await runner._handle_message(_make_event("/deploy", src))
+
+    assert result is not None
+    assert "⛔" in result
+    assert "/deploy is admin-only here" in result
 
 
 @pytest.mark.asyncio

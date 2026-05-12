@@ -5926,8 +5926,13 @@ class GatewayRunner:
             # /status above is intentionally pre-gate so users always see
             # session state. /help and /whoami fall under the always-allowed
             # floor inside _check_slash_access.
-            if _evt_cmd and _cmd_def_inner is not None:
-                _denied = self._check_slash_access(source, _cmd_def_inner.name)
+            if _evt_cmd and (
+                _cmd_def_inner is not None or self._is_quick_command(_evt_cmd)
+            ):
+                _access_cmd = (
+                    _cmd_def_inner.name if _cmd_def_inner is not None else _evt_cmd
+                )
+                _denied = self._check_slash_access(source, _access_cmd)
                 if _denied is not None:
                     return _denied
 
@@ -6231,11 +6236,8 @@ class GatewayRunner:
         # Preserve built-in precedence; aliases only need early handling when
         # the typed command is not already known.
         if command and _cmd_def is None:
-            if isinstance(self.config, dict):
-                quick_commands = self.config.get("quick_commands", {}) or {}
-            else:
-                quick_commands = getattr(self.config, "quick_commands", {}) or {}
-            if isinstance(quick_commands, dict) and command in quick_commands:
+            quick_commands = self._get_quick_commands()
+            if command in quick_commands:
                 qcmd = quick_commands[command]
                 if qcmd.get("type") == "alias":
                     target = qcmd.get("target", "").strip()
@@ -6254,7 +6256,9 @@ class GatewayRunner:
         # run every command. When set → non-admins can run only commands in
         # ``user_allowed_commands`` (plus the always-allowed floor: /help,
         # /whoami). Plain chat is unaffected — only slash commands gate.
-        if command and canonical and is_gateway_known_command(canonical):
+        if command and canonical and (
+            is_gateway_known_command(canonical) or self._is_quick_command(canonical)
+        ):
             _denied = self._check_slash_access(source, canonical)
             if _denied is not None:
                 return _denied
@@ -6466,12 +6470,7 @@ class GatewayRunner:
 
         # User-defined quick commands (bypass agent loop, no LLM call)
         if command:
-            if isinstance(self.config, dict):
-                quick_commands = self.config.get("quick_commands", {}) or {}
-            else:
-                quick_commands = getattr(self.config, "quick_commands", {}) or {}
-            if not isinstance(quick_commands, dict):
-                quick_commands = {}
+            quick_commands = self._get_quick_commands()
             if command in quick_commands:
                 qcmd = quick_commands[command]
                 if qcmd.get("type") == "exec":
@@ -8197,6 +8196,17 @@ class GatewayRunner:
 
         return "\n".join(lines)
 
+    def _get_quick_commands(self) -> Dict[str, Any]:
+        """Return configured user-defined gateway quick commands."""
+        if isinstance(self.config, dict):
+            quick_commands = self.config.get("quick_commands", {}) or {}
+        else:
+            quick_commands = getattr(self.config, "quick_commands", {}) or {}
+        return quick_commands if isinstance(quick_commands, dict) else {}
+
+    def _is_quick_command(self, command: str | None) -> bool:
+        """Return whether ``command`` names a user-defined quick command."""
+        return bool(command and command in self._get_quick_commands())
 
     def _check_slash_access(
         self, source: SessionSource, canonical_cmd: str
