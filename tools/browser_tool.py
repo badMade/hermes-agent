@@ -488,6 +488,44 @@ def _requires_real_termux_browser_install(browser_cmd: str) -> bool:
     return _is_termux_environment() and _is_local_mode() and browser_cmd.strip() == "npx agent-browser"
 
 
+def _resolve_npx_agent_browser_prefix() -> List[str]:
+    """Return a safe argv prefix for the synthetic ``npx agent-browser`` fallback."""
+    npx_bin = shutil.which("npx") or "npx"
+    if os.name != "nt":
+        return [npx_bin, "agent-browser"]
+
+    npx_path = Path(npx_bin)
+    npx_suffix = npx_path.suffix.lower()
+    if npx_suffix in {".exe", ".com"}:
+        return [npx_bin, "agent-browser"]
+    if npx_suffix not in {".cmd", ".bat"}:
+        raise FileNotFoundError(
+            "Refusing to launch unresolved npx on Windows; install agent-browser "
+            "locally with 'npm install' or ensure Node.js/npm are installed correctly."
+        )
+
+    # Windows batch shims reinterpret cmd.exe metacharacters in later argv
+    # entries. Bypass npx.cmd by invoking npm's JS CLI through node.exe.
+    npx_cli = npx_path.parent / "node_modules" / "npm" / "bin" / "npx-cli.js"
+    if not npx_cli.is_file():
+        raise FileNotFoundError(
+            "Refusing to launch npx.cmd with browser arguments on Windows; "
+            "could not locate npm's npx-cli.js. Install agent-browser locally "
+            "with 'npm install' or ensure Node.js/npm are installed correctly."
+        )
+
+    node_bin = shutil.which("node") or shutil.which("node.exe")
+    sibling_node = npx_path.parent / "node.exe"
+    if not node_bin and sibling_node.is_file():
+        node_bin = str(sibling_node)
+    if not node_bin:
+        raise FileNotFoundError(
+            "Refusing to launch npx.cmd with browser arguments on Windows; "
+            "could not locate node.exe for npm's npx-cli.js."
+        )
+    return [node_bin, str(npx_cli), "agent-browser"]
+
+
 def _termux_browser_install_error() -> str:
     return (
         "Local browser automation on Termux cannot rely on the bare npx fallback. "
@@ -729,14 +767,11 @@ def _run_chrome_fallback_command(
             )
         return {"success": False, "error": hint}
 
-    # On Windows npx is npx.cmd — use shutil.which so CreateProcessW can
-    # execute the batch shim.  shutil.which honours PATHEXT on Windows and
-    # returns the plain executable on POSIX.  If npx isn't on PATH (Termux,
-    # bare container), fall back to the bare name and let Popen raise with
-    # a readable "FileNotFoundError: 'npx'" rather than WinError 193.
     if browser_cmd == "npx agent-browser":
-        _npx_bin = shutil.which("npx") or "npx"
-        cmd_prefix = [_npx_bin, "agent-browser"]
+        try:
+            cmd_prefix = _resolve_npx_agent_browser_prefix()
+        except FileNotFoundError as e:
+            return {"success": False, "error": str(e)}
     else:
         cmd_prefix = [browser_cmd]
     base_args = cmd_prefix + ["--engine", "chrome", "--session", tmp_session, "--json"]
@@ -1825,10 +1860,12 @@ def _run_browser_command(
 
     # Keep concrete executable paths intact, even when they contain spaces.
     # Only the synthetic npx fallback needs to expand into multiple argv items.
-    # shutil.which resolves npx → npx.cmd on Windows; bare "npx" stays on POSIX.
     if browser_cmd == "npx agent-browser":
-        _npx_bin = shutil.which("npx") or "npx"
-        cmd_prefix = [_npx_bin, "agent-browser"]
+        try:
+            cmd_prefix = _resolve_npx_agent_browser_prefix()
+        except FileNotFoundError as e:
+            logger.warning("agent-browser npx fallback unavailable: %s", e)
+            return {"success": False, "error": str(e)}
     else:
         cmd_prefix = [browser_cmd]
 
