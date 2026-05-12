@@ -274,9 +274,10 @@ def test_user_dotenv_overrides_project_dotenv(tmp_path, monkeypatch):
     assert mod._env_lookup("HYPERLIQUID_USER_ADDRESS") == "0xuserhome"
 
 
-def test_main_export_json_writes_expected_contract(tmp_path, capsys):
+def test_main_export_json_writes_expected_contract(tmp_path, monkeypatch, capsys):
     mod = load_module()
     output_path = tmp_path / "exports" / "btc-1h.json"
+    monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(tmp_path))
 
     def fake_post_info(payload):
         if payload["type"] == "candleSnapshot":
@@ -326,9 +327,54 @@ def test_main_export_json_writes_expected_contract(tmp_path, capsys):
     assert len(saved["funding_history"]) == 2
 
 
-def test_main_export_json_skips_funding_for_spot(tmp_path, capsys):
+
+def test_export_rejects_output_outside_safe_root(tmp_path, monkeypatch):
+    mod = load_module()
+    safe_root = tmp_path / "safe"
+    safe_root.mkdir()
+    outside_path = tmp_path / "outside.json"
+    monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(safe_root))
+
+    try:
+        mod._write_json_file(outside_path, {"schema_version": "test"})
+    except SystemExit as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected export outside HERMES_WRITE_SAFE_ROOT to be rejected")
+
+    assert "Export output must stay under" in message
+    assert not outside_path.exists()
+
+
+def test_export_rejects_default_output_symlink(tmp_path, monkeypatch):
+    mod = load_module()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    target = outside_dir / "target.json"
+    target.write_text("original", encoding="utf-8")
+
+    safe_root = tmp_path / "safe"
+    safe_root.mkdir()
+    monkeypatch.chdir(safe_root)
+    monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(safe_root))
+    default_path = mod._default_export_path("BTC", "1h", 1.0)
+    default_path.symlink_to(target)
+
+    try:
+        mod._write_json_file(default_path, {"schema_version": "test"})
+    except SystemExit as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected symlinked export output to be rejected")
+
+    assert "Refusing to write export through symlink" in message
+    assert target.read_text(encoding="utf-8") == "original"
+
+
+def test_main_export_json_skips_funding_for_spot(tmp_path, monkeypatch, capsys):
     mod = load_module()
     output_path = tmp_path / "purr-usdc.json"
+    monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(tmp_path))
 
     def fake_post_info(payload):
         if payload["type"] == "candleSnapshot":

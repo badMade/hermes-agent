@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import errno
 import json
 import os
 import sys
@@ -794,9 +795,52 @@ def _default_export_path(coin: str, interval: str, hours: float) -> Path:
     return Path.cwd() / filename
 
 
-def _write_json_file(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def _export_root() -> Path:
+    safe_root = os.environ.get("HERMES_WRITE_SAFE_ROOT")
+    return Path(safe_root).expanduser() if safe_root else Path.cwd()
+
+
+def _validate_export_path(path: Path) -> Path:
+    if ".." in path.parts:
+        raise SystemExit(f"Export output must not contain parent traversal: {path}")
+
+    root = _export_root().resolve()
+    candidate = path.expanduser() if path.is_absolute() else Path.cwd() / path
+    if candidate.is_symlink():
+        raise SystemExit(f"Refusing to write export through symlink: {path}")
+
+    resolved = candidate.resolve(strict=False)
+
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise SystemExit(f"Export output must stay under {root}: {path}") from exc
+
+    if resolved.is_symlink():
+        raise SystemExit(f"Refusing to write export through symlink: {path}")
+
+    return resolved
+
+
+def _write_json_file(path: Path, payload: Dict[str, Any]) -> Path:
+    output_path = _validate_export_path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if Path(path).is_symlink():
+        raise SystemExit(f"Refusing to write export through symlink: {path}")
+
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(output_path, flags, 0o666)
+    except OSError as exc:
+        if getattr(os, "O_NOFOLLOW", 0) and exc.errno == errno.ELOOP:
+            raise SystemExit(f"Refusing to write export through symlink: {path}") from exc
+        raise
+
+    with os.fdopen(fd, "w", encoding="utf-8") as export_file:
+        export_file.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return output_path
 
 
 def _export_summary(candles: List[Dict[str, Any]], funding_history: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1088,12 +1132,12 @@ def run_export(args: argparse.Namespace) -> Dict[str, Any]:
         "candles": candles,
         "funding_history": funding_history,
     }
-    _write_json_file(output_path, payload)
+    written_path = _write_json_file(output_path, payload)
     return {
         "coin": args.coin,
         "interval": args.interval,
         "hours": args.hours,
-        "output_path": str(output_path),
+        "output_path": str(written_path),
         "summary": payload["summary"],
         "schema_version": payload["schema_version"],
     }
