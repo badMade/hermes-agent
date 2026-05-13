@@ -55,7 +55,7 @@ def update_schedule_file(new_cron: str) -> None:
 
     if MARKER not in content:
         print(f"Marker '{MARKER}' not found in {file_path}.")
-        sys.exit(1)
+        sys.exit(0)
 
     # Replace the cron string
     new_content = re.sub(
