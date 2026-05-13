@@ -31,7 +31,7 @@ def compute_new_schedule() -> str:
             capture_output=True, text=True
         )
         if result.returncode == 0:
-            lines = result.stdout.strip().split("\n")
+            lines = result.stdout.splitlines()
             if len(lines) > 10:
                 print("High churn detected. Setting daily schedule.")
                 return "0 2 * * *"
