@@ -4317,11 +4317,16 @@ def _sanitize_env_lines(lines: list) -> list:
 
         if len(split_positions) > 1:
             for i, pos in enumerate(split_positions):
-                end = split_positions[i + 1] if i + 1 < len(split_positions) else len(stripped)
+                end = (
+                    split_positions[i + 1]
+                    if i + 1 < len(split_positions)
+                    else len(stripped)
+                )
                 part = stripped[pos:end].strip()
-                if part:
+                # Drop stale placeholders left by aborted setup runs
+                if part and not part.endswith("=***"):
                     sanitized.append(part + "\n")
-        else:
+        elif not stripped.endswith("=***"):
             sanitized.append(stripped + "\n")
 
     return sanitized
