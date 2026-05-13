@@ -758,26 +758,69 @@ async def get_action_status(name: str, lines: int = 200):
     }
 
 
+def _do_get_sessions(limit: int, offset: int) -> Dict[str, Any]:
+    """Blocking DB logic for get_sessions, offloaded to a thread."""
+    from hermes_state import SessionDB
+
+    db = SessionDB()
+    try:
+        sessions = db.list_sessions_rich(limit=limit, offset=offset)
+        total = db.session_count()
+        now = time.time()
+        for s in sessions:
+            s["is_active"] = (
+                s.get("ended_at") is None
+                and (now - s.get("last_active", s.get("started_at", 0))) < 300
+            )
+        return {"sessions": sessions, "total": total, "limit": limit, "offset": offset}
+    finally:
+        db.close()
+
+
 @app.get("/api/sessions")
 async def get_sessions(limit: int = 20, offset: int = 0):
     try:
-        from hermes_state import SessionDB
-        db = SessionDB()
-        try:
-            sessions = db.list_sessions_rich(limit=limit, offset=offset)
-            total = db.session_count()
-            now = time.time()
-            for s in sessions:
-                s["is_active"] = (
-                    s.get("ended_at") is None
-                    and (now - s.get("last_active", s.get("started_at", 0))) < 300
-                )
-            return {"sessions": sessions, "total": total, "limit": limit, "offset": offset}
-        finally:
-            db.close()
+        return await asyncio.to_thread(_do_get_sessions, limit, offset)
     except Exception:
         _log.exception("GET /api/sessions failed")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def _do_search_sessions(q: str, limit: int) -> Dict[str, Any]:
+    """Blocking DB logic for search_sessions, offloaded to a thread."""
+    from hermes_state import SessionDB
+
+    db = SessionDB()
+    try:
+        # Auto-add prefix wildcards so partial words match
+        # e.g. "nimb" → "nimb*" matches "nimby"
+        # Preserve quoted phrases and existing wildcards as-is
+        import re
+
+        terms = []
+        for token in re.findall(r'"[^"]*"|\S+', q.strip()):
+            if token.startswith('"') or token.endswith("*"):
+                terms.append(token)
+            else:
+                terms.append(token + "*")
+        prefix_query = " ".join(terms)
+        matches = db.search_messages(query=prefix_query, limit=limit)
+        # Group by session_id — return unique sessions with their best snippet
+        seen: dict = {}
+        for m in matches:
+            sid = m["session_id"]
+            if sid not in seen:
+                seen[sid] = {
+                    "session_id": sid,
+                    "snippet": m.get("snippet", ""),
+                    "role": m.get("role"),
+                    "source": m.get("source"),
+                    "model": m.get("model"),
+                    "session_started": m.get("session_started"),
+                }
+        return {"results": list(seen.values())}
+    finally:
+        db.close()
 
 
 @app.get("/api/sessions/search")
@@ -786,37 +829,7 @@ async def search_sessions(q: str = "", limit: int = 20):
     if not q or not q.strip():
         return {"results": []}
     try:
-        from hermes_state import SessionDB
-        db = SessionDB()
-        try:
-            # Auto-add prefix wildcards so partial words match
-            # e.g. "nimb" → "nimb*" matches "nimby"
-            # Preserve quoted phrases and existing wildcards as-is
-            import re
-            terms = []
-            for token in re.findall(r'"[^"]*"|\S+', q.strip()):
-                if token.startswith('"') or token.endswith("*"):
-                    terms.append(token)
-                else:
-                    terms.append(token + "*")
-            prefix_query = " ".join(terms)
-            matches = db.search_messages(query=prefix_query, limit=limit)
-            # Group by session_id — return unique sessions with their best snippet
-            seen: dict = {}
-            for m in matches:
-                sid = m["session_id"]
-                if sid not in seen:
-                    seen[sid] = {
-                        "session_id": sid,
-                        "snippet": m.get("snippet", ""),
-                        "role": m.get("role"),
-                        "source": m.get("source"),
-                        "model": m.get("model"),
-                        "session_started": m.get("session_started"),
-                    }
-            return {"results": list(seen.values())}
-        finally:
-            db.close()
+        return await asyncio.to_thread(_do_search_sessions, q, limit)
     except Exception:
         _log.exception("GET /api/sessions/search failed")
         raise HTTPException(status_code=500, detail="Search failed")
