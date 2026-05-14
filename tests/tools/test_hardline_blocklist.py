@@ -306,6 +306,7 @@ _SUDO_STDIN_BLOCK = [
     "sudo -p '' -S whoami",
     "sudo --stdin whoami",
     "env X=1 sudo -S whoami",
+    "X=1 sudo -S whoami",
 ]
 
 _SUDO_STDIN_ALLOW = [
