@@ -1,13 +1,18 @@
 name: Auto-merge
 
 on:
-  # Human-action triggers: reviewed label added or a review submitted.
+  # PR lifecycle triggers: makes the workflow appear in the checks list
+  # and re-evaluates on every push. With the single-pass design (no
+  # polling) these exit in seconds when CI is still running, so they
+  # don't waste runner time.
   pull_request:
-    types: [labeled]
+    types: [opened, synchronize, reopened, labeled]
   pull_request_review:
     types: [submitted]
-  # CI-completion triggers: fire once per workflow finish so we start
-  # only after checks are done rather than polling alongside them.
+  # CI-completion triggers: fire once per workflow finish so we get a
+  # fresh evaluation the moment the last check goes green.
+  # Note: workflow_run only reads from the default branch, so these
+  # triggers are active for future PRs once this workflow is on main.
   workflow_run:
     workflows:
       - "Tests"
@@ -36,12 +41,11 @@ jobs:
   auto-merge:
     name: Auto-merge on review + passing checks
     runs-on: ubuntu-latest
-    # pull_request/pull_request_review: skip fork PRs and non-'reviewed' labels.
-    # workflow_run: skip if the completing workflow is Auto-merge itself (loop prevention).
+    # Skip fork PRs and unrelated label events; prevent auto-merge triggering itself.
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.name != 'Auto-merge') ||
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.label.name == 'reviewed') ||
-      (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'reviewed'))
     # No polling needed — workflow_run fires after CI finishes.
     timeout-minutes: 5
 
