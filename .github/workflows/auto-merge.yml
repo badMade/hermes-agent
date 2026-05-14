@@ -47,8 +47,9 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.name != 'Auto-merge') ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'reviewed'))
-    # No polling needed — workflow_run fires after CI finishes.
-    timeout-minutes: 5
+    # No polling needed for workflow_run — it fires after CI finishes.
+    # For pull_request / pull_request_review events a poll loop waits for CI.
+    timeout-minutes: 30
 
     steps:
       - name: Evaluate checks, reviews, and merge
@@ -84,9 +85,8 @@ jobs:
             }
 
             // ── Status-only first pass ─────────────────────────────────────────
-            // synchronize/opened/reopened post a PENDING status so something is
-            // visibly waiting in the PR's checks list. Real evaluation happens
-            // on labeled, pull_request_review, or workflow_run events.
+            // On push/open/reopen: post a pending status so the PR's check list
+            // shows something, then fall through to the polling evaluation below.
             if (context.eventName === 'pull_request') {
               const action = context.payload.action;
               if (action === 'synchronize' || action === 'opened' || action === 'reopened') {
@@ -94,11 +94,10 @@ jobs:
                 await setStatus(sha, 'pending',
                   'Waiting for CI to finish and a qualifying review.');
                 core.info(
-                  `Event '${action}' — posted pending status for ${sha.slice(0,7)}. ` +
-                  `Real evaluation triggers on 'labeled' (reviewed), ` +
-                  `'pull_request_review', or 'workflow_run'.`
+                  `Event '${action}' for ${sha.slice(0,7)} — polling until CI completes.`
                 );
-                return;
+                // Fall through — the poll loop below waits for checks to finish
+                // before evaluating merge conditions.
               }
             }
 
@@ -156,33 +155,27 @@ jobs:
               await new Promise(r => setTimeout(r, 10_000));
             }
 
-            // ── 2. Single-pass check run fetch (no polling) ────────────────────
-            // workflow_run fires after a CI workflow completes, so checks should
-            // be in a terminal state. For human-action triggers we do one pass
-            // and exit if checks are still running — the next workflow_run
-            // completion will re-evaluate.
-            const { data: suitesData } = await github.rest.checks.listSuitesForRef({
-              owner, repo, ref: headSha, per_page: 100,
-            });
-
-            let runs = [];
-            for (const suite of suitesData.check_suites) {
-              const { data: runsData } = await github.rest.checks.listForSuite({
-                owner, repo, check_suite_id: suite.id, per_page: 100,
+            // ── 2. Fetch external check runs (helper used by poll loop) ───────
+            async function fetchExternalRuns() {
+              const { data: sd } = await github.rest.checks.listSuitesForRef({
+                owner, repo, ref: headSha, per_page: 100,
               });
-              runs = runs.concat(runsData.check_runs);
+              let all = [];
+              for (const suite of sd.check_suites) {
+                const { data: rd } = await github.rest.checks.listForSuite({
+                  owner, repo, check_suite_id: suite.id, per_page: 100,
+                });
+                all = all.concat(rd.check_runs);
+              }
+              return all.filter(run => {
+                const url = run.details_url || run.html_url || '';
+                return !url.includes(`/runs/${currentRunId}`);
+              });
             }
 
-            // Filter out this workflow's own check run.
-            const externalRuns = runs.filter(run => {
-              const url = run.details_url || run.html_url || '';
-              return !url.includes(`/runs/${currentRunId}`);
-            });
-
+            let externalRuns = await fetchExternalRuns();
             core.info(`External check runs for ${headSha.slice(0,7)}: ${externalRuns.length}`);
-            for (const r of externalRuns) {
-              core.info(`  ${r.name}: ${r.status} / ${r.conclusion}`);
-            }
+            for (const r of externalRuns) core.info(`  ${r.name}: ${r.status} / ${r.conclusion}`);
 
             // ── 3. Guard: no CI found ──────────────────────────────────────────
             if (externalRuns.length === 0) {
@@ -198,28 +191,36 @@ jobs:
               return;
             }
 
-            // ── 4. Guard: checks still pending ────────────────────────────────
-            // For workflow_run triggers this is unexpected (a suite just
-            // completed), but another suite may still be running.
-            // For labeled/review triggers CI may not be done yet — exit silently;
-            // the next workflow_run completion will re-evaluate.
-            const stillPending = externalRuns.filter(r => r.status !== 'completed');
-            if (stillPending.length > 0) {
-              core.info(`${stillPending.length} check(s) still pending.`);
-              await setStatus(headSha, 'pending',
-                `Waiting on ${stillPending.length} CI check(s) to finish.`);
-              if (context.eventName === 'pull_request') {
-                // User just added the reviewed label — give them feedback.
-                await upsertComment(
-                  '<!-- auto-merge-pending -->',
-                  `### Auto-merge: checks still pending\n\n` +
-                  `The following checks have not completed yet:\n` +
-                  stillPending.map(r => `- \`${r.name}\``).join('\n') + '\n\n' +
-                  `Auto-merge will proceed automatically once all checks finish.\n\n` +
-                  `[View workflow run](${workflowRunUrl})`
-                );
+            // ── 4. Wait for all checks to complete ────────────────────────────
+            // workflow_run: another suite may still be running — exit and let the
+            // next workflow_run completion re-evaluate.
+            // pull_request / pull_request_review: poll up to 25 min so the status
+            // transitions automatically without any manual action.
+            let pendingRuns = externalRuns.filter(r => r.status !== 'completed');
+            if (pendingRuns.length > 0) {
+              if (context.eventName === 'workflow_run') {
+                core.info(`${pendingRuns.length} check(s) still pending — exiting; next workflow_run will re-evaluate.`);
+                return;
               }
-              return;
+              const POLL_INTERVAL_MS = 60_000;   // 1 minute
+              const POLL_TIMEOUT_MS  = 25 * 60_000; // 25 minutes
+              const pollStart = Date.now();
+              while (pendingRuns.length > 0) {
+                if (Date.now() - pollStart >= POLL_TIMEOUT_MS) {
+                  core.warning('Poll timeout — CI did not complete within 25 min.');
+                  await setStatus(headSha, 'error',
+                    'CI did not complete within 25 minutes.');
+                  return;
+                }
+                const elapsedMin = Math.floor((Date.now() - pollStart) / 60_000);
+                core.info(`${pendingRuns.length} check(s) still pending (${elapsedMin}m elapsed)…`);
+                await setStatus(headSha, 'pending',
+                  `Waiting on ${pendingRuns.length} CI check(s) (${elapsedMin}m).`);
+                await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+                externalRuns = await fetchExternalRuns();
+                pendingRuns  = externalRuns.filter(r => r.status !== 'completed');
+              }
+              core.info('All CI checks have now completed.');
             }
 
             // ── 5. Guard: failing checks ───────────────────────────────────────
