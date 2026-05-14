@@ -314,17 +314,23 @@ def _contains_sudo_stdin_invocation(command: str) -> bool:
 
     expect_command = True
     for index, word in enumerate(words):
+        # Pipe/semicolon/subshell operators start a new command.
+        # Redirections (<, >) do NOT start a new command (they introduce a
+        # filename/fd argument), so we intentionally exclude them here to avoid
+        # treating 'echo hi > sudo -S ...' as a sudo invocation.
         if set(word) <= set(";&|()`"):
             expect_command = True
             continue
         if not expect_command:
             continue
 
+        # Leading env assignments (e.g. DEBUG=1) are not the command itself;
+        # keep expect_command True so the following word is also evaluated.
+        if _looks_like_env_assignment(word):
+            continue
         sudo_index = _sudo_after_env_wrapper(words, index)
         if sudo_index is not None and _sudo_invocation_uses_stdin(words, sudo_index):
             return True
-        if _looks_like_env_assignment(word):
-            continue
         expect_command = False
     return False
 
