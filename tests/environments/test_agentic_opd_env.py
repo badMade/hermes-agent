@@ -1,4 +1,8 @@
 import pytest
+
+# Skip this test module if atroposlib is not installed (e.g. in some CI environments)
+pytest.importorskip("atroposlib")
+
 from environments.agentic_opd_env import _parse_hint_result
 
 @pytest.mark.parametrize(
