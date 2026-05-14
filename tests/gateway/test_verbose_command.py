@@ -78,7 +78,7 @@ class TestVerboseCommand:
         result = await runner._handle_verbose_command(_make_event())
 
         # all -> verbose
-        # assert "VERBOSE" in result
+        assert "verbose" in result.lower()
         assert "telegram" in result.lower()  # per-platform feedback
 
         # Verify config was saved to display.platforms.telegram
