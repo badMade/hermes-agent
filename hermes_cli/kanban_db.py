@@ -3878,10 +3878,20 @@ def _hermes_main_bootstrap() -> str:
     trusted_root = str(Path(__file__).resolve().parent.parent)
     return (
         "import os, runpy, sys; "
-        f"trusted_root = {trusted_root!r}; "
-        "cwd = os.getcwd(); "
-        "sys.path = [trusted_root] + "
-        "[p for p in sys.path if p not in ('', cwd, trusted_root)]; "
+        f"trusted_root = os.path.realpath({trusted_root!r}); "
+        "cwd = os.path.realpath(os.getcwd()); "
+        "safe_path = []; "
+        "sep = os.path.sep; "
+        "trusted_prefix = trusted_root + sep; "
+        "cwd_prefix = cwd + sep; "
+        "for p in sys.path: "
+        "    if not p or not os.path.isabs(p): "
+        "        continue; "
+        "    rp = os.path.realpath(p); "
+        "    if rp == trusted_root or rp == cwd or rp.startswith(cwd_prefix): "
+        "        continue; "
+        "    safe_path.append(p); "
+        "sys.path = [trusted_root] + safe_path; "
         "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)"
     )
 
