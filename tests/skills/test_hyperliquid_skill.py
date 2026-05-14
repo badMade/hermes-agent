@@ -408,7 +408,7 @@ def test_main_export_json_skips_funding_for_spot(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.skipif(
-    not (hasattr(os, "O_NOFOLLOW") and os.open in os.supports_dir_fd),
+    not (hasattr(os, "O_NOFOLLOW") and os.open in os.supports_dir_fd and os.mkdir in os.supports_dir_fd),
     reason="Platform does not support dir_fd / O_NOFOLLOW (e.g. Windows)",
 )
 def test_export_rejects_parent_dir_symlink_toctou(tmp_path, monkeypatch):

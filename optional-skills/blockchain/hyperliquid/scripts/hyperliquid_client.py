@@ -842,9 +842,19 @@ def _write_json_file(path: Path, payload: Dict[str, Any]) -> Path:
 
     if not _supports_dir_fd:
         # Fallback for Windows / platforms without dir_fd.
+        # Still apply O_NOFOLLOW on the final component where available.
         output_path.parent.mkdir(parents=True, exist_ok=True)
         flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        fd = os.open(str(output_path), flags, 0o666)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            fd = os.open(str(output_path), flags, 0o666)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise SystemExit(
+                    f"Refusing to write export through symlink: {path}"
+                ) from exc
+            raise
         with os.fdopen(fd, "wb") as f:
             f.write(content)
         return output_path
