@@ -8,7 +8,7 @@ Bot PRs labeled `self-heal` bypass TDD + refactor-separation gates by specifying
 
 ## Setup & Behavior
 
-- **Self-Scheduling:** The bot analyzes merged PR activity (PR frequency) to compute its own run cadence.
+- **Self-Scheduling:** The bot analyzes repo telemetry (PR frequency, CI failure rate, commit distribution) to compute its own run cadence.
 - **Override:** You can manually edit the schedule in `.github/self-heal-schedule.yml`. If modified manually, the schedule is treated as an override.
 - **Marker:** The `.github/self-heal-schedule.yml` file contains an exact `# AUTO-UPDATED` marker on the schedule line, which must be preserved during mutation.
 

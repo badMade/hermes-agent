@@ -22,8 +22,8 @@ jobs:
             echo "Accepted via mechanical-repair body fields."
             echo "status=pass" >> $GITHUB_OUTPUT
           else
-            echo "PR is not a self-heal PR; skipping self-heal guard."
-            echo "status=skip" >> $GITHUB_OUTPUT
+            echo "PR does not meet self-heal criteria and no other guard conditions passed."
+            echo "status=fail" >> $GITHUB_OUTPUT
           fi
 
       - name: Fail if check failed

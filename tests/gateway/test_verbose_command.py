@@ -129,9 +129,7 @@ class TestVerboseCommand:
 
     @pytest.mark.asyncio
     async def test_defaults_to_all_when_no_tool_progress_set(self, tmp_path, monkeypatch):
-        """When tool_progress is not in config, Telegram's platform default
-        is 'new' (gateway.display_config._PLATFORM_DEFAULTS) so /verbose
-        cycles new -> all."""
+        """When tool_progress is not in config, defaults to 'all' then cycles to verbose."""
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
         config_path = hermes_home / "config.yaml"
@@ -145,9 +143,10 @@ class TestVerboseCommand:
         runner = _make_runner()
         result = await runner._handle_verbose_command(_make_event())
 
-        assert "ALL" in result
+        # Telegram default is "all" (high tier) → cycles to verbose
+        assert "VERBOSE" in result
         saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        assert saved["display"]["platforms"]["telegram"]["tool_progress"] == "all"
+        assert saved["display"]["platforms"]["telegram"]["tool_progress"] == "verbose"
 
     @pytest.mark.asyncio
     async def test_per_platform_isolation(self, tmp_path, monkeypatch):
@@ -179,8 +178,8 @@ class TestVerboseCommand:
 
         saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         platforms = saved["display"]["platforms"]
-        # Telegram: new -> all (telegram's platform default = "new")
-        assert platforms["telegram"]["tool_progress"] == "all"
+        # Telegram: all -> verbose (high tier default = all)
+        assert platforms["telegram"]["tool_progress"] == "verbose"
         # Slack: off -> new (first /verbose cycle from quiet default)
         assert platforms["slack"]["tool_progress"] == "new"
 

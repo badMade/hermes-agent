@@ -7,7 +7,7 @@ name = "hermes-agent"
 version = "0.13.0"
 description = "The self-improving AI agent — creates skills from experience, improves them during use, and runs anywhere"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11"
 authors = [{ name = "Nous Research" }]
 license = { text = "MIT" }
 dependencies = [
@@ -84,6 +84,7 @@ sms = ["aiohttp>=3.9.0,<4"]
 # to it, which is already provided by the `mcp` extra.
 computer-use = ["mcp>=1.2.0,<2"]
 acp = ["agent-client-protocol>=0.9.0,<1.0"]
+mistral = []
 bedrock = ["boto3>=1.35.0,<2"]
 termux = [
   # Baseline Android / Termux path for reliable fresh installs.
@@ -110,7 +111,8 @@ termux-all = [
   "hermes-agent[dingtalk]",
   "hermes-agent[feishu]",
   "hermes-agent[google]",
-    "hermes-agent[bedrock]",
+
+  "hermes-agent[bedrock]",
   "hermes-agent[homeassistant]",
   "hermes-agent[sms]",
   "hermes-agent[web]",
@@ -167,7 +169,8 @@ all = [
   "hermes-agent[dingtalk]",
   "hermes-agent[feishu]",
   "hermes-agent[google]",
-    "hermes-agent[bedrock]",
+
+  "hermes-agent[bedrock]",
   "hermes-agent[web]",
   "hermes-agent[youtube]",
 ]
