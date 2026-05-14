@@ -18,4 +18,4 @@ def test_container_entrypoint_repairs_user_or_group_mismatch():
     """Ownership repair should include group mismatches without touching mode bits."""
     source = MODULE_SOURCE.read_text()
 
-    assert '\\! -user "$HERMES_UID" -o \\! -group "$HERMES_GID"' in source
+    assert '\\( \\! -user "$HERMES_UID" -o \\! -group "$HERMES_GID" \\)' in source
