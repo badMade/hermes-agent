@@ -34,6 +34,7 @@ import re
 import traceback
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Set
 
 try:
@@ -45,7 +46,24 @@ try:
 except ImportError:
     DINGTALK_STREAM_AVAILABLE = False
     dingtalk_stream = None  # type: ignore[assignment]
-    ChatbotMessage = None  # type: ignore[assignment]
+    class _FallbackChatbotMessage(SimpleNamespace):
+        @classmethod
+        def from_dict(cls, data):
+            data = data if isinstance(data, dict) else {}
+            return cls(
+                session_webhook=data.get("sessionWebhook") or data.get("session_webhook") or "",
+                message_id=data.get("messageId") or data.get("msgId") or data.get("message_id") or "",
+                conversation_id=data.get("conversationId") or data.get("conversation_id") or "",
+                conversation_type=str(data.get("conversationType") or data.get("conversation_type") or "1"),
+                sender_id=data.get("senderId") or data.get("sender_id") or "",
+                sender_staff_id=data.get("senderStaffId") or data.get("sender_staff_id") or "",
+                sender_nick=data.get("senderNick") or data.get("sender_nick") or "",
+                text=data.get("text"),
+                rich_text=data.get("richText") or data.get("rich_text"),
+                is_in_at_list=bool(data.get("isInAtList") or data.get("is_in_at_list")),
+            )
+
+    ChatbotMessage = _FallbackChatbotMessage  # type: ignore[assignment]
     CallbackMessage = None  # type: ignore[assignment]
     AckMessage = type(
         "AckMessage",
@@ -79,13 +97,45 @@ try:
 
     CARD_SDK_AVAILABLE = True
 except ImportError:
+    class _FallbackSDKModel:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    _card_model_names = [
+        "CreateCardRequest",
+        "CreateCardRequestCardData",
+        "CreateCardRequestImGroupOpenSpaceModel",
+        "CreateCardRequestImRobotOpenSpaceModel",
+        "CreateCardHeaders",
+        "DeliverCardRequest",
+        "DeliverCardRequestImGroupOpenDeliverModel",
+        "DeliverCardRequestImRobotOpenDeliverModel",
+        "DeliverCardHeaders",
+        "StreamingUpdateRequest",
+        "StreamingUpdateHeaders",
+    ]
+    _robot_model_names = [
+        "RobotRecallEmotionRequestTextEmotion",
+        "RobotRecallEmotionRequest",
+        "RobotRecallEmotionHeaders",
+        "RobotReplyEmotionRequestTextEmotion",
+        "RobotReplyEmotionRequest",
+        "RobotReplyEmotionHeaders",
+        "RobotMessageFileDownloadRequest",
+        "RobotMessageFileDownloadHeaders",
+    ]
+
     CARD_SDK_AVAILABLE = False
     dingtalk_card_client = None
-    dingtalk_card_models = None
+    dingtalk_card_models = SimpleNamespace(
+        **{name: _FallbackSDKModel for name in _card_model_names}
+    )
     dingtalk_robot_client = None
-    dingtalk_robot_models = None
+    dingtalk_robot_models = SimpleNamespace(
+        **{name: _FallbackSDKModel for name in _robot_model_names}
+    )
     open_api_models = None
-    tea_util_models = None
+    tea_util_models = SimpleNamespace(RuntimeOptions=_FallbackSDKModel)
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.helpers import MessageDeduplicator
