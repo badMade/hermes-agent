@@ -41,9 +41,9 @@ def main() -> None:
     # Note: Healthcheck is run *after* repair steps in self-healing
     # We want to check if the overall repository is "healthy"
 
-    success &= run_cmd(["ruff", "check", "."], "ruff check", allow_failure=True)
-    success &= run_cmd(["mypy", "--strict", "."], "mypy", allow_failure=True)
-    success &= run_cmd(["pytest", "-q"], "pytest", allow_failure=True)
+    success &= run_cmd(["ruff", "check", "."], "ruff check")
+    success &= run_cmd(["mypy", "--strict", "."], "mypy")
+    success &= run_cmd(["pytest", "-q"], "pytest")
 
     # Check the scripts themselves strictly
     scripts_to_check = [
