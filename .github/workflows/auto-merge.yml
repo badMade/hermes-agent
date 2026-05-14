@@ -1,10 +1,11 @@
 name: Auto-merge
 
 on:
-  # Human-action triggers only — NOT synchronize/opened/reopened, so the
-  # job does not race CI and does not appear before other checks.
+  # synchronize/opened/reopened make Auto-merge VISIBLE in the PR's check
+  # list as a quick passing check (the script no-ops on these events).
+  # `labeled` and `pull_request_review` are the real evaluation triggers.
   pull_request:
-    types: [labeled]
+    types: [opened, synchronize, reopened, labeled]
   pull_request_review:
     types: [submitted]
   # CI-completion triggers: fire once per workflow finish so we get a
@@ -40,10 +41,12 @@ jobs:
     name: Auto-merge on review + passing checks
     runs-on: ubuntu-latest
     # Skip fork PRs; skip non-'reviewed' label events; prevent self-trigger loop.
+    # synchronize/opened/reopened are allowed through so the workflow appears
+    # in the PR's checks list; the script short-circuits on those events.
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.name != 'Auto-merge') ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.label.name == 'reviewed')
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'reviewed'))
     # No polling needed — workflow_run fires after CI finishes.
     timeout-minutes: 5
 
@@ -59,6 +62,22 @@ jobs:
             const repo  = context.repo.repo;
             const currentRunId = process.env.CURRENT_RUN_ID;
             const workflowRunUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            // ── Status-only first pass ─────────────────────────────────────────
+            // synchronize/opened/reopened just exist to make Auto-merge appear
+            // in the PR's checks list. Real evaluation happens on labeled,
+            // pull_request_review, or workflow_run events.
+            if (context.eventName === 'pull_request') {
+              const action = context.payload.action;
+              if (action === 'synchronize' || action === 'opened' || action === 'reopened') {
+                core.info(
+                  `Event '${action}' — deferring evaluation. The real merge ` +
+                  `decision runs on 'labeled' (reviewed), 'pull_request_review', ` +
+                  `or 'workflow_run' (after CI completes on the default branch).`
+                );
+                return;
+              }
+            }
 
             // ── Resolve PR number from event context ───────────────────────────
             // workflow_run doesn't have pull_request in the payload; find it
