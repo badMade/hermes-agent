@@ -7,7 +7,7 @@ on:
     types: [submitted]
 
 concurrency:
-  group: auto-merge-${{ github.event.pull_request.number }}
+  group: auto-merge-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -194,10 +194,11 @@ jobs:
             }
             const reviewList       = Object.values(latestByReviewer);
             const changesRequested = reviewList.filter(r => r.state === 'CHANGES_REQUESTED');
-            const reviewerNames    = reviewList.map(r => r.user.login);
-            const reviewerStats    = reviewList.length > 0
-              ? `${reviewList.length} reviewer(s): ${reviewerNames.join(', ')}`
-              : 'no reviewers yet';
+            const approvedReviews  = reviewList.filter(r => r.state === 'APPROVED');
+            const approvedNames    = approvedReviews.map(r => r.user.login);
+            const reviewerStats    = approvedReviews.length > 0
+              ? `${approvedReviews.length} approved review(s): ${approvedNames.join(', ')}`
+              : 'no approvals yet';
 
             // ── 8. Guard: CHANGES_REQUESTED blocks merge ───────────────────────
             if (changesRequested.length > 0) {
@@ -217,7 +218,10 @@ jobs:
             const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
               owner, repo, pull_number: prNumber,
             });
-            const reviewDetected   = allReviews.length > 0 || reviewComments.length > 0;
+            // Only APPROVED reviews qualify as review activity; exclude inline
+            // comments authored by the PR author themselves (self-review does not count).
+            const nonAuthorComments = reviewComments.filter(c => c.user.login !== freshPr.user.login);
+            const reviewDetected    = approvedReviews.length > 0 || nonAuthorComments.length > 0;
             const hasReviewedLabel = freshPr.labels.some(l => l.name === 'reviewed');
 
             core.info(`Review detected: ${reviewDetected} (${reviewerStats})`);
@@ -228,9 +232,9 @@ jobs:
               await upsertComment(
                 '<!-- auto-merge-pending-review -->',
                 `### Auto-merge: pending review\n\n` +
-                `All CI checks have passed, but no code review has been submitted yet.\n\n` +
-                `Auto-merge will proceed once a review is submitted **and** the ` +
-                `\`reviewed\` label is added to confirm acceptance.\n\n` +
+                `All CI checks have passed, but no qualifying review has been submitted yet.\n\n` +
+                `Auto-merge requires at least one **approved** review or an inline comment ` +
+                `from a reviewer other than the PR author, **and** the \`reviewed\` label.\n\n` +
                 `[View workflow run](${workflowRunUrl})`
               );
               return;
@@ -239,8 +243,8 @@ jobs:
             // ── 11. Guard: review exists but 'reviewed' label missing ──────────
             if (!hasReviewedLabel) {
               const parts = [
-                allReviews.length > 0  ? `${allReviews.length} review(s) (${reviewerStats})` : null,
-                reviewComments.length > 0 ? `${reviewComments.length} inline comment(s)` : null,
+                approvedReviews.length > 0    ? `${approvedReviews.length} approved review(s): ${approvedNames.join(', ')}` : null,
+                nonAuthorComments.length > 0  ? `${nonAuthorComments.length} inline comment(s) by non-author(s)` : null,
               ].filter(Boolean);
               await upsertComment(
                 '<!-- auto-merge-needs-label -->',
