@@ -34,7 +34,7 @@ permissions:
   pull-requests: write
   contents: write
   checks: read
-  statuses: read
+  statuses: write
 
 jobs:
   auto-merge:
@@ -63,17 +63,40 @@ jobs:
             const currentRunId = process.env.CURRENT_RUN_ID;
             const workflowRunUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
 
+            // ── Helper: post / update the visible `auto-merge` commit status ───
+            // This is the user-visible PENDING indicator that stays in the PR's
+            // checks list until evaluation reaches a terminal state. The status
+            // `context` value is stable so subsequent posts to the same SHA
+            // update the existing entry in-place.
+            const STATUS_CONTEXT = 'auto-merge';
+            async function setStatus(sha, state, description) {
+              try {
+                await github.rest.repos.createCommitStatus({
+                  owner, repo, sha,
+                  state,                  // pending | success | failure | error
+                  context: STATUS_CONTEXT,
+                  description: description.slice(0, 140),
+                  target_url: workflowRunUrl,
+                });
+              } catch (err) {
+                core.warning(`Failed to set commit status (${state}): ${err.message}`);
+              }
+            }
+
             // ── Status-only first pass ─────────────────────────────────────────
-            // synchronize/opened/reopened just exist to make Auto-merge appear
-            // in the PR's checks list. Real evaluation happens on labeled,
-            // pull_request_review, or workflow_run events.
+            // synchronize/opened/reopened post a PENDING status so something is
+            // visibly waiting in the PR's checks list. Real evaluation happens
+            // on labeled, pull_request_review, or workflow_run events.
             if (context.eventName === 'pull_request') {
               const action = context.payload.action;
               if (action === 'synchronize' || action === 'opened' || action === 'reopened') {
+                const sha = context.payload.pull_request.head.sha;
+                await setStatus(sha, 'pending',
+                  'Waiting for CI to finish and a qualifying review.');
                 core.info(
-                  `Event '${action}' — deferring evaluation. The real merge ` +
-                  `decision runs on 'labeled' (reviewed), 'pull_request_review', ` +
-                  `or 'workflow_run' (after CI completes on the default branch).`
+                  `Event '${action}' — posted pending status for ${sha.slice(0,7)}. ` +
+                  `Real evaluation triggers on 'labeled' (reviewed), ` +
+                  `'pull_request_review', or 'workflow_run'.`
                 );
                 return;
               }
@@ -164,6 +187,7 @@ jobs:
             // ── 3. Guard: no CI found ──────────────────────────────────────────
             if (externalRuns.length === 0) {
               core.warning('No external CI check runs found.');
+              await setStatus(headSha, 'pending', 'No CI checks detected yet.');
               await upsertComment(
                 '<!-- auto-merge-no-ci -->',
                 `### Auto-merge: no CI detected\n\n` +
@@ -182,6 +206,8 @@ jobs:
             const stillPending = externalRuns.filter(r => r.status !== 'completed');
             if (stillPending.length > 0) {
               core.info(`${stillPending.length} check(s) still pending.`);
+              await setStatus(headSha, 'pending',
+                `Waiting on ${stillPending.length} CI check(s) to finish.`);
               if (context.eventName === 'pull_request') {
                 // User just added the reviewed label — give them feedback.
                 await upsertComment(
@@ -201,6 +227,8 @@ jobs:
             const failing = externalRuns.filter(r => !acceptable.has(r.conclusion));
             if (failing.length > 0) {
               core.warning(`${failing.length} check(s) failing.`);
+              await setStatus(headSha, 'failure',
+                `${failing.length} CI check(s) failing.`);
               await upsertComment(
                 '<!-- auto-merge-fail -->',
                 `### Auto-merge: checks failing\n\n` +
@@ -249,6 +277,8 @@ jobs:
             if (changesRequested.length > 0) {
               const blockers = changesRequested.map(r => r.user.login).join(', ');
               core.warning(`Changes requested by: ${blockers}`);
+              await setStatus(headSha, 'failure',
+                `Changes requested by ${blockers}.`);
               await upsertComment(
                 '<!-- auto-merge-changes-requested -->',
                 `### Auto-merge: changes requested\n\n` +
@@ -272,6 +302,8 @@ jobs:
 
             // ── 10. Guard: no qualifying review yet ───────────────────────────
             if (!reviewDetected) {
+              await setStatus(headSha, 'pending',
+                'CI passed. Waiting for a qualifying review.');
               await upsertComment(
                 '<!-- auto-merge-pending-review -->',
                 `### Auto-merge: pending review\n\n` +
@@ -285,6 +317,8 @@ jobs:
 
             // ── 11. Guard: review exists but 'reviewed' label missing ──────────
             if (!hasReviewedLabel) {
+              await setStatus(headSha, 'pending',
+                'Review received. Add the `reviewed` label to proceed.');
               const parts = [
                 approvedReviews.length > 0   ? `${approvedReviews.length} approved review(s): ${approvedNames.join(', ')}` : null,
                 nonAuthorComments.length > 0 ? `${nonAuthorComments.length} inline comment(s) by non-author(s)` : null,
@@ -310,6 +344,8 @@ jobs:
             }
             if (mergeableState !== 'clean') {
               core.warning(`PR is not mergeable: mergeable_state = '${mergeableState}'`);
+              await setStatus(headSha, 'failure',
+                `PR not mergeable (state: ${mergeableState}).`);
               await upsertComment(
                 '<!-- auto-merge-not-mergeable -->',
                 `### Auto-merge: PR not mergeable\n\n` +
@@ -330,9 +366,11 @@ jobs:
                 merge_method: 'squash',
                 commit_title: `${freshPr.title} (#${prNumber})`,
               });
+              await setStatus(headSha, 'success', 'Auto-merged.');
               core.info(`PR #${prNumber} merged successfully.`);
             } catch (err) {
               core.error(`Merge failed: ${err.message}`);
+              await setStatus(headSha, 'error', `Merge failed: ${err.message}`);
               await upsertComment(
                 '<!-- auto-merge-error -->',
                 `### Auto-merge: merge failed\n\n` +
