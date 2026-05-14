@@ -329,7 +329,7 @@ DANGEROUS_PATTERNS = [
     # Wrapper for the same upstream remote installer used by the Computer
     # Use post-setup hook. Gate the benign-looking CLI command just like the
     # underlying curl-to-shell execution it triggers.
-    (r'\b(?:[\w./-]*hermes|python[0-9.]*\s+-m\s+hermes_cli\.main)\s+computer-use\s+install\b',
+    (r'\b(?:(?:(?:[\w.-]+|\.\.?)\/)*hermes|python[0-9.]*\s+-m\s+hermes_cli\.main)\s+computer-use\s+install\b',
      "computer-use installer executes remote shell script"),
     (rf'\btee\b.*["\']?{_SENSITIVE_WRITE_TARGET}', "overwrite system file via tee"),
     (rf'>>?\s*["\']?{_SENSITIVE_WRITE_TARGET}', "overwrite system file via redirection"),
