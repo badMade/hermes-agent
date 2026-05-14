@@ -892,9 +892,9 @@ class DingTalkAdapter(BasePlatformAdapter):
                 session_webhook, json=payload, timeout=15.0
             )
             status_code_raw = getattr(resp, "status_code", None)
-            try:
-                status_code = int(status_code_raw) if status_code_raw is not None else 500
-            except (TypeError, ValueError):
+            if isinstance(status_code_raw, int):
+                status_code = status_code_raw
+            else:
                 status_code = 500
             if status_code == 500 and status_code_raw not in (None, 500):
                 logger.debug(
