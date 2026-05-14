@@ -106,7 +106,7 @@ def test_bare_at_still_shows_static_refs(tmp_path, monkeypatch):
         assert expected in texts, f"missing static ref {expected!r} in {texts!r}"
 
 
-# ── Fuzzy basename matching ──────────────────────────────────────────────
+# ── Fuzzy basename matching ───────────────────────────────────────────────────────
 # Users shouldn't have to know the full path — typing `@appChrome` should
 # find `ui-tui/src/components/appChrome.tsx`.
 
@@ -248,6 +248,7 @@ def test_fuzzy_paths_relative_to_cwd_inside_subdir(tmp_path, monkeypatch):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=tmp_path, check=True)
 
     (tmp_path / "apps" / "web" / "src").mkdir(parents=True)
     (tmp_path / "apps" / "web" / "src" / "appChrome.tsx").write_text("x")
