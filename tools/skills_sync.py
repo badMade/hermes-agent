@@ -53,7 +53,7 @@ def _get_bundled_dir() -> Path:
     env_override = os.getenv("HERMES_BUNDLED_SKILLS")
     if env_override:
         return Path(env_override)
-    return Path(__file__).parent.parent / "skills"
+    return _REPO_ROOT / "skills"
 
 
 def _read_manifest() -> Dict[str, str]:
