@@ -1,9 +1,48 @@
 import pathlib
 import sqlite3
+import sys
 from unittest import mock
 
-import pytest
 
+class MockClass:
+    pass
+
+
+class MockAtroposlib:
+    class type_definitions:
+        Item = MockClass
+
+    class envs:
+        class base:
+            EvalHandlingEnum = MockClass
+            BaseEnv = MockClass
+            BaseEnvConfig = MockClass
+            ScoredDataGroup = MockClass
+            ScoredDataItem = MockClass
+
+        class server_handling:
+            class server_manager:
+                APIServerConfig = MockClass
+                ServerBaseline = MockClass
+                ServerManager = MockClass
+
+            class openai_server:
+                OpenAIServerConfig = MockClass
+
+
+sys.modules["atroposlib"] = MockAtroposlib
+sys.modules["atroposlib.envs"] = MockAtroposlib.envs
+sys.modules["atroposlib.envs.base"] = MockAtroposlib.envs.base
+sys.modules["atroposlib.envs.server_handling"] = MockAtroposlib.envs.server_handling
+sys.modules["atroposlib.envs.server_handling.server_manager"] = (
+    MockAtroposlib.envs.server_handling.server_manager
+)
+sys.modules["atroposlib.envs.server_handling.openai_server"] = (
+    MockAtroposlib.envs.server_handling.openai_server
+)
+sys.modules["atroposlib.type_definitions"] = MockAtroposlib.type_definitions
+
+import pytest
 from environments.benchmarks.yc_bench.yc_bench_env import _read_final_score
 
 
@@ -37,7 +76,11 @@ def test_db_read_error(tmp_path: pathlib.Path) -> None:
     assert result["terminal_reason"] == "db_error: Corrupted file"
 
 
-def create_mock_db(db_path: pathlib.Path | str, companies_rows: list[int] | None, sim_events_rows: list[tuple[str, float]] | None = None) -> None:
+def create_mock_db(
+    db_path: pathlib.Path | str,
+    companies_rows: list[int] | None,
+    sim_events_rows: list[tuple[str, float]] | None = None,
+) -> None:
     """Helper to create a temporary DB with given rows."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
