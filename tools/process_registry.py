@@ -585,8 +585,7 @@ class ProcessRegistry:
             try:
                 if not _IS_WINDOWS:
                     try:
-                        import signal
-                        os.killpg(os.getpgid(proc.pid), getattr(signal, 'SIGKILL', signal.SIGTERM)) # windows-footgun: ok
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # windows-footgun: ok — guarded by _IS_WINDOWS above
                     except (ProcessLookupError, PermissionError, OSError):
                         proc.kill()
                 else:
