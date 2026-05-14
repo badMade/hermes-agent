@@ -343,7 +343,15 @@ jobs:
               const { data: rePr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
               mergeableState = rePr.mergeable_state;
             }
-            if (mergeableState !== 'clean') {
+            // Accept 'unstable' in addition to 'clean'. Our own auto-merge
+            // commit status (non-required) may still be 'pending' from a prior
+            // polling run, which causes GitHub to report 'unstable' even though
+            // all real CI checks, reviews, and label conditions are satisfied.
+            // We have already verified each condition above, so merging under
+            // 'unstable' is safe. 'dirty', 'behind', 'blocked', 'has_hooks'
+            // remain blocking — those indicate real conflicts or unmet protections.
+            const mergeOk = mergeableState === 'clean' || mergeableState === 'unstable';
+            if (!mergeOk) {
               core.warning(`PR is not mergeable: mergeable_state = '${mergeableState}'`);
               await setStatus(headSha, 'failure',
                 `PR not mergeable (state: ${mergeableState}).`);
