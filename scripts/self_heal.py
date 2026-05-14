@@ -51,7 +51,7 @@ def check_health_and_diff(step_num: int) -> bool:
         return True
     if hc_passed and not has_diff:
         log_step(step_num, "", "no-op")
-        return False
+        import sys; sys.exit(0)
 
     # If healthcheck failed, log and continue
     reason = "healthcheck failed" if not hc_passed else "unknown failure"

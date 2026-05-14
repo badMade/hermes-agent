@@ -53,7 +53,39 @@ def get_pr_frequency() -> int:
         return 0
 
 
-def determine_tier(pr_count: int) -> str:
+def get_ci_failure_rate() -> float:
+    """Get the recent CI failure rate."""
+    out = run_gh_cmd([
+        "gh",
+        "run",
+        "list",
+        "--workflow=ci",
+        "--limit",
+        "100",
+        "--json",
+        "conclusion",
+    ])
+    if not out:
+        return 0.0
+    try:
+        runs = json.loads(out)
+        if not runs:
+            return 0.0
+        failures = sum(1 for r in runs if r.get("conclusion") == "failure")
+        return failures / len(runs)
+    except json.JSONDecodeError:
+        return 0.0
+
+
+def get_commit_distribution() -> float:
+    """Get a metric representing commit distribution."""
+    out = run_gh_cmd(["git", "log", "--since=7.days", "--format=%H"])
+    if not out:
+        return 0.0
+    return len(out.splitlines()) / 7.0
+
+
+def determine_tier(pr_count: int, failure_rate: float, commits_per_day: float) -> str:
     """Determine schedule tier based on PR activity.
 
     Args:
@@ -62,44 +94,45 @@ def determine_tier(pr_count: int) -> str:
     Returns:
         The cron schedule expression.
     """
-    if pr_count > 50:
+    score = pr_count + (failure_rate * 100) + commits_per_day
+    if score > 50:
         return "0 * * * *"  # high - hourly
-    elif pr_count > 20:
+    elif score > 20:
         return "0 */4 * * *"  # active - every 4 hours
-    elif pr_count > 5:
+    elif score > 5:
         return "0 0 * * *"  # standard - daily
-    elif pr_count > 0:
+    elif score > 0:
         return "0 0 * * 0"  # low-churn - weekly
     else:
         return "0 0 1 * *"  # dormant - monthly
 
 
 def update_schedule_file(new_schedule: str) -> None:
-    """Update the schedule file preserving the marker.
+    """Update the schedule files preserving the marker."""
+    for filename in [
+        ".github/self-heal-schedule.yml",
+        ".github/workflows/self-heal.yml",
+    ]:
+        file_path = Path(filename)
+        if not file_path.exists():
+            continue
 
-    Args:
-        new_schedule: The new cron expression.
-    """
-    file_path = Path(".github/self-heal-schedule.yml")
-    if not file_path.exists():
-        # Create it if it doesn't exist
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        content = f'schedule: "{new_schedule}"   # AUTO-UPDATED\n'
-        file_path.write_text(content, encoding="utf-8")
-        return
+        content = file_path.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        updated_lines = []
 
-    content = file_path.read_text(encoding="utf-8")
-    lines = content.splitlines()
-    updated_lines = []
+        for line in lines:
+            if "schedule:" in line and "AUTO-UPDATED" in line:
+                if ".github/self-heal-schedule.yml" in filename:
+                    updated_lines.append(f'schedule: "{new_schedule}"   # AUTO-UPDATED')
+                else:
+                    updated_lines.append(f"    - cron: '{new_schedule}' # AUTO-UPDATED")
+            elif "- cron:" in line and "AUTO-UPDATED" in line:
+                updated_lines.append(f"    - cron: '{new_schedule}' # AUTO-UPDATED")
+            else:
+                updated_lines.append(line)
 
-    for line in lines:
-        if "schedule:" in line and "# AUTO-UPDATED" in line:
-            # Replace the schedule expression but keep the marker
-            updated_lines.append(f'schedule: "{new_schedule}"   # AUTO-UPDATED')
-        else:
-            updated_lines.append(line)
-
-    file_path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+        file_path.write_text(chr(10).join(updated_lines) + chr(10), encoding="utf-8")
 
 
 def main() -> None:
@@ -126,8 +159,10 @@ def main() -> None:
             pass
 
     pr_count = get_pr_frequency()
-    new_schedule = determine_tier(pr_count)
-    print(f"Computed new schedule based on {pr_count} PRs: {new_schedule}")
+    failure_rate = get_ci_failure_rate()
+    commits_per_day = get_commit_distribution()
+    new_schedule = determine_tier(pr_count, failure_rate, commits_per_day)
+    print(f"Computed new schedule: {new_schedule}")
 
     update_schedule_file(new_schedule)
 

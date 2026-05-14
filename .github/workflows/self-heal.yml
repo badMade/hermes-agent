@@ -74,7 +74,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -am "Mechanical repair"
           # Disable real push for local execution
-          # git push origin "$branch_name"
+          git push origin "$branch_name"
 
           # Render PR body for COMPAT mode
           title="[AI-Assisted] [Self-Heal Reactive] CI fix"
@@ -115,4 +115,4 @@ jobs:
           BODY_EOF
           )
 
-          # gh pr create --title "$title" --body "$body" --label "automation,self-heal"
+          gh pr create --title "$title" --body "$body" --label "automation,self-heal"
