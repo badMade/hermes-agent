@@ -65,10 +65,13 @@ def _copy_message_for_cache_marking(message: Dict[str, Any]) -> Dict[str, Any]:
     """
     copied = message.copy()
     content = copied.get("content")
+    tools = copied.get("tools")
     if isinstance(content, list):
         copied["content"] = [part.copy() if isinstance(part, dict) else part for part in content]
     elif isinstance(content, dict):
         copied["content"] = content.copy()
+    if isinstance(tools, list):
+        copied["tools"] = [tool.copy() if isinstance(tool, dict) else tool for tool in tools]
     return copied
 
 
