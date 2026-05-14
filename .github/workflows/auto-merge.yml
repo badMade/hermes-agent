@@ -86,20 +86,21 @@ jobs:
             let pollComplete = false;
 
             while (Date.now() < deadline) {
-              const checkSuites = await github.paginate(
-                github.rest.checks.listSuitesForRef,
-                { owner, repo, ref: initialSha },
-                response => response.data.check_suites
-              );
+              // Use direct per_page:100 calls — the nested response keys
+              // (check_suites / check_runs) are incompatible with the
+              // paginate mapFn in some Octokit versions and a PR will
+              // never have >100 suites or >100 runs per suite.
+              const { data: suitesData } = await github.rest.checks.listSuitesForRef({
+                owner, repo, ref: initialSha, per_page: 100,
+              });
+              const checkSuites = suitesData.check_suites;
 
               let runs = [];
               for (const suite of checkSuites) {
-                const suiteRuns = await github.paginate(
-                  github.rest.checks.listForSuite,
-                  { owner, repo, check_suite_id: suite.id },
-                  response => response.data.check_runs
-                );
-                runs = runs.concat(suiteRuns);
+                const { data: runsData } = await github.rest.checks.listForSuite({
+                  owner, repo, check_suite_id: suite.id, per_page: 100,
+                });
+                runs = runs.concat(runsData.check_runs);
               }
 
               // Filter out this workflow's own check run by matching the
