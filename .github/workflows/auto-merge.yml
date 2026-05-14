@@ -3,6 +3,12 @@ name: Auto-merge
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   pull-requests: write
@@ -14,31 +20,30 @@ jobs:
   auto-merge:
     name: Auto-merge on review + passing checks
     runs-on: ubuntu-latest
-    # Skip fork PRs — they lack write permissions to repo secrets/tokens
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Skip fork PRs (no write-token access).
+    # Skip label events that aren't the 'reviewed' label to avoid burning
+    # 10+ min of Actions time on every unrelated label addition.
+    if: github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'reviewed')
     timeout-minutes: 20
 
     steps:
-      - name: Wait for CI to initialize (5 min)
-        run: sleep 300
-
-      - name: Wait for CI checks to complete (5 min)
-        run: sleep 300
-
       - name: Evaluate checks, reviews, and merge
         uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9
+        env:
+          CURRENT_RUN_ID: ${{ github.run_id }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
             const prNumber = context.payload.pull_request.number;
+            const currentRunId = process.env.CURRENT_RUN_ID;
             const workflowRunUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
 
-            // ── Helper: post or update a marker comment ──────────────────────
+            // ── Helper: post or update a marker comment ────────────────────────
             async function upsertComment(marker, body) {
               const fullBody = `${marker}\n${body}`;
-              const { data: comments } = await github.rest.issues.listComments({
+              const comments = await github.paginate(github.rest.issues.listComments, {
                 owner, repo, issue_number: prNumber,
               });
               const existing = comments.find(c => c.body && c.body.includes(marker));
@@ -53,7 +58,7 @@ jobs:
               }
             }
 
-            // ── 1. Verify PR is still open ────────────────────────────────────
+            // ── 1. Verify PR is still open ─────────────────────────────────────
             const { data: pr } = await github.rest.pulls.get({
               owner, repo, pull_number: prNumber,
             });
@@ -62,101 +67,107 @@ jobs:
               return;
             }
 
-            // ── 2. Check for 'reviewed' label ─────────────────────────────────
-            const labels = pr.labels.map(l => l.name);
-            const hasReviewedLabel = labels.includes('reviewed');
+            const initialSha = pr.head.sha;
 
-            // ── 3. Collect PR reviews ─────────────────────────────────────────
-            const { data: reviews } = await github.rest.pulls.listReviews({
-              owner, repo, pull_number: prNumber,
-            });
-            // Keep the latest state per reviewer
-            const latestByReviewer = {};
-            for (const review of reviews) {
-              latestByReviewer[review.user.login] = review;
-            }
-            const reviewList = Object.values(latestByReviewer);
-            const approvals = reviewList.filter(r => r.state === 'APPROVED');
-            const changesRequested = reviewList.filter(r => r.state === 'CHANGES_REQUESTED');
+            // ── 2. Poll for CI checks to complete (up to 10 min) ──────────────
+            // Brief initial delay to let GitHub register new check runs, then
+            // poll every 30s rather than sleeping a fixed 10 minutes.
+            const MAX_WAIT_MS   = 10 * 60 * 1000;
+            const POLL_INTERVAL = 30 * 1000;
+            const deadline = Date.now() + MAX_WAIT_MS;
 
-            // ── 4. Collect review comments ────────────────────────────────────
-            const { data: reviewComments } = await github.rest.pulls.listReviewComments({
-              owner, repo, pull_number: prNumber,
-            });
-            const hasReviewComments = reviewComments.length > 0;
+            await new Promise(r => setTimeout(r, 30_000));
 
-            // AI review is considered detected when there are formal reviews or
-            // inline review comments on the PR.
-            const reviewDetected = reviews.length > 0 || hasReviewComments;
+            let externalRuns = [];
+            let pollComplete = false;
 
-            const reviewerNames = reviewList.map(r => r.user.login);
-            const reviewerStats = reviewList.length > 0
-              ? `${reviewList.length} reviewer(s): ${reviewerNames.join(', ')}`
-              : 'no reviewers yet';
+            while (Date.now() < deadline) {
+              const checkSuites = await github.paginate(
+                github.rest.checks.listSuitesForRef,
+                { owner, repo, ref: initialSha },
+                response => response.data.check_suites
+              );
 
-            core.info(`Review detected: ${reviewDetected} (${reviewerStats})`);
-            core.info(`'reviewed' label present: ${hasReviewedLabel}`);
+              let runs = [];
+              for (const suite of checkSuites) {
+                const suiteRuns = await github.paginate(
+                  github.rest.checks.listForSuite,
+                  { owner, repo, check_suite_id: suite.id },
+                  response => response.data.check_runs
+                );
+                runs = runs.concat(suiteRuns);
+              }
 
-            // ── 5. Gather CI check runs ───────────────────────────────────────
-            // 1-min delay so GitHub has fully recorded latest check state
-            await new Promise(r => setTimeout(r, 60_000));
-
-            const { data: checkSuites } = await github.rest.checks.listSuitesForRef({
-              owner, repo, ref: pr.head.sha,
-            });
-            core.info(`Check suites found: ${checkSuites.check_suites.length}`);
-
-            let allCheckRuns = [];
-            for (const suite of checkSuites.check_suites) {
-              const { data: runs } = await github.rest.checks.listForSuite({
-                owner, repo, check_suite_id: suite.id,
+              // Filter out this workflow's own check run by matching the
+              // current run ID in the details URL rather than a fragile name
+              // string comparison.
+              externalRuns = runs.filter(run => {
+                const url = run.details_url || run.html_url || '';
+                return !url.includes(`/runs/${currentRunId}`);
               });
-              allCheckRuns = allCheckRuns.concat(runs.check_runs);
+
+              const pending = externalRuns.filter(r => r.status !== 'completed');
+              core.info(`Checks: ${externalRuns.length} external, ${pending.length} pending`);
+
+              if (pending.length === 0) {
+                pollComplete = true;
+                break;
+              }
+
+              if (Date.now() + POLL_INTERVAL >= deadline) break;
+              await new Promise(r => setTimeout(r, POLL_INTERVAL));
             }
 
-            // Filter out this workflow's own check run to avoid self-blocking
-            const externalRuns = allCheckRuns.filter(
-              run => run.name !== 'Auto-merge on review + passing checks'
-            );
-
-            core.info(`External check runs: ${externalRuns.length}`);
-            for (const run of externalRuns) {
-              core.info(`  ${run.name}: status=${run.status} conclusion=${run.conclusion}`);
+            // ── 3. Re-fetch PR and verify SHA hasn't changed during the wait ───
+            // A push during the ~10-min window would mean we validated CI for
+            // the old commit — abort to avoid merging unreviewed/untested code.
+            const { data: freshPr } = await github.rest.pulls.get({
+              owner, repo, pull_number: prNumber,
+            });
+            if (freshPr.state !== 'open') {
+              core.info(`PR #${prNumber} is now ${freshPr.state} — skipping.`);
+              return;
+            }
+            if (freshPr.head.sha !== initialSha) {
+              core.info(
+                `Head SHA changed during wait ` +
+                `(${initialSha.slice(0,7)} → ${freshPr.head.sha.slice(0,7)}) — ` +
+                `aborting to avoid merging unreviewed code.`
+              );
+              return;
             }
 
+            // ── 4. Guard: no CI found ──────────────────────────────────────────
             if (externalRuns.length === 0) {
-              core.warning('No CI check runs found for this PR.');
+              core.warning('No external CI check runs found for this PR.');
               await upsertComment(
                 '<!-- auto-merge-no-ci -->',
                 `### Auto-merge: no CI detected\n\n` +
-                `No CI check runs were found for commit \`${pr.head.sha.slice(0,7)}\`.\n` +
+                `No CI check runs were found for commit \`${initialSha.slice(0,7)}\`.\n` +
                 `Auto-merge will not proceed until CI is configured and running.\n\n` +
                 `[View workflow run](${workflowRunUrl})`
               );
               return;
             }
 
-            // ── 6. Validate check conclusions ────────────────────────────────
-            const acceptable = new Set(['success', 'skipped', 'neutral']);
-            const failing = externalRuns.filter(
-              run => run.status === 'completed' && !acceptable.has(run.conclusion)
-            );
-            const pending = externalRuns.filter(run => run.status !== 'completed');
-
-            if (pending.length > 0) {
-              core.warning(`${pending.length} check(s) still pending.`);
-              const pendingNames = pending.map(r => r.name).join(', ');
+            // ── 5. Guard: checks still pending after polling timeout ───────────
+            const stillPending = externalRuns.filter(r => r.status !== 'completed');
+            if (!pollComplete || stillPending.length > 0) {
+              core.warning(`${stillPending.length} check(s) still pending after timeout.`);
               await upsertComment(
                 '<!-- auto-merge-pending -->',
                 `### Auto-merge: checks still pending\n\n` +
-                `The following checks have not completed yet:\n` +
-                pending.map(r => `- \`${r.name}\``).join('\n') + '\n\n' +
-                `Auto-merge will not proceed until all checks finish.\n\n` +
+                `The following checks have not completed after 10 minutes:\n` +
+                stillPending.map(r => `- \`${r.name}\``).join('\n') + '\n\n' +
+                `Push a new commit or re-apply the \`reviewed\` label to trigger re-evaluation.\n\n` +
                 `[View workflow run](${workflowRunUrl})`
               );
               return;
             }
 
+            // ── 6. Guard: failing checks ───────────────────────────────────────
+            const acceptable = new Set(['success', 'skipped', 'neutral']);
+            const failing = externalRuns.filter(r => !acceptable.has(r.conclusion));
             if (failing.length > 0) {
               core.warning(`${failing.length} check(s) failing.`);
               await upsertComment(
@@ -169,12 +180,50 @@ jobs:
               );
               return;
             }
-
             core.info('All CI checks passed/skipped/neutral.');
 
-            // ── 7. Review gate ───────────────────────────────────────────────
+            // ── 7. Collect reviews ─────────────────────────────────────────────
+            const allReviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner, repo, pull_number: prNumber,
+            });
+            // Keep the latest state per reviewer
+            const latestByReviewer = {};
+            for (const review of allReviews) {
+              latestByReviewer[review.user.login] = review;
+            }
+            const reviewList       = Object.values(latestByReviewer);
+            const changesRequested = reviewList.filter(r => r.state === 'CHANGES_REQUESTED');
+            const reviewerNames    = reviewList.map(r => r.user.login);
+            const reviewerStats    = reviewList.length > 0
+              ? `${reviewList.length} reviewer(s): ${reviewerNames.join(', ')}`
+              : 'no reviewers yet';
+
+            // ── 8. Guard: CHANGES_REQUESTED blocks merge ───────────────────────
+            if (changesRequested.length > 0) {
+              const blockers = changesRequested.map(r => r.user.login).join(', ');
+              core.warning(`Changes requested by: ${blockers}`);
+              await upsertComment(
+                '<!-- auto-merge-changes-requested -->',
+                `### Auto-merge: changes requested\n\n` +
+                `The following reviewer(s) have requested changes: **${blockers}**.\n\n` +
+                `Auto-merge is blocked until all change requests are resolved or dismissed.\n\n` +
+                `[View workflow run](${workflowRunUrl})`
+              );
+              return;
+            }
+
+            // ── 9. Collect review comments ─────────────────────────────────────
+            const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
+              owner, repo, pull_number: prNumber,
+            });
+            const reviewDetected   = allReviews.length > 0 || reviewComments.length > 0;
+            const hasReviewedLabel = freshPr.labels.some(l => l.name === 'reviewed');
+
+            core.info(`Review detected: ${reviewDetected} (${reviewerStats})`);
+            core.info(`'reviewed' label: ${hasReviewedLabel}`);
+
+            // ── 10. Guard: no review activity yet ─────────────────────────────
             if (!reviewDetected) {
-              core.info('No reviews detected yet — waiting for feedback.');
               await upsertComment(
                 '<!-- auto-merge-pending-review -->',
                 `### Auto-merge: pending review\n\n` +
@@ -186,20 +235,16 @@ jobs:
               return;
             }
 
-            if (reviewDetected && !hasReviewedLabel) {
-              const commentSummary = hasReviewComments
-                ? `${reviewComments.length} review comment(s) have been posted`
-                : '';
-              const reviewSummary = reviews.length > 0
-                ? `${reviews.length} review(s) submitted (${reviewerStats})`
-                : '';
-              const activity = [reviewSummary, commentSummary].filter(Boolean).join('; ');
-
-              core.info('Review activity detected but "reviewed" label missing.');
+            // ── 11. Guard: review exists but 'reviewed' label missing ──────────
+            if (!hasReviewedLabel) {
+              const parts = [
+                allReviews.length > 0  ? `${allReviews.length} review(s) (${reviewerStats})` : null,
+                reviewComments.length > 0 ? `${reviewComments.length} inline comment(s)` : null,
+              ].filter(Boolean);
               await upsertComment(
                 '<!-- auto-merge-needs-label -->',
                 `### Auto-merge: review received — action required\n\n` +
-                `Review activity detected (${activity}).\n\n` +
+                `Review activity detected (${parts.join('; ')}).\n\n` +
                 `To confirm you have reviewed and accepted the feedback, please add the ` +
                 `\`reviewed\` label to this PR. Auto-merge will then proceed.\n\n` +
                 `[View workflow run](${workflowRunUrl})`
@@ -207,29 +252,39 @@ jobs:
               return;
             }
 
-            // ── 8. All conditions met — attempt squash merge ─────────────────
-            core.info('All conditions met. Waiting 1 min for GitHub state consistency…');
-            await new Promise(r => setTimeout(r, 60_000));
-
-            // Re-check PR is still open after the delay
-            const { data: freshPr } = await github.rest.pulls.get({
-              owner, repo, pull_number: prNumber,
-            });
-            if (freshPr.state !== 'open') {
-              core.info(`PR #${prNumber} is now ${freshPr.state} — skipping merge.`);
+            // ── 12. Verify PR is mergeable ─────────────────────────────────────
+            // GitHub may return 'unknown' while it computes mergeability; retry
+            // a few times before giving up.
+            let mergeableState = freshPr.mergeable_state;
+            for (let attempt = 0; attempt < 3 && mergeableState === 'unknown'; attempt++) {
+              core.info(`mergeable_state is 'unknown', retrying in 15s…`);
+              await new Promise(r => setTimeout(r, 15_000));
+              const { data: rePr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+              mergeableState = rePr.mergeable_state;
+            }
+            if (mergeableState !== 'clean') {
+              core.warning(`PR is not mergeable: mergeable_state = '${mergeableState}'`);
+              await upsertComment(
+                '<!-- auto-merge-not-mergeable -->',
+                `### Auto-merge: PR not mergeable\n\n` +
+                `The PR cannot be merged in its current state (\`mergeable_state: ${mergeableState}\`).\n\n` +
+                `Common causes: merge conflicts, outdated branch, or unsatisfied branch-protection rules.\n\n` +
+                `[View workflow run](${workflowRunUrl})`
+              );
               return;
             }
 
+            // ── 13. All conditions met — squash merge ──────────────────────────
+            core.info(`All conditions met. Squash-merging PR #${prNumber}…`);
             try {
               await github.rest.pulls.merge({
                 owner,
                 repo,
                 pull_number: prNumber,
                 merge_method: 'squash',
-                commit_title: `${pr.title} (#${prNumber})`,
-                commit_message: pr.body || '',
+                commit_title: `${freshPr.title} (#${prNumber})`,
               });
-              core.info(`PR #${prNumber} merged successfully via squash.`);
+              core.info(`PR #${prNumber} merged successfully.`);
             } catch (err) {
               core.error(`Merge failed: ${err.message}`);
               await upsertComment(
