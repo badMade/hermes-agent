@@ -67,6 +67,7 @@ class TestSystemdServiceRefresh:
 
         monkeypatch.setattr(gateway_cli, "get_systemd_unit_path", lambda system=False: unit_path)
         monkeypatch.setattr(gateway_cli, "generate_systemd_unit", lambda system=False, run_as_user=None: "new unit\n")
+        monkeypatch.setattr(gateway_cli, "_preflight_user_systemd", lambda **kwargs: None)
 
         calls = []
 
@@ -90,6 +91,7 @@ class TestSystemdServiceRefresh:
 
         monkeypatch.setattr(gateway_cli, "get_systemd_unit_path", lambda system=False: unit_path)
         monkeypatch.setattr(gateway_cli, "generate_systemd_unit", lambda system=False, run_as_user=None: "new unit\n")
+        monkeypatch.setattr(gateway_cli, "_preflight_user_systemd", lambda **kwargs: None)
 
         calls = []
         monkeypatch.setattr("gateway.status.get_running_pid", lambda: None)
@@ -381,6 +383,11 @@ class TestGeneratedSystemdUnits:
             gateway_cli,
             "_get_restart_drain_timeout",
             lambda: DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT,
+        )
+        monkeypatch.setattr(
+            gateway_cli,
+            "_system_service_identity",
+            lambda run_as_user=None: ("test_user", "test_group", "/home/test_user"),
         )
         unit = gateway_cli.generate_systemd_unit(system=True)
 
@@ -741,6 +748,7 @@ class TestGatewaySystemServiceRouting:
         calls = []
 
         monkeypatch.setattr(gateway_cli, "_select_systemd_scope", lambda system=False: False)
+        monkeypatch.setattr(gateway_cli, "_preflight_user_systemd", lambda **kwargs: None)
         monkeypatch.setattr(gateway_cli, "_require_service_installed", lambda action, system=False: None)
         monkeypatch.setattr(gateway_cli, "refresh_systemd_unit_if_needed", lambda system=False: calls.append(("refresh", system)))
         monkeypatch.setattr(gateway_cli, "_get_restart_drain_timeout", lambda: 12.0)
@@ -786,6 +794,7 @@ class TestGatewaySystemServiceRouting:
         calls = []
 
         monkeypatch.setattr(gateway_cli, "_select_systemd_scope", lambda system=False: False)
+        monkeypatch.setattr(gateway_cli, "_preflight_user_systemd", lambda **kwargs: None)
         monkeypatch.setattr(gateway_cli, "_require_service_installed", lambda action, system=False: None)
         monkeypatch.setattr(gateway_cli, "refresh_systemd_unit_if_needed", lambda system=False: None)
         monkeypatch.setattr(gateway_cli, "_get_restart_drain_timeout", lambda: 10.0)
@@ -845,6 +854,7 @@ class TestGatewaySystemServiceRouting:
         calls = []
 
         monkeypatch.setattr(gateway_cli, "_select_systemd_scope", lambda system=False: False)
+        monkeypatch.setattr(gateway_cli, "_preflight_user_systemd", lambda **kwargs: None)
         monkeypatch.setattr(gateway_cli, "_require_service_installed", lambda action, system=False: None)
         monkeypatch.setattr(gateway_cli, "refresh_systemd_unit_if_needed", lambda system=False: None)
         monkeypatch.setattr("gateway.status.get_running_pid", lambda: None)
@@ -875,6 +885,7 @@ class TestGatewaySystemServiceRouting:
 
     def test_systemd_restart_recovers_failed_planned_restart(self, monkeypatch, capsys):
         monkeypatch.setattr(gateway_cli, "_select_systemd_scope", lambda system=False: False)
+        monkeypatch.setattr(gateway_cli, "_preflight_user_systemd", lambda **kwargs: None)
         monkeypatch.setattr(gateway_cli, "_require_service_installed", lambda action, system=False: None)
         monkeypatch.setattr(gateway_cli, "refresh_systemd_unit_if_needed", lambda system=False: None)
         monkeypatch.setattr(
@@ -1328,6 +1339,11 @@ class TestGeneratedUnitIncludesLocalBin:
             gateway_cli,
             "_build_user_local_paths",
             lambda home_path, existing: [str(home_path / ".local" / "bin")],
+        )
+        monkeypatch.setattr(
+            gateway_cli,
+            "_system_service_identity",
+            lambda run_as_user=None: ("test_user", "test_group", "/home/test_user"),
         )
         unit = gateway_cli.generate_systemd_unit(system=True)
         # System unit uses the resolved home dir from _system_service_identity
