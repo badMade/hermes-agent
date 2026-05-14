@@ -1,12 +1,10 @@
 name: Auto-merge
 
 on:
-  # PR lifecycle triggers: makes the workflow appear in the checks list
-  # and re-evaluates on every push. With the single-pass design (no
-  # polling) these exit in seconds when CI is still running, so they
-  # don't waste runner time.
+  # Human-action triggers only — NOT synchronize/opened/reopened, so the
+  # job does not race CI and does not appear before other checks.
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [labeled]
   pull_request_review:
     types: [submitted]
   # CI-completion triggers: fire once per workflow finish so we get a
@@ -41,11 +39,11 @@ jobs:
   auto-merge:
     name: Auto-merge on review + passing checks
     runs-on: ubuntu-latest
-    # Skip fork PRs and unrelated label events; prevent auto-merge triggering itself.
+    # Skip fork PRs; skip non-'reviewed' label events; prevent self-trigger loop.
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.name != 'Auto-merge') ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'reviewed'))
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.label.name == 'reviewed')
     # No polling needed — workflow_run fires after CI finishes.
     timeout-minutes: 5
 
