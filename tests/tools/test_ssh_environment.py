@@ -46,6 +46,8 @@ class TestBuildSSHCommand:
                                                       stderr=iter([]),
                                                       stdin=MagicMock()))
         monkeypatch.setattr("tools.environments.base.time.sleep", lambda _: None)
+        monkeypatch.setattr("tools.environments.ssh.FileSyncManager",
+                            lambda **kw: MagicMock(sync=lambda force=False: None))
 
     def test_base_flags(self):
         env = SSHEnvironment(host="h", user="u")
@@ -90,6 +92,8 @@ class TestControlSocketPath:
                                                       stderr=iter([]),
                                                       stdin=MagicMock()))
         monkeypatch.setattr("tools.environments.base.time.sleep", lambda _: None)
+        monkeypatch.setattr("tools.environments.ssh.FileSyncManager",
+                            lambda **kw: MagicMock(sync=lambda force=False: None))
 
     # SSH appends ``.XXXXXXXXXXXXXXXX`` (17 bytes) to the ControlPath in
     # ControlMaster mode; the macOS sun_path field is 104 bytes including
