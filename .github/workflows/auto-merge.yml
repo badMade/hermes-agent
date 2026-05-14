@@ -16,10 +16,6 @@ permissions:
   checks: read
   statuses: read
 
-concurrency:
-  group: auto-merge-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   auto-merge:
     name: Auto-merge on review + passing checks
