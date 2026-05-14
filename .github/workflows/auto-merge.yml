@@ -1,0 +1,244 @@
+name: Auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  pull-requests: write
+  contents: write
+  checks: read
+  statuses: read
+
+jobs:
+  auto-merge:
+    name: Auto-merge on review + passing checks
+    runs-on: ubuntu-latest
+    # Skip fork PRs — they lack write permissions to repo secrets/tokens
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 20
+
+    steps:
+      - name: Wait for CI to initialize (5 min)
+        run: sleep 300
+
+      - name: Wait for CI checks to complete (5 min)
+        run: sleep 300
+
+      - name: Evaluate checks, reviews, and merge
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+            const prNumber = context.payload.pull_request.number;
+            const workflowRunUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            // ── Helper: post or update a marker comment ──────────────────────
+            async function upsertComment(marker, body) {
+              const fullBody = `${marker}\n${body}`;
+              const { data: comments } = await github.rest.issues.listComments({
+                owner, repo, issue_number: prNumber,
+              });
+              const existing = comments.find(c => c.body && c.body.includes(marker));
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner, repo, comment_id: existing.id, body: fullBody,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: prNumber, body: fullBody,
+                });
+              }
+            }
+
+            // ── 1. Verify PR is still open ────────────────────────────────────
+            const { data: pr } = await github.rest.pulls.get({
+              owner, repo, pull_number: prNumber,
+            });
+            if (pr.state !== 'open') {
+              core.info(`PR #${prNumber} is ${pr.state} — nothing to do.`);
+              return;
+            }
+
+            // ── 2. Check for 'reviewed' label ─────────────────────────────────
+            const labels = pr.labels.map(l => l.name);
+            const hasReviewedLabel = labels.includes('reviewed');
+
+            // ── 3. Collect PR reviews ─────────────────────────────────────────
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner, repo, pull_number: prNumber,
+            });
+            // Keep the latest state per reviewer
+            const latestByReviewer = {};
+            for (const review of reviews) {
+              latestByReviewer[review.user.login] = review;
+            }
+            const reviewList = Object.values(latestByReviewer);
+            const approvals = reviewList.filter(r => r.state === 'APPROVED');
+            const changesRequested = reviewList.filter(r => r.state === 'CHANGES_REQUESTED');
+
+            // ── 4. Collect review comments ────────────────────────────────────
+            const { data: reviewComments } = await github.rest.pulls.listReviewComments({
+              owner, repo, pull_number: prNumber,
+            });
+            const hasReviewComments = reviewComments.length > 0;
+
+            // AI review is considered detected when there are formal reviews or
+            // inline review comments on the PR.
+            const reviewDetected = reviews.length > 0 || hasReviewComments;
+
+            const reviewerNames = reviewList.map(r => r.user.login);
+            const reviewerStats = reviewList.length > 0
+              ? `${reviewList.length} reviewer(s): ${reviewerNames.join(', ')}`
+              : 'no reviewers yet';
+
+            core.info(`Review detected: ${reviewDetected} (${reviewerStats})`);
+            core.info(`'reviewed' label present: ${hasReviewedLabel}`);
+
+            // ── 5. Gather CI check runs ───────────────────────────────────────
+            // 1-min delay so GitHub has fully recorded latest check state
+            await new Promise(r => setTimeout(r, 60_000));
+
+            const { data: checkSuites } = await github.rest.checks.listSuitesForRef({
+              owner, repo, ref: pr.head.sha,
+            });
+            core.info(`Check suites found: ${checkSuites.check_suites.length}`);
+
+            let allCheckRuns = [];
+            for (const suite of checkSuites.check_suites) {
+              const { data: runs } = await github.rest.checks.listForSuite({
+                owner, repo, check_suite_id: suite.id,
+              });
+              allCheckRuns = allCheckRuns.concat(runs.check_runs);
+            }
+
+            // Filter out this workflow's own check run to avoid self-blocking
+            const externalRuns = allCheckRuns.filter(
+              run => run.name !== 'Auto-merge on review + passing checks'
+            );
+
+            core.info(`External check runs: ${externalRuns.length}`);
+            for (const run of externalRuns) {
+              core.info(`  ${run.name}: status=${run.status} conclusion=${run.conclusion}`);
+            }
+
+            if (externalRuns.length === 0) {
+              core.warning('No CI check runs found for this PR.');
+              await upsertComment(
+                '<!-- auto-merge-no-ci -->',
+                `### Auto-merge: no CI detected\n\n` +
+                `No CI check runs were found for commit \`${pr.head.sha.slice(0,7)}\`.\n` +
+                `Auto-merge will not proceed until CI is configured and running.\n\n` +
+                `[View workflow run](${workflowRunUrl})`
+              );
+              return;
+            }
+
+            // ── 6. Validate check conclusions ────────────────────────────────
+            const acceptable = new Set(['success', 'skipped', 'neutral']);
+            const failing = externalRuns.filter(
+              run => run.status === 'completed' && !acceptable.has(run.conclusion)
+            );
+            const pending = externalRuns.filter(run => run.status !== 'completed');
+
+            if (pending.length > 0) {
+              core.warning(`${pending.length} check(s) still pending.`);
+              const pendingNames = pending.map(r => r.name).join(', ');
+              await upsertComment(
+                '<!-- auto-merge-pending -->',
+                `### Auto-merge: checks still pending\n\n` +
+                `The following checks have not completed yet:\n` +
+                pending.map(r => `- \`${r.name}\``).join('\n') + '\n\n' +
+                `Auto-merge will not proceed until all checks finish.\n\n` +
+                `[View workflow run](${workflowRunUrl})`
+              );
+              return;
+            }
+
+            if (failing.length > 0) {
+              core.warning(`${failing.length} check(s) failing.`);
+              await upsertComment(
+                '<!-- auto-merge-fail -->',
+                `### Auto-merge: checks failing\n\n` +
+                `The following checks did not pass:\n` +
+                failing.map(r => `- \`${r.name}\` (${r.conclusion})`).join('\n') + '\n\n' +
+                `Please fix the failing checks before this PR can be merged.\n\n` +
+                `[View workflow run](${workflowRunUrl})`
+              );
+              return;
+            }
+
+            core.info('All CI checks passed/skipped/neutral.');
+
+            // ── 7. Review gate ───────────────────────────────────────────────
+            if (!reviewDetected) {
+              core.info('No reviews detected yet — waiting for feedback.');
+              await upsertComment(
+                '<!-- auto-merge-pending-review -->',
+                `### Auto-merge: pending review\n\n` +
+                `All CI checks have passed, but no code review has been submitted yet.\n\n` +
+                `Auto-merge will proceed once a review is submitted **and** the ` +
+                `\`reviewed\` label is added to confirm acceptance.\n\n` +
+                `[View workflow run](${workflowRunUrl})`
+              );
+              return;
+            }
+
+            if (reviewDetected && !hasReviewedLabel) {
+              const commentSummary = hasReviewComments
+                ? `${reviewComments.length} review comment(s) have been posted`
+                : '';
+              const reviewSummary = reviews.length > 0
+                ? `${reviews.length} review(s) submitted (${reviewerStats})`
+                : '';
+              const activity = [reviewSummary, commentSummary].filter(Boolean).join('; ');
+
+              core.info('Review activity detected but "reviewed" label missing.');
+              await upsertComment(
+                '<!-- auto-merge-needs-label -->',
+                `### Auto-merge: review received — action required\n\n` +
+                `Review activity detected (${activity}).\n\n` +
+                `To confirm you have reviewed and accepted the feedback, please add the ` +
+                `\`reviewed\` label to this PR. Auto-merge will then proceed.\n\n` +
+                `[View workflow run](${workflowRunUrl})`
+              );
+              return;
+            }
+
+            // ── 8. All conditions met — attempt squash merge ─────────────────
+            core.info('All conditions met. Waiting 1 min for GitHub state consistency…');
+            await new Promise(r => setTimeout(r, 60_000));
+
+            // Re-check PR is still open after the delay
+            const { data: freshPr } = await github.rest.pulls.get({
+              owner, repo, pull_number: prNumber,
+            });
+            if (freshPr.state !== 'open') {
+              core.info(`PR #${prNumber} is now ${freshPr.state} — skipping merge.`);
+              return;
+            }
+
+            try {
+              await github.rest.pulls.merge({
+                owner,
+                repo,
+                pull_number: prNumber,
+                merge_method: 'squash',
+                commit_title: `${pr.title} (#${prNumber})`,
+                commit_message: pr.body || '',
+              });
+              core.info(`PR #${prNumber} merged successfully via squash.`);
+            } catch (err) {
+              core.error(`Merge failed: ${err.message}`);
+              await upsertComment(
+                '<!-- auto-merge-error -->',
+                `### Auto-merge: merge failed\n\n` +
+                `All checks passed and the \`reviewed\` label is present, but the ` +
+                `automatic squash merge failed:\n\n` +
+                `> ${err.message}\n\n` +
+                `Please merge manually or investigate the error.\n\n` +
+                `[View workflow run](${workflowRunUrl})`
+              );
+            }
