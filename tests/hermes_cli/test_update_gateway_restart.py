@@ -6,7 +6,6 @@ rather than leaving zombie processes or telling users to manually restart
 when launchd will auto-respawn.
 """
 
-import os
 import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
@@ -1069,12 +1068,6 @@ class TestFindGatewayPidsExclude:
 
     def test_excludes_specified_pids(self, monkeypatch):
         monkeypatch.setattr(gateway_cli, "is_windows", lambda: False)
-        # Force the subprocess(ps) branch by hiding /proc from the scanner.
-        _real_isdir = os.path.isdir
-        monkeypatch.setattr(
-            "os.path.isdir",
-            lambda p: False if p == "/proc" else _real_isdir(p),
-        )
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(
@@ -1095,11 +1088,6 @@ class TestFindGatewayPidsExclude:
 
     def test_no_exclude_returns_all(self, monkeypatch):
         monkeypatch.setattr(gateway_cli, "is_windows", lambda: False)
-        _real_isdir = os.path.isdir
-        monkeypatch.setattr(
-            "os.path.isdir",
-            lambda p: False if p == "/proc" else _real_isdir(p),
-        )
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(
@@ -1123,11 +1111,6 @@ class TestFindGatewayPidsExclude:
         profile_dir.mkdir(parents=True)
         monkeypatch.setattr(gateway_cli, "is_windows", lambda: False)
         monkeypatch.setattr(gateway_cli, "get_hermes_home", lambda: profile_dir)
-        _real_isdir = os.path.isdir
-        monkeypatch.setattr(
-            "os.path.isdir",
-            lambda p: False if p == "/proc" else _real_isdir(p),
-        )
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(
