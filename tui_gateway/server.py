@@ -4455,8 +4455,8 @@ def _(rid, params: dict) -> dict:
     if name in qcmds:
         qc = qcmds[name]
         if qc.get("type") == "exec":
-            from tools.environments.local import _sanitize_untrusted_subprocess_env
-            sanitized_env = _sanitize_untrusted_subprocess_env(os.environ.copy())
+            from tools.environments.local import _sanitize_subprocess_env
+            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
             r = subprocess.run(
                 qc.get("command", ""),
                 shell=True,
@@ -6541,8 +6541,8 @@ def _(rid, params: dict) -> dict:
     except ImportError:
         pass
     try:
-        from tools.environments.local import _sanitize_untrusted_subprocess_env
-        sanitized_env = _sanitize_untrusted_subprocess_env(os.environ.copy())
+        from tools.environments.local import _sanitize_subprocess_env
+        sanitized_env = _sanitize_subprocess_env(os.environ.copy())
         r = subprocess.run(
             cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=os.getcwd(), env=sanitized_env
         )

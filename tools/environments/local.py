@@ -143,41 +143,6 @@ def _build_provider_env_blocklist() -> frozenset:
 
 _HERMES_PROVIDER_ENV_BLOCKLIST = _build_provider_env_blocklist()
 
-# Variable name suffixes (upper-case) that typically indicate secret values.
-# Used by _sanitize_untrusted_subprocess_env to strip non-Hermes secrets such
-# as cloud credentials, database passwords, and service tokens.
-_SECRET_VAR_SUFFIXES: tuple[str, ...] = (
-    "_API_KEY",
-    "_SECRET",
-    "_SECRET_KEY",
-    "_TOKEN",
-    "_PASSWORD",
-    "_PASSWD",
-    "_PRIVATE_KEY",
-    "_ACCESS_KEY",
-    "_ACCESS_TOKEN",
-    "_AUTH_KEY",
-    "_AUTH_TOKEN",
-    "_CREDENTIAL",
-    "_CREDENTIALS",
-)
-
-# Single-word variable names (upper-case) that always hold secrets.
-_SECRET_VAR_EXACT: frozenset[str] = frozenset({
-    "PASSWORD",
-    "PASSWD",
-    "SECRET",
-    "TOKEN",
-})
-
-
-def _looks_like_secret_var(key: str) -> bool:
-    """Return True if an env var name suggests it holds a secret value."""
-    upper = key.upper()
-    if upper in _SECRET_VAR_EXACT:
-        return True
-    return any(upper.endswith(suffix) for suffix in _SECRET_VAR_SUFFIXES)
-
 
 def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = None) -> dict:
     """Filter Hermes-managed secrets from a subprocess environment."""
@@ -208,29 +173,6 @@ def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = Non
         sanitized["HOME"] = _profile_home
 
     return sanitized
-
-
-def _sanitize_untrusted_subprocess_env(base_env: dict | None = None) -> dict:
-    """Filter Hermes secrets AND secret-looking variables for untrusted shell commands.
-
-    More aggressive than ``_sanitize_subprocess_env``: on top of the Hermes
-    provider blocklist it also removes any variable whose name suggests it
-    holds a secret (e.g. ``*_TOKEN``, ``*_PASSWORD``, ``*_SECRET``,
-    ``*_ACCESS_KEY``, ``*_PRIVATE_KEY``, etc.), so non-Hermes cloud
-    credentials, database passwords, and similar variables are not exposed to
-    user-supplied shell commands such as ``quick_commands`` or ``shell.exec``.
-
-    Args:
-        base_env: The environment dict to sanitize. When ``None``, an empty
-            dict is used as the base (matching the behavior inherited from
-            ``_sanitize_subprocess_env``).
-
-    Returns:
-        A sanitized copy with both Hermes-managed secrets and any variable
-        whose name matches a secret-name pattern removed.
-    """
-    sanitized = _sanitize_subprocess_env(base_env)
-    return {k: v for k, v in sanitized.items() if not _looks_like_secret_var(k)}
 
 
 def _find_bash() -> str:
