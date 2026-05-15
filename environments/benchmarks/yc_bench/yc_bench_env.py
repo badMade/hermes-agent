@@ -66,7 +66,6 @@ from environments.agent_loop import HermesAgentLoop
 from environments.hermes_base_env import HermesAgentBaseEnv, HermesAgentEnvConfig
 
 logger = logging.getLogger(__name__)
-_SQLITE_TRIM_CHARS = " \t\n\r\f\v"
 
 # =============================================================================
 # System prompt
@@ -263,9 +262,8 @@ def _read_final_score(db_path: str) -> Dict[str, Any]:
         try:
             cur.execute(
                 "SELECT event_type FROM sim_events "
-                "WHERE LOWER(TRIM(event_type, ?)) IN ('bankruptcy', 'horizon_end') "
-                "ORDER BY scheduled_at DESC LIMIT 1",
-                (_SQLITE_TRIM_CHARS,),
+                "WHERE LOWER(TRIM(event_type)) IN ('bankruptcy', 'horizon_end') "
+                "ORDER BY scheduled_at DESC LIMIT 1"
             )
             event_row = cur.fetchone()
             if event_row:
