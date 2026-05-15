@@ -365,3 +365,44 @@ class TestCronWithGatewayOrigin:
         finally:
             clear_session_vars(tokens)
             approval_module.clear_session("test-session")
+
+    def test_falsey_process_cron_env_is_not_treated_as_cron(self, monkeypatch):
+        """False-ish env values should not trigger cron-mode blocking."""
+        monkeypatch.setenv("HERMES_CRON_SESSION", "false")
+        monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
+        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
+        monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
+
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch("tools.approval._get_cron_approval_mode", return_value="deny"):
+            result = check_dangerous_command("rm -rf /tmp/stuff", "local")
+            assert result["approved"]
+
+    def test_falsey_explicit_cron_context_overrides_truthy_process_env(self, monkeypatch):
+        """Task-local false-ish cron context should beat process-global env."""
+        monkeypatch.setenv("HERMES_CRON_SESSION", "1")
+        monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
+        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
+        monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
+        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+
+        from gateway.session_context import set_session_vars, clear_session_vars, _VAR_MAP
+
+        tokens = set_session_vars(
+            platform="telegram",
+            chat_id="999",
+            session_key="test-session",
+        )
+        cron_token = _VAR_MAP["HERMES_CRON_SESSION"].set("false")
+        try:
+            from unittest.mock import patch as mock_patch
+
+            with mock_patch("tools.approval._get_cron_approval_mode", return_value="approve"):
+                result = check_dangerous_command("rm -rf /tmp/stuff", "local")
+                assert not result["approved"]
+                assert result["status"] == "approval_required"
+        finally:
+            _VAR_MAP["HERMES_CRON_SESSION"].reset(cron_token)
+            clear_session_vars(tokens)
+            approval_module.clear_session("test-session")

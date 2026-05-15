@@ -1624,7 +1624,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 os.environ["TERMINAL_CWD"] = _prior_terminal_cwd
         # Clean up ContextVar session/delivery state for this job.
         clear_session_vars(_ctx_tokens)
-        for _var_name in _cron_delivery_vars:
+        for _var_name, _ in _cron_context_vars:
             _VAR_MAP[_var_name].set("")
         if _session_db:
             try:

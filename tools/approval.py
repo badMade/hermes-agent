@@ -107,13 +107,13 @@ def _is_explicit_cron_approval_context() -> bool:
 
         explicit = get_explicit_session_env("HERMES_CRON_SESSION")
         if explicit is not None:
-            return bool(explicit)
+            return is_truthy_value(explicit)
     except Exception:
         pass
 
     if os.getenv("HERMES_GATEWAY_SESSION") or _get_session_platform():
         return False
-    return bool(os.getenv("HERMES_CRON_SESSION"))
+    return is_truthy_value(os.getenv("HERMES_CRON_SESSION"))
 
 
 def _is_gateway_approval_context() -> bool:
