@@ -8293,14 +8293,71 @@ class GatewayRunner:
         )
 
 
+    @staticmethod
+    def _gateway_kanban_action_args(tokens: list[str], action: str) -> list[str]:
+        """Return argv after a parsed Kanban action token."""
+        try:
+            return tokens[tokens.index(action) + 1:]
+        except ValueError:
+            return []
+
+    @staticmethod
+    def _gateway_kanban_is_unassign(profile: str | None) -> bool:
+        """Return whether a profile argument means "remove assignee"."""
+        return (profile or "").lower() in {"", "none", "-", "null"}
+
+    @classmethod
+    def _gateway_kanban_spawn_denial(
+        cls, tokens: list[str], action: str | None
+    ) -> str | None:
+        """Deny gateway Kanban requests that can launch or relaunch profiles."""
+        if not action:
+            return None
+
+        if action in {"dispatch", "unblock"}:
+            return (
+                "kanban: this subcommand can start work under another Hermes "
+                "profile and is only available from the local CLI"
+            )
+
+        action_args = cls._gateway_kanban_action_args(tokens, action)
+        if action in {"assign", "reassign"}:
+            profile = action_args[1] if len(action_args) > 1 else None
+            if not cls._gateway_kanban_is_unassign(profile):
+                return (
+                    "kanban: assigning tasks from the gateway is disabled; "
+                    "assign worker profiles from the local CLI"
+                )
+            return None
+
+        if action != "create":
+            return None
+
+        for idx, tok in enumerate(action_args):
+            if tok.startswith("--assignee=") and tok.split("=", 1)[1].strip():
+                return (
+                    "kanban: creating assigned tasks from the gateway is disabled; "
+                    "create the task unassigned and assign it from the local CLI"
+                )
+            if tok == "--assignee":
+                value = ""
+                if idx + 1 < len(action_args):
+                    value = action_args[idx + 1].strip()
+                if value:
+                    return (
+                        "kanban: creating assigned tasks from the gateway is disabled; "
+                        "create the task unassigned and assign it from the local CLI"
+                    )
+        return None
+
+
     async def _handle_kanban_command(self, event: MessageEvent) -> str:
         """Handle /kanban — delegate to the shared kanban CLI.
 
         Run the potentially-blocking DB work in a thread pool so the
-        gateway event loop stays responsive.  Read operations (list,
-        show, context, tail) are permitted while an agent is running;
-        mutations are allowed too because the board is profile-agnostic
-        and does not touch the running agent's state.
+        gateway event loop stays responsive.  Commands that can assign or
+        relaunch worker profiles are blocked at the gateway boundary; local
+        CLI operators must perform those actions.
 
         For ``/kanban create`` invocations we also auto-subscribe the
         originating gateway source (platform + chat + thread) to the new
@@ -8319,7 +8376,11 @@ class GatewayRunner:
         if text.startswith("kanban"):
             text = text[len("kanban"):].lstrip()
 
-        tokens = shlex.split(text) if text else []
+        try:
+            tokens = shlex.split(text) if text else []
+        except ValueError as exc:
+            return f"kanban: invalid arguments: {exc}"
+
         requested_board = None
         action = None
         i = 0
@@ -8337,6 +8398,10 @@ class GatewayRunner:
                 continue
             action = tok
             break
+
+        denial = self._gateway_kanban_spawn_denial(tokens, action)
+        if denial:
+            return denial
 
         is_create = action == "create"
 
