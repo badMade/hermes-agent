@@ -3187,6 +3187,14 @@ class FeishuAdapter(BasePlatformAdapter):
         if payload.get("type") == "url_verification":
             return web.json_response({"challenge": payload.get("challenge", "")})
 
+        if not self._verification_token and not self._encrypt_key:
+            logger.warning(
+                "[Feishu] Webhook rejected: FEISHU_VERIFICATION_TOKEN or FEISHU_ENCRYPT_KEY is required from %s",
+                remote_ip,
+            )
+            self._record_webhook_anomaly(remote_ip, "401-auth-required")
+            return web.Response(status=401, text="Webhook authentication is not configured")
+
         # Verification token check — second layer of defence beyond signature (matches openclaw).
         if self._verification_token:
             header = payload.get("header") or {}
