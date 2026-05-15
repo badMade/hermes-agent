@@ -31,6 +31,10 @@ _approval_session_key: contextvars.ContextVar[str] = contextvars.ContextVar(
     "approval_session_key",
     default="",
 )
+_approval_interactive: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "approval_interactive",
+    default=False,
+)
 
 
 def _fire_approval_hook(hook_name: str, **kwargs) -> None:
@@ -67,6 +71,21 @@ def set_current_session_key(session_key: str) -> contextvars.Token[str]:
 def reset_current_session_key(token: contextvars.Token[str]) -> None:
     """Restore the prior approval session key context."""
     _approval_session_key.reset(token)
+
+
+def set_current_interactive(enabled: bool = True) -> contextvars.Token[bool]:
+    """Bind interactive approval routing to the current context."""
+    return _approval_interactive.set(bool(enabled))
+
+
+def reset_current_interactive(token: contextvars.Token[bool]) -> None:
+    """Restore the prior interactive approval routing context."""
+    _approval_interactive.reset(token)
+
+
+def is_current_interactive() -> bool:
+    """Return whether this context should use interactive approval routing."""
+    return _approval_interactive.get() or bool(os.getenv("HERMES_INTERACTIVE"))
 
 
 def get_current_session_key(default: str = "default") -> str:
@@ -926,7 +945,7 @@ def check_dangerous_command(command: str, env_type: str,
     if is_approved(session_key, pattern_key):
         return {"approved": True, "message": None}
 
-    is_cli = os.getenv("HERMES_INTERACTIVE")
+    is_cli = is_current_interactive()
     is_gateway = _is_gateway_approval_context()
 
     if not is_cli and not is_gateway:
@@ -1054,7 +1073,7 @@ def check_all_command_guards(command: str, env_type: str,
     if is_truthy_value(os.getenv("HERMES_YOLO_MODE")) or is_current_session_yolo_enabled() or approval_mode == "off":
         return {"approved": True, "message": None}
 
-    is_cli = os.getenv("HERMES_INTERACTIVE")
+    is_cli = is_current_interactive()
     is_gateway = _is_gateway_approval_context()
     is_ask = os.getenv("HERMES_EXEC_ASK")
 
