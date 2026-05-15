@@ -245,3 +245,49 @@ def test_validate_accepts_msgraph_credentials_for_graph_delivery(monkeypatch, ca
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["issues"] == []
+
+
+def test_validate_loads_gateway_config_once(monkeypatch, capsys, tmp_path):
+    from gateway.config import Platform, PlatformConfig
+
+    monkeypatch.setenv("MSGRAPH_TENANT_ID", "tenant")
+    monkeypatch.setenv("MSGRAPH_CLIENT_ID", "client")
+    monkeypatch.setenv("MSGRAPH_CLIENT_SECRET", "secret")
+
+    gateway_config = SimpleNamespace(
+        platforms={
+            Platform.MSGRAPH_WEBHOOK: PlatformConfig(
+                enabled=True, extra={"client_state": "expected-client-state"}
+            ),
+            Platform("teams"): PlatformConfig(
+                enabled=True,
+                extra={
+                    "delivery_mode": "graph",
+                    "team_id": "team-1",
+                    "channel_id": "channel-1",
+                },
+            ),
+        }
+    )
+    calls = 0
+
+    def _load_gateway_config():
+        nonlocal calls
+        calls += 1
+        return gateway_config
+
+    monkeypatch.setattr(
+        "plugins.teams_pipeline.cli.load_gateway_config",
+        _load_gateway_config,
+    )
+
+    teams_pipeline_command(
+        _make_args(
+            teams_pipeline_action="validate",
+            store_path=str(tmp_path / "teams_pipeline_store.json"),
+        )
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert calls == 1

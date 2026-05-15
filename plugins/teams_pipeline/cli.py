@@ -169,7 +169,11 @@ def _default_change_type_for_resource(resource: str) -> str:
     return "updated"
 
 
-def _configured_webhook_client_state(client_state_arg: str | None = None) -> str | None:
+def _configured_webhook_client_state(
+    client_state_arg: str | None = None,
+    *,
+    webhook_config: Any | None = None,
+) -> str | None:
     explicit = str(client_state_arg or "").strip()
     if explicit:
         return explicit
@@ -178,8 +182,9 @@ def _configured_webhook_client_state(client_state_arg: str | None = None) -> str
     if env_value:
         return env_value
 
-    gateway_config = load_gateway_config()
-    webhook_config = gateway_config.platforms.get(Platform.MSGRAPH_WEBHOOK)
+    if webhook_config is None:
+        gateway_config = load_gateway_config()
+        webhook_config = gateway_config.platforms.get(Platform.MSGRAPH_WEBHOOK)
     if webhook_config is None:
         return None
     extra = webhook_config.extra or {}
@@ -231,7 +236,9 @@ def _validate_configuration_snapshot(store: TeamsPipelineStore) -> dict[str, Any
 
     if not all(graph.values()):
         issues.append("Microsoft Graph app-only credentials are incomplete.")
-    webhook_client_state = _configured_webhook_client_state(None)
+    webhook_client_state = _configured_webhook_client_state(
+        None, webhook_config=webhook_config
+    )
     if not webhook_enabled:
         issues.append("MSGRAPH_WEBHOOK_ENABLED is not enabled.")
     if webhook_client_state is None:
