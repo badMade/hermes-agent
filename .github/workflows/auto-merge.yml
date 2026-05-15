@@ -156,6 +156,11 @@ jobs:
             }
 
             // ── 2. Fetch external check runs (helper used by poll loop) ───────
+            // Exclude the current run by its ID, and also exclude all runs of
+            // the auto-merge job itself — prior invocations may be present with
+            // conclusion 'cancelled' (due to cancel-in-progress) and must not
+            // be treated as failing CI checks.
+            const AUTO_MERGE_JOB_NAME = 'Auto-merge on review + passing checks';
             async function fetchExternalRuns() {
               const { data: sd } = await github.rest.checks.listSuitesForRef({
                 owner, repo, ref: headSha, per_page: 100,
@@ -169,7 +174,8 @@ jobs:
               }
               return all.filter(run => {
                 const url = run.details_url || run.html_url || '';
-                return !url.includes(`/runs/${currentRunId}`);
+                return !url.includes(`/runs/${currentRunId}`)
+                  && run.name !== AUTO_MERGE_JOB_NAME;
               });
             }
 
