@@ -214,8 +214,8 @@ class WeComAdapter(BasePlatformAdapter):
             self._http_client = httpx.AsyncClient(
                 timeout=30.0,
                 follow_redirects=True,
-                limits=platform_httpx_limits(),
                 event_hooks={"response": [_ssrf_redirect_guard]},
+                limits=platform_httpx_limits(),
             )
             await self._open_connection()
             self._mark_connected()
