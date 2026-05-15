@@ -429,6 +429,48 @@ class TestTzdataDependencyDeclared:
 
 
 # ---------------------------------------------------------------------------
+# Windows installer Git download hardening
+# ---------------------------------------------------------------------------
+
+
+class TestWindowsInstallerGitDownloadHardening:
+    """The installer must verify bundled Git downloads before executing them."""
+
+    def test_git_download_uses_pinned_release_not_latest_api(self):
+        root = Path(__file__).resolve().parents[2]
+        source = (root / "scripts" / "install.ps1").read_text(encoding="utf-8")
+
+        assert "releases/latest" not in source
+        assert '$gitReleaseTag = "v' in source
+        assert "github.com/git-for-windows/git/releases/download/$gitReleaseTag" in source
+
+    def test_git_download_verifies_sha256_before_extracting_or_running(self):
+        root = Path(__file__).resolve().parents[2]
+        source = (root / "scripts" / "install.ps1").read_text(encoding="utf-8")
+
+        hash_pos = source.index("Get-FileHash -Algorithm SHA256")
+        mismatch_pos = source.index("checksum mismatch")
+        cleanup_pos = source.index("Remove-Item -Force $tmpFile", hash_pos)
+
+        extraction_markers = [
+            "Expand-Archive -Path $tmpFile",
+            "Start-Process -FilePath $tmpFile",
+        ]
+        extraction_positions = [
+            source.index(marker) for marker in extraction_markers if marker in source
+        ]
+        assert extraction_positions, (
+            "install.ps1 must extract or execute the downloaded Git artifact "
+            "after SHA-256 verification"
+        )
+        extract_pos = min(extraction_positions)
+        run_pos = source.index("$version = & $gitExe --version")
+
+        assert "Sha256 =" in source
+        assert hash_pos < cleanup_pos < mismatch_pos < extract_pos < run_pos
+
+
+# ---------------------------------------------------------------------------
 # README / docs consistency
 # ---------------------------------------------------------------------------
 
@@ -862,3 +904,36 @@ class TestGatewayDetachedWatcherWindowsFlags:
         assert 'if sys.platform == "win32":' in source
         # Windows branch uses windows_detach_popen_kwargs
         assert "windows_detach_popen_kwargs" in source
+
+
+class TestBrowserWindowsBatchLauncherQuoting:
+    """agent-browser .cmd/.bat shims must quote model-controlled args."""
+
+    def test_batch_launcher_uses_shell_string_and_quotes_url_metacharacters(self, monkeypatch):
+        import tools.browser_tool as bt
+
+        monkeypatch.setattr(bt.os, "name", "nt")
+        cmd, kwargs = bt._prepare_browser_popen_command([
+            r"C:\repo\node_modules\.bin\agent-browser.cmd",
+            "--session",
+            "poc-session",
+            "--json",
+            "open",
+            "https://example.com/?x=1&calc",
+        ])
+
+        assert kwargs == {"shell": True}
+        assert isinstance(cmd, str)
+        assert '"https://example.com/?x=1&calc"' in cmd
+        assert " https://example.com/?x=1&calc" not in cmd
+
+    def test_non_batch_launcher_keeps_posix_argv_unchanged(self, monkeypatch):
+        import tools.browser_tool as bt
+
+        monkeypatch.setattr(bt.os, "name", "posix")
+        argv = ["/usr/bin/agent-browser", "open", "https://example.com/?x=1&y=2"]
+
+        cmd, kwargs = bt._prepare_browser_popen_command(argv)
+
+        assert cmd is argv
+        assert kwargs == {}
