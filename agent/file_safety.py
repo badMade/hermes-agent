@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 
 def _hermes_home_path() -> Path:
@@ -72,16 +72,40 @@ def get_safe_write_root() -> Optional[str]:
         return None
 
 
+def _candidate_write_denied_homes() -> Iterable[str]:
+    """Yield HOME roots whose credential/startup files must be protected."""
+    homes = [os.path.expanduser("~")]
+
+    try:
+        from hermes_constants import get_subprocess_home  # local import to avoid cycles
+
+        subprocess_home = get_subprocess_home()
+        if subprocess_home:
+            homes.append(subprocess_home)
+    except Exception:
+        pass
+
+    seen: set[str] = set()
+    for home in homes:
+        if not home or home == "~":
+            continue
+        resolved = os.path.realpath(home)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        yield resolved
+
+
 def is_write_denied(path: str) -> bool:
     """Return True if path is blocked by the write denylist or safe root."""
-    home = os.path.realpath(os.path.expanduser("~"))
     resolved = os.path.realpath(os.path.expanduser(str(path)))
 
-    if resolved in build_write_denied_paths(home):
-        return True
-    for prefix in build_write_denied_prefixes(home):
-        if resolved.startswith(prefix):
+    for home in _candidate_write_denied_homes():
+        if resolved in build_write_denied_paths(home):
             return True
+        for prefix in build_write_denied_prefixes(home):
+            if resolved.startswith(prefix):
+                return True
 
     safe_root = get_safe_write_root()
     if safe_root and not (resolved == safe_root or resolved.startswith(safe_root + os.sep)):
