@@ -2529,7 +2529,10 @@ class TestGoogleChatInteractiveSetup:
         """Restricted setup must not leave prior open access active."""
         from plugins.platforms.google_chat import adapter as gc_mod
 
-        saved: dict[str, str] = {"GOOGLE_CHAT_ALLOW_ALL_USERS": "true"}
+        saved: dict[str, str] = {
+            "GOOGLE_CHAT_ALLOW_ALL_USERS": "true",
+            "GOOGLE_CHAT_SUBSCRIPTION_NAME": "projects/demo-project/subscriptions/old-hermes-chat",
+        }
         answers = {
             "GCP project ID (e.g. my-project)": "demo-project",
             "Pub/Sub subscription (projects/<proj>/subscriptions/<sub>)": (
@@ -2549,12 +2552,16 @@ class TestGoogleChatInteractiveSetup:
         def fake_prompt(question, default=None, password=False):
             return answers.get(question, default or "")
 
+        prompt_yes_no_calls: list[str] = []
+
+        def fake_prompt_yes_no(question, *_a, **_kw):
+            prompt_yes_no_calls.append(question)
+            return True
+
         monkeypatch.setattr("hermes_cli.config.get_env_value", fake_get_env_value)
         monkeypatch.setattr("hermes_cli.config.save_env_value", fake_save_env_value)
         monkeypatch.setattr("hermes_cli.cli_output.prompt", fake_prompt)
-        monkeypatch.setattr(
-            "hermes_cli.cli_output.prompt_yes_no", lambda *_a, **_kw: True
-        )
+        monkeypatch.setattr("hermes_cli.cli_output.prompt_yes_no", fake_prompt_yes_no)
         monkeypatch.setattr(
             "hermes_cli.cli_output.print_info", lambda *_a, **_kw: None
         )
@@ -2567,6 +2574,11 @@ class TestGoogleChatInteractiveSetup:
 
         gc_mod.interactive_setup()
 
+        assert "Reconfigure Google Chat?" in prompt_yes_no_calls
+        assert (
+            saved["GOOGLE_CHAT_SUBSCRIPTION_NAME"]
+            == "projects/demo-project/subscriptions/hermes-chat"
+        )
         assert saved["GOOGLE_CHAT_ALLOWED_USERS"] == "alice@example.com"
         assert saved["GOOGLE_CHAT_ALLOW_ALL_USERS"] == "false"
 
