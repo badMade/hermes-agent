@@ -100,15 +100,13 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Standard PATH entries for environments with minimal PATH (e.g. systemd services).
-# Includes Android/Termux and macOS Homebrew locations needed for agent-browser,
-# npx, node, and Android's glibc runner (grun).
+# Includes Android/Termux locations needed for agent-browser and Android's
+# glibc runner (grun), plus system directories. User-writable package-manager
+# prefixes such as Homebrew are intentionally not injected when absent from the
+# operator-provided PATH.
 _SANE_PATH_DIRS = (
     "/data/data/com.termux/files/usr/bin",
     "/data/data/com.termux/files/usr/sbin",
-    "/opt/homebrew/bin",
-    "/opt/homebrew/sbin",
-    "/usr/local/sbin",
-    "/usr/local/bin",
     "/usr/sbin",
     "/usr/bin",
     "/sbin",
@@ -122,8 +120,8 @@ def _discover_homebrew_node_dirs() -> tuple[str, ...]:
     """Find Homebrew versioned Node.js bin directories (e.g. node@20, node@24).
 
     When Node is installed via ``brew install node@24`` and NOT linked into
-    /opt/homebrew/bin, agent-browser isn't discoverable on the default PATH.
-    This function finds those directories so they can be prepended.
+    /opt/homebrew/bin, this discovers versioned bin directories. Callers only
+    add them when the operator-provided PATH already opts into Homebrew.
     """
     dirs: list[str] = []
     homebrew_opt = "/opt/homebrew/opt"
@@ -140,20 +138,32 @@ def _discover_homebrew_node_dirs() -> tuple[str, ...]:
     return tuple(dirs)
 
 
-def _browser_candidate_path_dirs() -> list[str]:
-    """Return ordered browser CLI PATH candidates shared by discovery and execution."""
+def _browser_candidate_path_dirs(existing_path: str = "") -> list[str]:
+    """Return safe browser CLI PATH candidates shared by discovery and execution."""
+    path_parts = [p for p in (existing_path or "").split(os.pathsep) if p]
+    candidates = list(_SANE_PATH_DIRS)
+
+    # Only expand user-writable toolchain prefixes when the operator already
+    # included that trust root in PATH. This preserves restricted-PATH launches
+    # while still supporting normal interactive Homebrew/Hermes installs.
+    if any(p.startswith("/opt/homebrew/") or p == "/opt/homebrew" for p in path_parts):
+        candidates.extend(_discover_homebrew_node_dirs())
+
     hermes_home = get_hermes_home()
     hermes_node_bin = str(hermes_home / "node" / "bin")
-    return [hermes_node_bin, *list(_discover_homebrew_node_dirs()), *_SANE_PATH_DIRS]
+    if hermes_node_bin in path_parts:
+        candidates.append(hermes_node_bin)
+
+    return candidates
 
 
 def _merge_browser_path(existing_path: str = "") -> str:
-    """Prepend browser-specific PATH fallbacks without reordering existing entries."""
+    """Prepend safe browser PATH fallbacks without reordering existing entries."""
     path_parts = [p for p in (existing_path or "").split(os.pathsep) if p]
     existing_parts = set(path_parts)
     prefix_parts: list[str] = []
 
-    for part in _browser_candidate_path_dirs():
+    for part in _browser_candidate_path_dirs(existing_path):
         if not part or part in existing_parts or part in prefix_parts:
             continue
         if os.path.isdir(part):
@@ -1635,8 +1645,8 @@ def _find_agent_browser() -> str:
     """
     Find the agent-browser CLI executable.
 
-    Checks in order: current PATH, Homebrew/common bin dirs, Hermes-managed
-    node, local node_modules/.bin/, npx fallback.
+    Checks in order: current PATH, safe fallback dirs, operator-provided
+    Homebrew/Hermes-managed paths, local node_modules/.bin/, npx fallback.
 
     Returns:
         Path to agent-browser executable
@@ -1666,9 +1676,9 @@ def _find_agent_browser() -> str:
         _agent_browser_resolved = True
         return which_result
 
-    # Build an extended search PATH including Hermes-managed Node, macOS
-    # versioned Homebrew installs, and fallback system dirs like Termux.
-    extended_path = _merge_browser_path("")
+    # Build an extended search PATH from safe fallback dirs and any toolchain
+    # prefixes the operator already included in the process PATH.
+    extended_path = _merge_browser_path(os.environ.get("PATH", ""))
     if extended_path:
         which_result = shutil.which("agent-browser", path=extended_path)
         if which_result:
