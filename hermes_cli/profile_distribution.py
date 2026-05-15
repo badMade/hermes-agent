@@ -61,6 +61,7 @@ Update semantics:
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -532,6 +533,28 @@ def _relative_payload_path(root: Path, path: Path) -> str:
         return str(path)
 
 
+def _reject_payload_symlink(staged_root: Path, path: Path) -> None:
+    rel = _relative_payload_path(staged_root, path)
+    raise DistributionError(
+        f"Refusing to install distribution containing symlink: {rel}"
+    )
+
+
+def _validate_payload_entry(
+    staged_root: Path,
+    path: Path,
+    *,
+    resolved_root: Optional[Path] = None,
+) -> None:
+    if path.is_symlink():
+        _reject_payload_symlink(staged_root, path)
+    _ensure_source_within_staged(
+        staged_root,
+        path,
+        resolved_root=resolved_root,
+    )
+
+
 def _ensure_source_within_staged(
     staged_root: Path,
     source: Path,
@@ -553,18 +576,10 @@ def _ensure_source_within_staged(
 def _validate_staged_payload(staged_root: Path) -> None:
     """Reject unsafe filesystem entries before copying an untrusted distribution."""
     resolved_root = staged_root.resolve(strict=True)
-    _ensure_source_within_staged(staged_root, staged_root, resolved_root=resolved_root)
+    _validate_payload_entry(staged_root, staged_root, resolved_root=resolved_root)
     for entry in staged_root.rglob("*"):
+        _validate_payload_entry(staged_root, entry, resolved_root=resolved_root)
         rel = _relative_payload_path(staged_root, entry)
-        if entry.is_symlink():
-            raise DistributionError(
-                f"Refusing to install distribution containing symlink: {rel}"
-            )
-        _ensure_source_within_staged(
-            staged_root,
-            entry,
-            resolved_root=resolved_root,
-        )
         if not entry.is_dir() and not entry.is_file():
             raise DistributionError(
                 f"Refusing to install unsupported distribution entry: {rel}"
@@ -579,11 +594,21 @@ def _remove_destination_path(dest: Path) -> None:
         shutil.rmtree(dest)
 
 
-def _copy_file_no_follow(source: Path, dest: Path) -> None:
+def _copy_file_no_follow(source: Path, dest: Path, staged_root: Path) -> None:
     """Copy a file after replacing any existing destination symlink."""
+    _validate_payload_entry(staged_root, source)
     if dest.exists() or dest.is_symlink():
         _remove_destination_path(dest)
-    shutil.copy2(source, dest, follow_symlinks=False)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=dest.parent, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        shutil.copy2(source, tmp_path, follow_symlinks=False)
+        os.replace(tmp_path, dest)
+    except Exception:
+        if tmp_path.exists() or tmp_path.is_symlink():
+            _remove_destination_path(tmp_path)
+        raise
 
 
 def _copy_dir_no_follow(
@@ -594,25 +619,29 @@ def _copy_dir_no_follow(
     resolved_root: Optional[Path] = None,
 ) -> None:
     """Recursively copy a directory while refusing symlinks at copy time."""
-    if source.is_symlink():
-        rel = _relative_payload_path(staged_root, source)
-        raise DistributionError(
-            f"Refusing to install distribution containing symlink: {rel}"
-        )
-    _ensure_source_within_staged(staged_root, source, resolved_root=resolved_root)
+    _validate_payload_entry(staged_root, source, resolved_root=resolved_root)
     if dest.exists() or dest.is_symlink():
         _remove_destination_path(dest)
-    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+    except FileExistsError as exc:
+        if dest.is_symlink():
+            raise DistributionError(
+                f"Refusing to install distribution into destination symlink: {dest}"
+            ) from exc
+        raise
+    # Defense-in-depth: reject a symlink raced in immediately after mkdir.
+    if dest.is_symlink():
+        raise DistributionError(
+            f"Refusing to install distribution into destination symlink: {dest}"
+        )
 
     for child in source.iterdir():
         if child.name in USER_OWNED_EXCLUDE:
             continue
+        # Defense-in-depth for TOCTOU: catch symlinks created after pre-validation.
         if child.is_symlink():
-            rel = _relative_payload_path(staged_root, child)
-            raise DistributionError(
-                f"Refusing to install distribution containing symlink: {rel}"
-            )
-        _ensure_source_within_staged(staged_root, child, resolved_root=resolved_root)
+            _reject_payload_symlink(staged_root, child)
         child_dest = dest / child.name
         if child.is_dir():
             _copy_dir_no_follow(
@@ -622,7 +651,7 @@ def _copy_dir_no_follow(
                 resolved_root=resolved_root,
             )
         elif child.is_file():
-            _copy_file_no_follow(child, child_dest)
+            _copy_file_no_follow(child, child_dest, staged_root)
         else:
             rel = _relative_payload_path(staged_root, child)
             raise DistributionError(
@@ -653,7 +682,7 @@ def _copy_dist_payload(
         if name in USER_OWNED_EXCLUDE:
             continue
         if name == ENV_TEMPLATE_FILENAME:
-            _copy_file_no_follow(entry, target / ENV_EXAMPLE_FILENAME)
+            _copy_file_no_follow(entry, target / ENV_EXAMPLE_FILENAME, staged)
             continue
         if name == "config.yaml" and preserve_config and (target / "config.yaml").exists():
             # Leave user's config.yaml alone on update
@@ -668,7 +697,7 @@ def _copy_dist_payload(
                 resolved_root=resolved_root,
             )
         else:
-            _copy_file_no_follow(entry, dest)
+            _copy_file_no_follow(entry, dest, staged)
 
     # Emit .env.EXAMPLE from manifest if the staged tree didn't ship one
     if manifest.env_requires and not (target / ENV_EXAMPLE_FILENAME).exists():
