@@ -308,7 +308,28 @@ def _read_terminal_shell_init_config() -> tuple[list[str], bool]:
         return [], True
 
 
-def _resolve_shell_init_files() -> list[str]:
+
+_ENV_VAR_REF_RE = re.compile(r"\$(?:\{([^}]+)\}|([A-Za-z_][A-Za-z0-9_]*))")
+
+
+def _expand_shell_init_path(raw: str, *, home: str | None = None) -> str:
+    """Expand shell-init path templates against the subprocess environment."""
+    env = dict(os.environ)
+    if home:
+        env["HOME"] = home
+
+    def _replace_var(match: re.Match) -> str:
+        name = match.group(1) or match.group(2)
+        return env.get(name, match.group(0))
+
+    expanded = _ENV_VAR_REF_RE.sub(_replace_var, raw)
+    if home and (expanded == "~" or expanded.startswith(f"~{os.sep}") or expanded.startswith("~/")):
+        suffix = expanded[2:] if expanded.startswith("~/") else expanded[1:]
+        return os.path.join(home, suffix) if suffix else home
+    return os.path.expanduser(expanded)
+
+
+def _resolve_shell_init_files(home: str | None = None) -> list[str]:
     """Resolve the list of files to source before the login-shell snapshot.
 
     Expands ``~`` and ``${VAR}`` references and drops anything that doesn't
@@ -317,6 +338,9 @@ def _resolve_shell_init_files() -> list[str]:
     an explicit list — once they have, Hermes trusts them.
     """
     explicit, auto_bashrc = _read_terminal_shell_init_config()
+    if home is None:
+        from hermes_constants import get_subprocess_home
+        home = get_subprocess_home()
 
     candidates: list[str] = []
     if explicit:
@@ -342,7 +366,7 @@ def _resolve_shell_init_files() -> list[str]:
     resolved: list[str] = []
     for raw in candidates:
         try:
-            path = os.path.expandvars(os.path.expanduser(raw))
+            path = _expand_shell_init_path(raw, home=home)
         except Exception:
             continue
         if path and os.path.isfile(path):
@@ -443,12 +467,12 @@ class LocalEnvironment(BaseEnvironment):
         # (nvm, asdf, pyenv, …) end up on PATH in the captured snapshot.
         # Non-login invocations are already sourcing the snapshot and
         # don't need this.
+        run_env = _make_run_env(self.env)
         if login:
-            init_files = _resolve_shell_init_files()
+            init_files = _resolve_shell_init_files(home=run_env.get("HOME"))
             if init_files:
                 cmd_string = _prepend_shell_init(cmd_string, init_files)
         args = [bash, "-l", "-c", cmd_string] if login else [bash, "-c", cmd_string]
-        run_env = _make_run_env(self.env)
 
         # Recover when the cwd has been deleted out from under us — usually by
         # a previous tool call that ran ``rm -rf`` on its own working dir
