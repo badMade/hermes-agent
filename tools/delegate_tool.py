@@ -1428,6 +1428,7 @@ def _run_single_child(
     # hand us a MagicMock don't carry stable ids; skip registration then.
     _raw_sid = getattr(child, "_subagent_id", None)
     _subagent_id = _raw_sid if isinstance(_raw_sid, str) else None
+    child_task_id = None
     if _subagent_id:
         _raw_depth = getattr(child, "_delegate_depth", 1)
         _tui_depth = max(0, _raw_depth - 1) if isinstance(_raw_depth, int) else 0
@@ -1465,6 +1466,12 @@ def _run_single_child(
 
         child_task_id = _subagent_id or f"subagent-{task_index}-{_uuid.uuid4().hex[:8]}"
         parent_task_id = getattr(parent_agent, "_current_task_id", None)
+        from tools.terminal_tool import (
+            clear_task_container_alias,
+            register_task_container_alias,
+        )
+
+        register_task_container_alias(child_task_id, parent_task_id)
         wall_start = time.time()
         parent_reads_snapshot = (
             list(file_state.known_reads(parent_task_id)) if parent_task_id else []
@@ -1828,6 +1835,12 @@ def _run_single_child(
         # after the child has finished (or failed).
         _heartbeat_stop.set()
         _heartbeat_thread.join(timeout=5)
+
+        if child_task_id:
+            try:
+                clear_task_container_alias(child_task_id)
+            except Exception:
+                pass
 
         # Drop the TUI-facing registry entry.  Safe to call even if the
         # child was never registered (e.g. ID missing on test doubles).

@@ -11668,8 +11668,9 @@ class AIAgent:
         self._stream_callback = stream_callback
         self._persist_user_message_idx = None
         self._persist_user_message_override = persist_user_message
-        # Generate unique task_id if not provided to isolate VMs between concurrent tasks
-        effective_task_id = task_id or str(uuid.uuid4())
+        # Use an explicit caller task_id for session-scoped tool isolation.
+        # CLI callers that do not pass one share the default sandbox across turns.
+        effective_task_id = task_id or "default"
         # Expose the active task_id so tools running mid-turn (e.g. delegate_task
         # in delegate_tool.py) can identify this agent for the cross-agent file
         # state registry.  Set BEFORE any tool dispatch so snapshots taken at
