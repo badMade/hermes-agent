@@ -31,7 +31,7 @@ def git_repo(tmp_path):
         cwd=repo, capture_output=True,
     )
     # Create initial commit (worktrees need at least one commit)
-    (repo / "README.md").write_text("# Test Repo\n")
+    (repo / "README.md").write_text("# Test Repo\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=repo, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "Initial commit"],
