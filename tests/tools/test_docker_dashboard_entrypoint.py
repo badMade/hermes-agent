@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -10,9 +11,21 @@ def test_dashboard_entrypoint_is_loopback_by_default_and_does_not_auto_insecure(
     """HERMES_DASHBOARD=1 must not silently expose the admin dashboard."""
     text = ENTRYPOINT.read_text()
 
-    assert 'dash_host="${HERMES_DASHBOARD_HOST:-127.0.0.1}"' in text
-    assert 'HERMES_DASHBOARD_INSECURE' in text
-    assert 'dash_host="${HERMES_DASHBOARD_HOST:-0.0.0.0}"' not in text
+    assert re.search(r'dash_host="\$\{HERMES_DASHBOARD_HOST:-127\.0\.0\.1\}"', text)
+    assert not re.search(r'dash_host="\$\{HERMES_DASHBOARD_HOST:-0\.0\.0\.0\}"', text)
+    assert re.search(
+        r'case "\$\{HERMES_DASHBOARD_INSECURE:-\}" in\s+'
+        r'1\|true\|TRUE\|True\|yes\|YES\|Yes\)\s+'
+        r'dash_args\+=\(--insecure\)',
+        text,
+        re.DOTALL,
+    )
+    assert "--insecure" not in re.sub(
+        r'case "\$\{HERMES_DASHBOARD_INSECURE:-\}" in.*?esac',
+        "",
+        text,
+        flags=re.DOTALL,
+    )
     assert 'if [ "$dash_host" != "127.0.0.1" ]' not in text
 
 

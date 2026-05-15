@@ -60,7 +60,7 @@ Opening any port on an internet facing machine is a security risk. You should no
 
 ## Running the dashboard
 
-The built-in web dashboard runs as an optional side-process inside the same container as the gateway. The dashboard exposes API keys and configuration, so keep it bound to loopback and publish it only on the host loopback interface:
+The built-in web dashboard runs as an optional side-process inside the same container as the gateway. The dashboard exposes API keys and configuration, so only publish it on the host loopback interface. When you use Docker port publishing, the dashboard process inside the container must bind to `0.0.0.0` so Docker can forward the port into the container:
 
 ```sh
 docker run -d \
@@ -85,7 +85,7 @@ The entrypoint starts `hermes dashboard` in the background (running as the non-r
 | `HERMES_DASHBOARD_INSECURE` | Set to `1` (or `true` / `yes`) to pass `--insecure` for a non-localhost bind after you have restricted network access another way | *(unset)* |
 | `HERMES_DASHBOARD_TUI` | Set to `1` to expose the in-browser Chat tab (embedded `hermes --tui` via PTY/WebSocket) | *(unset)* |
 
-By default, the entrypoint does not bypass the dashboard's non-localhost safety gate. If you set `HERMES_DASHBOARD_HOST=0.0.0.0` so Docker can forward the port, also bind the published port to `127.0.0.1` and set `HERMES_DASHBOARD_INSECURE=1` as an explicit acknowledgement. Do not publish the dashboard on an internet-facing interface.
+By default, the entrypoint does not bypass the dashboard's non-localhost safety gate. `HERMES_DASHBOARD_HOST` controls the bind address *inside the container*, while `-p 127.0.0.1:9119:9119` controls which interface on the *host* can reach it. If you set `HERMES_DASHBOARD_HOST=0.0.0.0` so Docker can forward the port, also keep the published port bound to `127.0.0.1` on the host and set `HERMES_DASHBOARD_INSECURE=1` as an explicit acknowledgement. Do not publish the dashboard on an internet-facing interface.
 
 :::note
 The dashboard side-process is **not supervised** — if it crashes, it stays down until the container restarts. Running it as a separate container is not supported: the dashboard's gateway-liveness detection requires a shared PID namespace with the gateway process.
