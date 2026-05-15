@@ -9,6 +9,8 @@ on:
     types: [opened, synchronize, reopened, labeled]
   pull_request_review:
     types: [submitted]
+  issue_comment:
+    types: [created]
   # CI-completion triggers: fire once per workflow finish so we get a
   # fresh evaluation the moment the last check goes green.
   # Note: workflow_run only reads from the default branch, so these
@@ -28,7 +30,7 @@ on:
 # One evaluation per PR at a time; cancel any in-flight run when a
 # newer trigger arrives for the same PR.
 concurrency:
-  group: auto-merge-pr-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+  group: auto-merge-pr-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.pull_requests[0].number }}
   cancel-in-progress: true
 
 permissions:
@@ -36,6 +38,7 @@ permissions:
   contents: write
   checks: read
   statuses: write
+  issues: read
 
 jobs:
   auto-merge:
@@ -44,12 +47,14 @@ jobs:
     # Skip fork PRs; skip non-'reviewed' label events; prevent self-trigger loop.
     # synchronize/opened/reopened are allowed through so the workflow appears
     # in the PR's checks list; the script short-circuits on those events.
+    # issue_comment fires for all issues — gate to PRs only.
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.name != 'Auto-merge') ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'reviewed'))
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'reviewed')) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null)
     # No polling needed for workflow_run — it fires after CI finishes.
-    # For pull_request_review / labeled events a short poll loop waits for CI.
+    # For pull_request_review / labeled / issue_comment events a short poll loop waits for CI.
     timeout-minutes: 30
 
     steps:
@@ -64,6 +69,22 @@ jobs:
             const repo  = context.repo.repo;
             const currentRunId = process.env.CURRENT_RUN_ID;
             const workflowRunUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            // Known review-bot logins. A comment (or review of any state) from
+            // any of these counts as review activity, even if the bot couldn't
+            // produce a real review (e.g. "daily quota exceeded" responses).
+            const REVIEW_BOTS = new Set([
+              'gemini-code-assist[bot]',
+              'gemini-code-assist',
+              'copilot-pull-request-reviewer[bot]',
+              'copilot-pull-request-reviewer',
+              'coderabbitai[bot]',
+              'coderabbitai',
+              'qodo-merge-pro[bot]',
+              'qodo-merge-pro',
+              'codium-ai[bot]',
+              'codium-ai',
+            ]);
 
             // ── Helper: post / update the visible `auto-merge` commit status ───
             // This is the user-visible PENDING indicator that stays in the PR's
@@ -119,6 +140,8 @@ jobs:
                 core.info('workflow_run has no associated same-repo PR — skipping.');
                 return;
               }
+            } else if (context.eventName === 'issue_comment') {
+              prNumber = context.payload.issue.number;
             } else {
               prNumber = context.payload.pull_request.number;
             }
@@ -205,8 +228,7 @@ jobs:
             // ── 4. Wait for all checks to complete ────────────────────────────
             // workflow_run: another suite may still be running — exit and let the
             // next workflow_run completion re-evaluate.
-            // pull_request_review / labeled: poll up to 25 min so the status
-            // transitions automatically without any manual action.
+            // pull_request_review / labeled / issue_comment: poll up to 25 min.
             let pendingRuns = externalRuns.filter(r => r.status !== 'completed');
             if (pendingRuns.length > 0) {
               if (context.eventName === 'workflow_run') {
@@ -301,15 +323,36 @@ jobs:
               return;
             }
 
-            // ── 9. Collect review comments ─────────────────────────────────────
+            // ── 9. Collect review comments and bot activity ────────────────────
+            // Three independent signals satisfy "review activity":
+            //   a) any APPROVED review,
+            //   b) at least one inline review comment from a non-author,
+            //   c) any comment OR review from a known code-review bot — even
+            //      if the bot responded with a quota / rate-limit error, the
+            //      attempted review counts.
             const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
               owner, repo, pull_number: prNumber,
             });
             const nonAuthorComments = reviewComments.filter(c => c.user.login !== freshPr.user.login);
-            const reviewDetected    = approvedReviews.length > 0 || nonAuthorComments.length > 0;
-            const hasReviewedLabel  = freshPr.labels.some(l => l.name === 'reviewed');
 
-            core.info(`Review detected: ${reviewDetected} (${reviewerStats})`);
+            const issueComments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: prNumber,
+            });
+            const botIssueComments = issueComments.filter(c => REVIEW_BOTS.has(c.user.login));
+            const botReviews       = reviewList.filter(r => REVIEW_BOTS.has(r.user.login));
+            const reviewBotActivity = botIssueComments.length + botReviews.length;
+            const botNames = Array.from(new Set([
+              ...botIssueComments.map(c => c.user.login),
+              ...botReviews.map(r => r.user.login),
+            ]));
+
+            const reviewDetected = approvedReviews.length > 0
+              || nonAuthorComments.length > 0
+              || reviewBotActivity > 0;
+            const hasReviewedLabel = freshPr.labels.some(l => l.name === 'reviewed');
+
+            core.info(`Review detected: ${reviewDetected} (${reviewerStats}; ` +
+              `bot activity: ${reviewBotActivity}${botNames.length ? ` from ${botNames.join(', ')}` : ''})`);
             core.info(`'reviewed' label: ${hasReviewedLabel}`);
 
             // ── 10. Guard: no qualifying review yet ───────────────────────────
@@ -319,9 +362,14 @@ jobs:
               await upsertComment(
                 '<!-- auto-merge-pending-review -->',
                 `### Auto-merge: pending review\n\n` +
-                `All CI checks have passed, but no qualifying review has been submitted yet.\n\n` +
-                `Auto-merge requires at least one **approved** review or an inline comment ` +
-                `from a reviewer other than the PR author, **and** the \`reviewed\` label.\n\n` +
+                `All CI checks have passed, but no qualifying review activity has been ` +
+                `detected yet.\n\n` +
+                `Auto-merge requires **one** of the following, plus the \`reviewed\` label:\n` +
+                `- an **approved** review,\n` +
+                `- an inline review comment from someone other than the PR author, or\n` +
+                `- a comment or review from a recognised code-review bot ` +
+                `(e.g. \`@gemini-code-assist\`, \`@copilot-pull-request-reviewer\`, \`@coderabbitai\`) — ` +
+                `quota / rate-limit responses still count as an attempt.\n\n` +
                 `[View workflow run](${workflowRunUrl})`
               );
               return;
@@ -334,6 +382,7 @@ jobs:
               const parts = [
                 approvedReviews.length > 0   ? `${approvedReviews.length} approved review(s): ${approvedNames.join(', ')}` : null,
                 nonAuthorComments.length > 0 ? `${nonAuthorComments.length} inline comment(s) by non-author(s)` : null,
+                reviewBotActivity > 0        ? `${reviewBotActivity} comment(s)/review(s) from review bot(s): ${botNames.join(', ')}` : null,
               ].filter(Boolean);
               await upsertComment(
                 '<!-- auto-merge-needs-label -->',
