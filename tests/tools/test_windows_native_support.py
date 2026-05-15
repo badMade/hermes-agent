@@ -451,10 +451,19 @@ class TestWindowsInstallerGitDownloadHardening:
         hash_pos = source.index("Get-FileHash -Algorithm SHA256")
         mismatch_pos = source.index("checksum mismatch")
         cleanup_pos = source.index("Remove-Item -Force $tmpFile", hash_pos)
-        extract_pos = min(
-            source.index("Expand-Archive -Path $tmpFile"),
-            source.index("Start-Process -FilePath $tmpFile"),
+
+        extraction_markers = [
+            "Expand-Archive -Path $tmpFile",
+            "Start-Process -FilePath $tmpFile",
+        ]
+        extraction_positions = [
+            source.index(marker) for marker in extraction_markers if marker in source
+        ]
+        assert extraction_positions, (
+            "install.ps1 must extract or execute the downloaded Git artifact "
+            "after SHA-256 verification"
         )
+        extract_pos = min(extraction_positions)
         run_pos = source.index("$version = & $gitExe --version")
 
         assert "Sha256 =" in source
