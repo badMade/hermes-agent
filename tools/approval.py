@@ -1122,9 +1122,15 @@ def check_all_command_guards(command: str, env_type: str,
 
     # --- Phase 2.5: Smart approval (auxiliary LLM risk assessment) ---
     # When approvals.mode=smart, ask the aux LLM before prompting the user.
+    # Do not auto-approve scanner blocks: a deterministic tirith block requires
+    # an explicit user decision because the command text is model-controlled.
     # Inspired by OpenAI Codex's Smart Approvals guardian subagent
     # (openai/codex#13860).
-    if approval_mode == "smart":
+    has_unapproved_tirith_block = (
+        tirith_result.get("action") == "block"
+        and any(is_t for _, _, is_t in warnings)
+    )
+    if approval_mode == "smart" and not has_unapproved_tirith_block:
         combined_desc_for_llm = "; ".join(desc for _, desc, _ in warnings)
         verdict = _smart_approve(command, combined_desc_for_llm)
         if verdict == "approve":
