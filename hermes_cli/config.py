@@ -357,16 +357,17 @@ def _is_container() -> bool:
     return False
 
 
-def _secure_file(path):
+def _secure_file(path, *, allow_container_skip: bool = True):
     """Set file to owner-only read/write (0600). No-op on Windows.
 
     Skipped in managed mode — the NixOS activation script sets
     group-readable permissions (0640) on config files.
 
-    Skipped in containers — Docker/Podman volume mounts often need broader
-    permissions.  Set HERMES_SKIP_CHMOD=1 to force-skip on other systems.
+    Container chmod skipping is allowed for non-secret config files only.
+    Credential files such as ``.env`` must pass ``allow_container_skip=False``
+    so existing permissive volume modes are not preserved for secrets.
     """
-    if is_managed() or _is_container():
+    if is_managed() or (allow_container_skip and _is_container()):
         return
     try:
         if os.path.exists(str(path)):
@@ -4477,7 +4478,7 @@ def save_env_value(key: str, value: str):
         except OSError:
             pass
         raise
-    _secure_file(env_path)
+    _secure_file(env_path, allow_container_skip=False)
 
     os.environ[key] = value
 
@@ -4532,7 +4533,7 @@ def remove_env_value(key: str) -> bool:
             except OSError:
                 pass
             raise
-        _secure_file(env_path)
+        _secure_file(env_path, allow_container_skip=False)
 
     os.environ.pop(key, None)
     return found
