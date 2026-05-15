@@ -354,7 +354,22 @@ class TestGitignoreManagement:
         _ignore_entry = ".worktrees/"
         existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
         if _ignore_entry not in existing.splitlines():
-            with open(gitignore, "a", encoding="utf-8") as f:
+@@ -355,7 +355,7 @@
+-        existing = gitignore.read_text() if gitignore.exists() else ""
++        existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
+         if _ignore_entry not in existing.splitlines():
+             with open(gitignore, "a", encoding="utf-8") as f:
+                 if existing and not existing.endswith("\n"):
+@@ -362,7 +362,7 @@
+-        content = gitignore.read_text()
++        content = gitignore.read_text(encoding="utf-8")
+         assert _ignore_entry in content.splitlines()
+ 
+     def test_does_not_add_duplicate_to_gitignore(self, git_repo):
+@@ -371,7 +371,7 @@
+-        content = gitignore.read_text()
++        content = gitignore.read_text(encoding="utf-8")
+         assert content.count(_ignore_entry) == 1
                 if existing and not existing.endswith("\n"):
                     f.write("\n")
                 f.write(f"{_ignore_entry}\n")
