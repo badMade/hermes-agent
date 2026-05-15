@@ -514,14 +514,26 @@ def _resolve_npx_agent_browser_prefix() -> List[str]:
             "with 'npm install' or ensure Node.js/npm are installed correctly."
         )
 
-    node_bin = shutil.which("node") or shutil.which("node.exe")
-    sibling_node = npx_path.parent / "node.exe"
-    if not node_bin and sibling_node.is_file():
-        node_bin = str(sibling_node)
+    def _valid_windows_node(candidate: Optional[str]) -> Optional[str]:
+        if not candidate:
+            return None
+        candidate_path = Path(candidate)
+        if candidate_path.suffix.lower() in {".exe", ".com"} and candidate_path.is_file():
+            return str(candidate_path)
+        sibling_exe = candidate_path.with_name("node.exe")
+        if sibling_exe.is_file():
+            return str(sibling_exe)
+        return None
+
+    node_bin = (
+        _valid_windows_node(shutil.which("node.exe"))
+        or _valid_windows_node(shutil.which("node"))
+        or _valid_windows_node(str(npx_path.parent / "node.exe"))
+    )
     if not node_bin:
         raise FileNotFoundError(
             "Refusing to launch npx.cmd with browser arguments on Windows; "
-            "could not locate node.exe for npm's npx-cli.js."
+            "could not locate a real node.exe for npm's npx-cli.js."
         )
     return [node_bin, str(npx_cli), "agent-browser"]
 
