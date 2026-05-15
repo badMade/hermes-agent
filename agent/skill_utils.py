@@ -37,6 +37,7 @@ def yaml_load(content: str):
     if _yaml_load_fn is None:
         import yaml
 
+        # SafeLoader is provided by PyYAML; CSafeLoader is the faster C variant.
         loader = getattr(yaml, "CSafeLoader", None) or yaml.SafeLoader
 
         def _load(value: str):
