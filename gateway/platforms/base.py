@@ -17,7 +17,7 @@ import subprocess
 import sys
 import uuid
 from abc import ABC, abstractmethod
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from utils import normalize_proxy_url
 
@@ -531,6 +531,87 @@ async def _ssrf_redirect_guard(response):
             raise ValueError(
                 f"Blocked redirect to private/internal address: {safe_url_for_log(redirect_url)}"
             )
+
+
+MAX_GATEWAY_MEDIA_DOWNLOAD_BYTES = 20 * 1024 * 1024
+
+
+async def download_public_url_bytes_aiohttp(
+    session,
+    url: str,
+    *,
+    timeout,
+    request_kwargs: dict | None = None,
+    max_bytes: int = MAX_GATEWAY_MEDIA_DOWNLOAD_BYTES,
+    max_redirects: int = 5,
+) -> tuple[bytes, str, str]:
+    """Download a public URL with SSRF-safe redirects and a hard size cap."""
+    from tools.url_safety import is_safe_url
+
+    current_url = url
+    request_kwargs = request_kwargs or {}
+    for _redirect_count in range(max_redirects + 1):
+        if not is_safe_url(current_url):
+            raise ValueError(
+                f"Blocked unsafe URL (SSRF protection): {safe_url_for_log(current_url)}"
+            )
+
+        async with session.get(
+            current_url,
+            timeout=timeout,
+            allow_redirects=False,
+            **request_kwargs,
+        ) as resp:
+            if 300 <= resp.status < 400:
+                location = (
+                    resp.headers.get("Location") if hasattr(resp, "headers") else None
+                )
+                if not location:
+                    raise ValueError(
+                        "Redirect without Location header: "
+                        f"{safe_url_for_log(current_url)}"
+                    )
+                current_url = urljoin(current_url, location)
+                continue
+
+            if resp.status >= 400:
+                resp.raise_for_status()
+
+            length = (
+                resp.headers.get("Content-Length")
+                if hasattr(resp, "headers")
+                else None
+            )
+            if length is not None:
+                try:
+                    if int(length) > max_bytes:
+                        raise ValueError(f"Download exceeds {max_bytes} byte limit")
+                except ValueError:
+                    if str(length).strip().isdigit():
+                        raise
+
+            chunks: list[bytes] = []
+            total = 0
+            content = getattr(resp, "content", None)
+            if content is not None and hasattr(content, "iter_chunked"):
+                async for chunk in content.iter_chunked(64 * 1024):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ValueError(f"Download exceeds {max_bytes} byte limit")
+                    chunks.append(chunk)
+                data = b"".join(chunks)
+            else:
+                data = await resp.read()
+                if len(data) > max_bytes:
+                    raise ValueError(f"Download exceeds {max_bytes} byte limit")
+
+            return (
+                data,
+                getattr(resp, "content_type", None) or "application/octet-stream",
+                current_url,
+            )
+
+    raise ValueError(f"Too many redirects while downloading {safe_url_for_log(url)}")
 
 
 # ---------------------------------------------------------------------------
