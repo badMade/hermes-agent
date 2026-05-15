@@ -46,7 +46,24 @@ try:
 except ImportError:
     DINGTALK_STREAM_AVAILABLE = False
     dingtalk_stream = None  # type: ignore[assignment]
-    ChatbotMessage = None  # type: ignore[assignment]
+    class _FallbackChatbotMessage(SimpleNamespace):
+        @classmethod
+        def from_dict(cls, data):
+            data = data if isinstance(data, dict) else {}
+            return cls(
+                session_webhook=data.get("sessionWebhook") if data.get("sessionWebhook") is not None else data.get("session_webhook") if data.get("session_webhook") is not None else "",
+                message_id=data.get("messageId") if data.get("messageId") is not None else data.get("msgId") if data.get("msgId") is not None else data.get("message_id") if data.get("message_id") is not None else "",
+                conversation_id=data.get("conversationId") if data.get("conversationId") is not None else data.get("conversation_id") if data.get("conversation_id") is not None else "",
+                conversation_type=str(data.get("conversationType") if data.get("conversationType") is not None else data.get("conversation_type") if data.get("conversation_type") is not None else "1"),
+                sender_id=data.get("senderId") if data.get("senderId") is not None else data.get("sender_id") if data.get("sender_id") is not None else "",
+                sender_staff_id=data.get("senderStaffId") if data.get("senderStaffId") is not None else data.get("sender_staff_id") if data.get("sender_staff_id") is not None else "",
+                sender_nick=data.get("senderNick") if data.get("senderNick") is not None else data.get("sender_nick") if data.get("sender_nick") is not None else "",
+                text=data.get("text"),
+                rich_text=data.get("richText") if data.get("richText") is not None else data.get("rich_text"),
+                is_in_at_list=bool(data.get("isInAtList") if data.get("isInAtList") is not None else data.get("is_in_at_list")),
+            )
+
+    ChatbotMessage = _FallbackChatbotMessage  # type: ignore[assignment]
     CallbackMessage = None  # type: ignore[assignment]
     AckMessage = type(
         "AckMessage",
@@ -80,13 +97,45 @@ try:
 
     CARD_SDK_AVAILABLE = True
 except ImportError:
+    class _FallbackSDKModel:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    _card_model_names = [
+        "CreateCardRequest",
+        "CreateCardRequestCardData",
+        "CreateCardRequestImGroupOpenSpaceModel",
+        "CreateCardRequestImRobotOpenSpaceModel",
+        "CreateCardHeaders",
+        "DeliverCardRequest",
+        "DeliverCardRequestImGroupOpenDeliverModel",
+        "DeliverCardRequestImRobotOpenDeliverModel",
+        "DeliverCardHeaders",
+        "StreamingUpdateRequest",
+        "StreamingUpdateHeaders",
+    ]
+    _robot_model_names = [
+        "RobotRecallEmotionRequestTextEmotion",
+        "RobotRecallEmotionRequest",
+        "RobotRecallEmotionHeaders",
+        "RobotReplyEmotionRequestTextEmotion",
+        "RobotReplyEmotionRequest",
+        "RobotReplyEmotionHeaders",
+        "RobotMessageFileDownloadRequest",
+        "RobotMessageFileDownloadHeaders",
+    ]
+
     CARD_SDK_AVAILABLE = False
     dingtalk_card_client = None
-    dingtalk_card_models = None
+    dingtalk_card_models = SimpleNamespace(
+        **{name: _FallbackSDKModel for name in _card_model_names}
+    )
     dingtalk_robot_client = None
-    dingtalk_robot_models = None
+    dingtalk_robot_models = SimpleNamespace(
+        **{name: _FallbackSDKModel for name in _robot_model_names}
+    )
     open_api_models = None
-    tea_util_models = None
+    tea_util_models = SimpleNamespace(RuntimeOptions=_FallbackSDKModel)
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.helpers import MessageDeduplicator

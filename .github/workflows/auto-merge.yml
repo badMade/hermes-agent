@@ -72,12 +72,20 @@ jobs:
 
             // Known review-bot logins. A comment (or review of any state) from
             // any of these counts as review activity, even if the bot couldn't
-            // produce a real review (e.g. "daily quota exceeded" responses).
+            // produce a real review (e.g. "daily quota exceeded" responses,
+            // Copilot-over-usage-limit notices). The attempted review counts.
             const REVIEW_BOTS = new Set([
               'gemini-code-assist[bot]',
               'gemini-code-assist',
               'copilot-pull-request-reviewer[bot]',
               'copilot-pull-request-reviewer',
+              'copilot-swe-agent[bot]',
+              'copilot-swe-agent',
+              'github-copilot[bot]',
+              'github-copilot',
+              'Copilot',
+              'copilot[bot]',
+              'copilot',
               'coderabbitai[bot]',
               'coderabbitai',
               'qodo-merge-pro[bot]',
