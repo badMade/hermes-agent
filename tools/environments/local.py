@@ -219,6 +219,15 @@ def _sanitize_untrusted_subprocess_env(base_env: dict | None = None) -> dict:
     ``*_ACCESS_KEY``, ``*_PRIVATE_KEY``, etc.), so non-Hermes cloud
     credentials, database passwords, and similar variables are not exposed to
     user-supplied shell commands such as ``quick_commands`` or ``shell.exec``.
+
+    Args:
+        base_env: The environment dict to sanitize. When ``None``, an empty
+            dict is used as the base (matching the behavior inherited from
+            ``_sanitize_subprocess_env``).
+
+    Returns:
+        A sanitized copy with both Hermes-managed secrets and any variable
+        whose name matches a secret-name pattern removed.
     """
     sanitized = _sanitize_subprocess_env(base_env)
     return {k: v for k, v in sanitized.items() if not _looks_like_secret_var(k)}
