@@ -103,6 +103,17 @@ _SYNC_BACK_MAX_RETRIES = 3
 _SYNC_BACK_BACKOFF = (2, 4, 8)  # seconds between retries
 _SYNC_BACK_MAX_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB — refuse to extract larger tars
 
+_SYNC_BACK_INFER_REMOTE_ROOTS = ("skills", "external_skills", "cache")
+
+
+def _is_safe_sync_back_infer_path(remote_path: str) -> bool:
+    """Return True for remote files under directories that may create host files."""
+    parts = Path(remote_path).parts
+    if ".hermes" not in parts:
+        return False
+    idx = parts.index(".hermes")
+    return idx + 1 < len(parts) and parts[idx + 1] in _SYNC_BACK_INFER_REMOTE_ROOTS
+
 
 class FileSyncManager:
     """Tracks local file changes and syncs to a remote environment.
@@ -351,7 +362,15 @@ class FileSyncManager:
                                 )
                                 continue
 
-                        if os.path.exists(host_path) and pushed_hash is not None:
+                        if os.path.exists(host_path):
+                            if pushed_hash is None:
+                                logger.warning(
+                                    "sync_back: skipping new remote file %s because "
+                                    "the inferred host path already exists: %s",
+                                    remote_path,
+                                    host_path,
+                                )
+                                continue
                             host_hash = _sha256_file(host_path)
                             if host_hash != pushed_hash:
                                 logger.warning(
@@ -385,12 +404,17 @@ class FileSyncManager:
 
         Uses the existing file mapping to find a remote->host directory
         pair, then applies the same prefix substitution to the new file.
-        For example, if the mapping has ``/root/.hermes/skills/a.md`` →
-        ``~/.hermes/skills/a.md``, a new remote file at
-        ``/root/.hermes/skills/b.md`` maps to ``~/.hermes/skills/b.md``.
+        Inference is limited to sync-owned subtrees that intentionally
+        accept new files (skills, external_skills, and cache). Individual
+        credential-file mappings must not broaden to all of ``.hermes``.
         """
+        if not _is_safe_sync_back_infer_path(remote_path):
+            return None
+
         mapping = file_mapping if file_mapping is not None else []
-        for host, remote in mapping:
+        for host, remote in sorted(
+            mapping, key=lambda item: len(str(Path(item[1]).parent)), reverse=True
+        ):
             remote_dir = str(Path(remote).parent)
             if remote_path.startswith(remote_dir + "/"):
                 host_dir = str(Path(host).parent)
