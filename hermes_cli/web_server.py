@@ -1688,8 +1688,8 @@ def _save_anthropic_oauth_creds(access_token: str, refresh_token: str, expires_a
         "refreshToken": refresh_token,
         "expiresAt": expires_at_ms,
     }
-    _HERMES_OAUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _HERMES_OAUTH_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    from hermes_cli.secure_files import write_sensitive_json
+    write_sensitive_json(_HERMES_OAUTH_FILE, payload)
     # Best-effort credential-pool insert. Failure here doesn't invalidate
     # the file write — pool registration only matters for the rotation
     # strategy, not for runtime credential resolution.
