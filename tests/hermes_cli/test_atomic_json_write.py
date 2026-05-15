@@ -2,6 +2,7 @@
 
 import json
 import os
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -136,11 +137,9 @@ class TestAtomicJsonWrite:
 
         atomic_json_write(marker, {"marker": True}, preserve_symlink=False)
 
-        import stat as _stat
-
         assert not marker.is_symlink()
         assert json.loads(victim.read_text(encoding="utf-8")) == {"victim": True}
-        marker_mode = _stat.S_IMODE(marker.stat().st_mode)
+        marker_mode = stat.S_IMODE(marker.stat().st_mode)
         assert marker_mode != 0o777
 
     def test_unicode_content(self, tmp_path):
