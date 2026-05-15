@@ -51,16 +51,16 @@ except ImportError:
         def from_dict(cls, data):
             data = data if isinstance(data, dict) else {}
             return cls(
-                session_webhook=data.get("sessionWebhook") or data.get("session_webhook") or "",
-                message_id=data.get("messageId") or data.get("msgId") or data.get("message_id") or "",
-                conversation_id=data.get("conversationId") or data.get("conversation_id") or "",
-                conversation_type=str(data.get("conversationType") or data.get("conversation_type") or "1"),
-                sender_id=data.get("senderId") or data.get("sender_id") or "",
-                sender_staff_id=data.get("senderStaffId") or data.get("sender_staff_id") or "",
-                sender_nick=data.get("senderNick") or data.get("sender_nick") or "",
+                session_webhook=data.get("sessionWebhook") if data.get("sessionWebhook") is not None else data.get("session_webhook") if data.get("session_webhook") is not None else "",
+                message_id=data.get("messageId") if data.get("messageId") is not None else data.get("msgId") if data.get("msgId") is not None else data.get("message_id") if data.get("message_id") is not None else "",
+                conversation_id=data.get("conversationId") if data.get("conversationId") is not None else data.get("conversation_id") if data.get("conversation_id") is not None else "",
+                conversation_type=str(data.get("conversationType") if data.get("conversationType") is not None else data.get("conversation_type") if data.get("conversation_type") is not None else "1"),
+                sender_id=data.get("senderId") if data.get("senderId") is not None else data.get("sender_id") if data.get("sender_id") is not None else "",
+                sender_staff_id=data.get("senderStaffId") if data.get("senderStaffId") is not None else data.get("sender_staff_id") if data.get("sender_staff_id") is not None else "",
+                sender_nick=data.get("senderNick") if data.get("senderNick") is not None else data.get("sender_nick") if data.get("sender_nick") is not None else "",
                 text=data.get("text"),
-                rich_text=data.get("richText") or data.get("rich_text"),
-                is_in_at_list=bool(data.get("isInAtList") or data.get("is_in_at_list")),
+                rich_text=data.get("richText") if data.get("richText") is not None else data.get("rich_text"),
+                is_in_at_list=bool(data.get("isInAtList") if data.get("isInAtList") is not None else data.get("is_in_at_list")),
             )
 
     ChatbotMessage = _FallbackChatbotMessage  # type: ignore[assignment]
