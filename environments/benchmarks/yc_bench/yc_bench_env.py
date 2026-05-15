@@ -66,6 +66,7 @@ from environments.agent_loop import HermesAgentLoop
 from environments.hermes_base_env import HermesAgentBaseEnv, HermesAgentEnvConfig
 
 logger = logging.getLogger(__name__)
+_SQLITE_TRIM_CHARS = " \t\n\r\f\v"
 
 # =============================================================================
 # System prompt
@@ -260,15 +261,15 @@ def _read_final_score(db_path: str) -> Dict[str, Any]:
         # Determine terminal reason from 'sim_events' table
         terminal_reason = "unknown"
         try:
-            cur.execute("SELECT event_type FROM sim_events ORDER BY scheduled_at DESC")
-            while event_rows := cur.fetchmany(100):
-                for event_row in event_rows:
-                    normalized_event_type = str(event_row[0]).strip().lower()
-                    if normalized_event_type in {"bankruptcy", "horizon_end"}:
-                        terminal_reason = normalized_event_type
-                        break
-                if terminal_reason != "unknown":
-                    break
+            cur.execute(
+                "SELECT event_type FROM sim_events "
+                "WHERE LOWER(TRIM(event_type, ?)) IN ('bankruptcy', 'horizon_end') "
+                "ORDER BY scheduled_at DESC LIMIT 1",
+                (_SQLITE_TRIM_CHARS,),
+            )
+            event_row = cur.fetchone()
+            if event_row:
+                terminal_reason = str(event_row[0]).strip().lower()
         except sqlite3.OperationalError:
             # Table may not exist if simulation didn't progress
             pass

@@ -73,18 +73,12 @@ def _load_yc_bench_module(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def read_final_score(monkeypatch: pytest.MonkeyPatch):
+def read_final_score():
     module_name = "environments.benchmarks.yc_bench.yc_bench_env"
-    original_module = sys.modules.get(module_name)
-    sys.modules.pop(module_name, None)
 
-    try:
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
         yield _load_yc_bench_module(monkeypatch)._read_final_score
-    finally:
-        if original_module is not None:
-            sys.modules[module_name] = original_module
-        else:
-            sys.modules.pop(module_name, None)
 
 
 def test_missing_db_file(read_final_score) -> None:
