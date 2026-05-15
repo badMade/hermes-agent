@@ -79,9 +79,7 @@ _CRON_ALLOWED_GITHUB_AUTH_CURL_RE = (
 
 def _is_allowed_github_auth_curl(prompt: str, match: re.Match) -> bool:
     """Return true when an auth-header curl match is scoped to GitHub's API."""
-    command_start = prompt.rfind("curl", 0, match.start() + 4)
-    if command_start < 0:
-        return False
+    command_start = match.start()
     command_line_end = prompt.find("\n", match.end())
     if command_line_end < 0:
         command_line_end = len(prompt)
