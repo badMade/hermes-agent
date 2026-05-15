@@ -31,7 +31,7 @@ def compute_new_schedule() -> str:
             capture_output=True, text=True
         )
         if result.returncode == 0:
-            lines = result.stdout.splitlines()
+            lines = result.stdout.strip().split("\n")
             if len(lines) > 10:
                 print("High churn detected. Setting daily schedule.")
                 return "0 2 * * *"
@@ -55,7 +55,7 @@ def update_schedule_file(new_cron: str) -> None:
 
     if MARKER not in content:
         print(f"Marker '{MARKER}' not found in {file_path}.")
-        sys.exit(0)
+        sys.exit(1)
 
     # Replace the cron string
     new_content = re.sub(
