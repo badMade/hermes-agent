@@ -2347,6 +2347,14 @@ OPTIONAL_ENV_VARS = {
         "password": True,
         "category": "messaging",
     },
+    "BLUEBUBBLES_WEBHOOK_TOKEN": {
+        "description": "Optional dedicated token for authenticating BlueBubbles webhooks",
+        "prompt": "BlueBubbles webhook token",
+        "url": None,
+        "password": True,
+        "category": "messaging",
+        "advanced": True,
+    },
     "BLUEBUBBLES_ALLOWED_USERS": {
         "description": "Comma-separated iMessage addresses (email or phone) allowed to use the bot",
         "prompt": "Allowed iMessage addresses (comma-separated)",
