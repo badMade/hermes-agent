@@ -352,23 +352,23 @@ class TestGitignoreManagement:
 
         # Now manually add .worktrees/ to .gitignore (mirrors cli.py logic)
         _ignore_entry = ".worktrees/"
-        existing = gitignore.read_text() if gitignore.exists() else ""
+        existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
         if _ignore_entry not in existing.splitlines():
             with open(gitignore, "a", encoding="utf-8") as f:
                 if existing and not existing.endswith("\n"):
                     f.write("\n")
                 f.write(f"{_ignore_entry}\n")
 
-        content = gitignore.read_text()
+        content = gitignore.read_text(encoding="utf-8")
         assert ".worktrees/" in content
 
     def test_does_not_duplicate_gitignore_entry(self, git_repo):
         """If .worktrees/ is already in .gitignore, don't add again."""
         gitignore = git_repo / ".gitignore"
-        gitignore.write_text(".worktrees/\n")
+        gitignore.write_text(".worktrees/\n", encoding="utf-8")
 
         # The check should see it's already there
-        existing = gitignore.read_text()
+        existing = gitignore.read_text(encoding="utf-8")
         assert ".worktrees/" in existing.splitlines()
 
 
