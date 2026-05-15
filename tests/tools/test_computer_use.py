@@ -17,19 +17,22 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_backend():
-    """Tear down the cached backend between tests."""
-    from tools.computer_use.tool import reset_backend_for_tests
+    """Tear down the cached backend and approval callback between tests."""
+    from tools.computer_use.tool import reset_backend_for_tests, set_approval_callback
     reset_backend_for_tests()
+    set_approval_callback(None)
     # Force the noop backend.
     with patch.dict(os.environ, {"HERMES_COMPUTER_USE_BACKEND": "noop"}, clear=False):
         yield
     reset_backend_for_tests()
+    set_approval_callback(None)
 
 
 @pytest.fixture
 def noop_backend():
     """Return the active noop backend instance so tests can inspect calls."""
-    from tools.computer_use.tool import _get_backend
+    from tools.computer_use.tool import _get_backend, set_approval_callback
+    set_approval_callback(lambda action, args, summary: "approve_once")
     return _get_backend()
 
 
@@ -154,6 +157,28 @@ class TestDispatch:
         handle_computer_use({"action": "right_click", "element": 3})
         click_kw = next(c[1] for c in noop_backend.calls if c[0] == "click")
         assert click_kw["button"] == "right"
+
+
+class TestApprovalGate:
+    def test_destructive_action_without_callback_fails_closed(self):
+        from tools.computer_use.tool import handle_computer_use, set_approval_callback
+
+        set_approval_callback(None)
+        out = handle_computer_use({"action": "type", "text": "hello"})
+        parsed = json.loads(out)
+
+        assert parsed["error"] == "approval callback unavailable"
+        assert parsed["action"] == "type"
+
+    def test_destructive_action_with_approval_callback_routes_to_backend(self, noop_backend):
+        from tools.computer_use.tool import handle_computer_use
+
+        out = handle_computer_use({"action": "type", "text": "hello"})
+        parsed = json.loads(out)
+
+        assert parsed["ok"] is True
+        assert parsed["action"] == "type"
+        assert ("type", {"text": "hello"}) in noop_backend.calls
 
 
 # ---------------------------------------------------------------------------

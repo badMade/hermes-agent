@@ -74,6 +74,13 @@ def test_get_platform_tools_uses_default_when_platform_not_configured():
     assert enabled.isdisjoint(_DEFAULT_OFF_TOOLSETS)
 
 
+def test_computer_use_is_opt_in_by_default():
+    enabled = _get_platform_tools({}, "cli")
+
+    assert "computer_use" in _DEFAULT_OFF_TOOLSETS
+    assert "computer_use" not in enabled
+
+
 def test_configurable_toolsets_include_messaging():
     assert any(ts_key == "messaging" for ts_key, _, _ in CONFIGURABLE_TOOLSETS)
 

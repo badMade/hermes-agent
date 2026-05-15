@@ -266,9 +266,11 @@ def _request_approval(action: str, args: Dict[str, Any]) -> Optional[str]:
         return None
     cb = _approval_callback
     if cb is None:
-        # No CLI approval wired — default allow. Gateway approval is handled
-        # one layer out via the normal tool-approval infra.
-        return None
+        return json.dumps({
+            "error": "approval callback unavailable",
+            "action": action,
+            "hint": "computer_use destructive actions require an approval callback.",
+        })
     summary = _summarize_action(action, args)
     try:
         verdict = cb(action, args, summary)
