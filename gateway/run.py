@@ -5433,7 +5433,10 @@ class GatewayRunner:
 
         # Check pairing store (always checked, regardless of allowlists)
         platform_name = source.platform.value if source.platform else ""
-        if self.pairing_store.is_approved(platform_name, user_id):
+        auth_user_id = user_id
+        if source.platform == Platform.WECOM_CALLBACK and source.chat_id:
+            auth_user_id = source.chat_id
+        if self.pairing_store.is_approved(platform_name, auth_user_id):
             return True
 
         # Check platform-specific and global allowlists
@@ -5506,9 +5509,9 @@ class GatewayRunner:
         if "*" in allowed_ids:
             return True
 
-        check_ids = {user_id}
-        if "@" in user_id:
-            check_ids.add(user_id.split("@")[0])
+        check_ids = {auth_user_id}
+        if "@" in auth_user_id:
+            check_ids.add(auth_user_id.split("@")[0])
 
         # WhatsApp: resolve phone↔LID aliases from bridge session mapping files
         if source.platform == Platform.WHATSAPP:
