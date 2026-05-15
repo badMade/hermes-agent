@@ -69,14 +69,22 @@ def _load_yc_bench_module(monkeypatch: pytest.MonkeyPatch):
     for name, module in stub_modules.items():
         monkeypatch.setitem(sys.modules, name, module)
 
-    module_name = "environments.benchmarks.yc_bench.yc_bench_env"
-    sys.modules.pop(module_name, None)
-    return importlib.import_module(module_name)
+    return importlib.import_module("environments.benchmarks.yc_bench.yc_bench_env")
 
 
 @pytest.fixture
 def read_final_score(monkeypatch: pytest.MonkeyPatch):
-    return _load_yc_bench_module(monkeypatch)._read_final_score
+    module_name = "environments.benchmarks.yc_bench.yc_bench_env"
+    original_module = sys.modules.get(module_name)
+    sys.modules.pop(module_name, None)
+
+    try:
+        yield _load_yc_bench_module(monkeypatch)._read_final_score
+    finally:
+        if original_module is not None:
+            sys.modules[module_name] = original_module
+        else:
+            sys.modules.pop(module_name, None)
 
 
 def test_missing_db_file(read_final_score) -> None:
