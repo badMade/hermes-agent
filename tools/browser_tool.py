@@ -1726,9 +1726,9 @@ def _quote_windows_batch_arg(arg: str) -> str:
     example ``&``) remain data instead of becoming command separators.
     """
     arg = str(arg)
-    if "\x00" in arg or "\r" in arg or "\n" in arg or '"' in arg:
+    if "\x00" in arg or "\r" in arg or "\n" in arg or '"' in arg or "%" in arg:
         raise ValueError(
-            "Windows batch launcher arguments cannot contain control characters or quotes"
+            "Windows batch launcher arguments cannot contain control characters, quotes, or percent signs"
         )
     # Double trailing backslashes so they don't escape the closing quote
     # in MSVCRT-based downstream processes (like node.exe called by the shim).
