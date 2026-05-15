@@ -180,6 +180,13 @@ sys.stdout = sys.stderr
 _stdio_transport = StdioTransport(lambda: _real_stdout, _stdout_lock)
 
 
+def _trusted_python_src_root() -> str:
+    """Return the trusted Hermes root for internal ``python -m`` subprocesses."""
+    return os.environ.get("HERMES_PYTHON_SRC_ROOT") or str(
+        Path(__file__).resolve().parent.parent
+    )
+
+
 class _SlashWorker:
     """Persistent HermesCLI subprocess for slash commands."""
 
@@ -206,7 +213,7 @@ class _SlashWorker:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
-            cwd=os.getcwd(),
+            cwd=_trusted_python_src_root(),
             env=os.environ.copy(),
         )
         threading.Thread(target=self._drain_stdout, daemon=True).start()
