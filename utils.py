@@ -109,8 +109,17 @@ def atomic_json_write(
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-
-    original_mode = _preserve_file_mode(path)
+    if preserve_symlink:
+        original_mode = _preserve_file_mode(path)
+    else:
+        try:
+            stat_result = path.lstat()
+        except OSError:
+            original_mode = None
+        else:
+            original_mode = (
+                None if stat.S_ISLNK(stat_result.st_mode) else stat.S_IMODE(stat_result.st_mode)
+            )
 
     fd, tmp_path = tempfile.mkstemp(
         dir=str(path.parent),

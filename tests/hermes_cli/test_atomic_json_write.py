@@ -124,6 +124,25 @@ class TestAtomicJsonWrite:
         result = json.loads(target.read_text(encoding="utf-8"))
         assert result == {"value": "custom-value"}
 
+    def test_preserve_symlink_false_does_not_inherit_target_mode(self, tmp_path):
+        if os.name != "posix":
+            pytest.skip("POSIX-only")
+
+        victim = tmp_path / "victim.json"
+        marker = tmp_path / "marker.json"
+        victim.write_text('{"victim": true}', encoding="utf-8")
+        os.chmod(victim, 0o777)
+        marker.symlink_to(victim)
+
+        atomic_json_write(marker, {"marker": True}, preserve_symlink=False)
+
+        import stat as _stat
+
+        assert not marker.is_symlink()
+        assert json.loads(victim.read_text(encoding="utf-8")) == {"victim": True}
+        marker_mode = _stat.S_IMODE(marker.stat().st_mode)
+        assert marker_mode != 0o777
+
     def test_unicode_content(self, tmp_path):
         target = tmp_path / "unicode.json"
         data = {"emoji": "🎉", "japanese": "日本語"}
