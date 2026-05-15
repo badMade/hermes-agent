@@ -3211,6 +3211,16 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 if isinstance(lr, str) and lr.strip():
                     last_reasoning = lr.strip()
             else:
+                # If auto-compression fired inside run_conversation(), agent.session_id
+                # may have rotated. Sync session_key before downstream title/goal/finalize
+                # handling uses it. Preserve pending_title (user intent) so it can be
+                # applied to the continuation. Restart slash worker so subsequent
+                # worker-backed commands (/title etc.) target the live session.
+                # Fix for #20001.
+                _sync_session_key_after_compress(
+                    sid, session, clear_pending_title=False, restart_slash_worker=True,
+                )
+
                 raw = str(result)
                 status = "complete"
 
