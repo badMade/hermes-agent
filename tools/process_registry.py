@@ -590,24 +590,28 @@ class ProcessRegistry:
                 # On POSIX, local background processes are started in their own
                 # session/process group; kill the whole group so setup-failure
                 # cleanup cannot leave behind descendants that ignore SIGTERM.
-                if not _IS_WINDOWS:
+                if not _IS_WINDOWS and proc.poll() is None:
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # windows-footgun: ok
             except Exception:
                 pass
             try:
-                # Preserve existing test/behavior contract: best-effort direct
-                # kill on the original Popen handle as part of cleanup.
-                proc.kill()
-            except Exception:
-                try:
-                    if proc.poll() is None:
-                        proc.terminate()
-                except Exception:
-                    pass
-            try:
                 proc.wait(timeout=5)
             except Exception:
-                pass
+                try:
+                    # Preserve existing test/behavior contract: best-effort direct
+                    # kill on the original Popen handle as part of cleanup.
+                    if proc.poll() is None:
+                        proc.kill()
+                except Exception:
+                    try:
+                        if proc.poll() is None:
+                            proc.terminate()
+                    except Exception:
+                        pass
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
             raise
 
         return session
