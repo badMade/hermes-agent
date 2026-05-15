@@ -128,6 +128,34 @@ class TestCLIQuickCommands:
         args = cli.console.print.call_args[0][0]
         assert "timed out" in args.lower()
 
+    def test_exec_command_does_not_leak_non_hermes_secrets(self):
+        """CLI quick command exec must strip non-Hermes secrets from the subprocess env."""
+        import subprocess as sp
+
+        cli = self._make_cli({"leak": {"type": "exec", "command": "env"}})
+
+        non_hermes_secrets = {
+            "AWS_SECRET_ACCESS_KEY": "AKIASECRETVALUE123",
+            "DB_PASSWORD": "super-db-pass-456",
+            "MY_SERVICE_TOKEN": "tok-abc-xyz-789",
+        }
+
+        captured_env: dict | None = None
+
+        def fake_run(cmd, **kwargs):
+            nonlocal captured_env
+            captured_env = kwargs.get("env", {})
+            return sp.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+        with patch.dict(os.environ, non_hermes_secrets), \
+                patch("subprocess.run", side_effect=fake_run):
+            cli.process_command("/leak")
+
+        assert captured_env is not None, "subprocess.run was not called"
+        for secret_key, secret_val in non_hermes_secrets.items():
+            assert secret_key not in captured_env, \
+                f"CLI quick command leaked {secret_key!r} to subprocess env"
+
 
 # ── Gateway tests ──────────────────────────────────────────────────────────
 
@@ -177,6 +205,30 @@ class TestGatewayQuickCommands:
 
         assert "sk-or-secret-12345" not in result, \
             "Quick command leaked OPENROUTER_API_KEY — exec runs without env sanitization"
+
+    @pytest.mark.asyncio
+    async def test_exec_command_does_not_leak_non_hermes_secrets(self):
+        """Quick command exec must also strip non-Hermes secrets like cloud creds."""
+        from gateway.run import GatewayRunner
+
+        runner = GatewayRunner.__new__(GatewayRunner)
+        runner.config = {"quick_commands": {"leak": {"type": "exec", "command": "env"}}}
+        runner._running_agents = {}
+        runner._pending_messages = {}
+        runner._is_user_authorized = MagicMock(return_value=True)
+
+        non_hermes_secrets = {
+            "AWS_SECRET_ACCESS_KEY": "AKIASECRETVALUE123",
+            "DB_PASSWORD": "super-db-pass-456",
+            "MY_SERVICE_TOKEN": "tok-abc-xyz-789",
+        }
+        event = self._make_event("leak")
+        with patch.dict(os.environ, non_hermes_secrets):
+            result = await runner._handle_message(event)
+
+        for secret_val in non_hermes_secrets.values():
+            assert secret_val not in result, \
+                f"Quick command leaked a non-Hermes secret value ({secret_val!r})"
 
     @pytest.mark.asyncio
     async def test_exec_command_output_is_redacted(self, monkeypatch):

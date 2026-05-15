@@ -229,3 +229,86 @@ class TestTerminalIntegration:
         # Arbitrary skill-specific var
         register_env_passthrough(["MY_SKILL_CUSTOM_CONFIG"])
         assert is_env_passthrough("MY_SKILL_CUSTOM_CONFIG")
+
+
+class TestSanitizeUntrustedSubprocessEnv:
+    """Unit tests for _sanitize_untrusted_subprocess_env."""
+
+    def test_strips_hermes_provider_secrets(self):
+        """Hermes provider API keys must be removed."""
+        from tools.environments.local import (
+            _sanitize_untrusted_subprocess_env,
+            _HERMES_PROVIDER_ENV_BLOCKLIST,
+        )
+        blocked_var = next(iter(_HERMES_PROVIDER_ENV_BLOCKLIST))
+        env = {blocked_var: "hermes-secret", "PATH": "/usr/bin"}
+        result = _sanitize_untrusted_subprocess_env(env)
+        assert blocked_var not in result
+        assert "PATH" in result
+
+    def test_strips_non_hermes_secret_patterns(self):
+        """Variables matching secret-name patterns must be removed even if not in Hermes blocklist."""
+        from tools.environments.local import _sanitize_untrusted_subprocess_env
+
+        secret_vars = {
+            "AWS_SECRET_ACCESS_KEY": "aws-secret-val",
+            "DB_PASSWORD": "db-pass-val",
+            "MY_SERVICE_TOKEN": "svc-token-val",
+            "GITHUB_PRIVATE_KEY": "gh-pk-val",
+            "STRIPE_SECRET_KEY": "stripe-sk-val",
+            "SOME_API_KEY": "apikey-val",
+            "DATABASE_ACCESS_TOKEN": "db-token-val",
+            "APP_AUTH_KEY": "auth-key-val",
+        }
+        env = {**secret_vars, "PATH": "/usr/bin", "HOME": "/home/user", "LANG": "en_US.UTF-8"}
+        result = _sanitize_untrusted_subprocess_env(env)
+
+        for var in secret_vars:
+            assert var not in result, f"{var!r} was not stripped from untrusted subprocess env"
+
+        # Non-secret vars must survive
+        assert "PATH" in result
+        assert "HOME" in result
+        assert "LANG" in result
+
+    def test_safe_vars_are_preserved(self):
+        """Non-secret environment variables must pass through."""
+        from tools.environments.local import _sanitize_untrusted_subprocess_env
+
+        env = {
+            "PATH": "/usr/local/bin:/usr/bin",
+            "HOME": "/home/runner",
+            "TERM": "xterm-256color",
+            "LANG": "en_US.UTF-8",
+            "USER": "runner",
+            "EDITOR": "vim",
+        }
+        result = _sanitize_untrusted_subprocess_env(env)
+        for key in env:
+            assert key in result, f"Safe var {key!r} was incorrectly stripped"
+
+    def test_exact_secret_names_are_stripped(self):
+        """Single-word secret names (PASSWORD, TOKEN, SECRET) must be removed."""
+        from tools.environments.local import _sanitize_untrusted_subprocess_env
+
+        env = {"PASSWORD": "pass123", "TOKEN": "tok456", "SECRET": "sec789", "PATH": "/bin"}
+        result = _sanitize_untrusted_subprocess_env(env)
+        assert "PASSWORD" not in result
+        assert "TOKEN" not in result
+        assert "SECRET" not in result
+        assert "PATH" in result
+
+    def test_case_insensitive_matching(self):
+        """Pattern matching must be case-insensitive."""
+        from tools.environments.local import _sanitize_untrusted_subprocess_env
+
+        env = {
+            "my_api_key": "lowercase-key",
+            "My_Service_Token": "mixedcase-token",
+            "PATH": "/bin",
+        }
+        result = _sanitize_untrusted_subprocess_env(env)
+        assert "my_api_key" not in result
+        assert "My_Service_Token" not in result
+        assert "PATH" in result
+
