@@ -17,18 +17,18 @@ def git_repo(tmp_path):
     """Create a temporary git repo for testing."""
     repo = tmp_path / "test-repo"
     repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, capture_output=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
-        cwd=repo, capture_output=True,
+        cwd=repo, check=True, capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test"],
-        cwd=repo, capture_output=True,
+        cwd=repo, check=True, capture_output=True,
     )
     subprocess.run(
         ["git", "config", "commit.gpgsign", "false"],
-        cwd=repo, capture_output=True,
+        cwd=repo, check=True, capture_output=True,
     )
     # Create initial commit (worktrees need at least one commit)
     (repo / "README.md").write_text("# Test Repo\n")
