@@ -163,7 +163,7 @@ def _default_windows_editor() -> str:
 
     Priority order, first match wins:
 
-    1. ``%SystemRoot%\\System32\\notepad.exe`` — ships with every Windows
+    1. ``<Windows API system dir>\\notepad.exe`` — ships with every Windows
        install, no deps, works as a blocking editor, and avoids Windows
        current-directory/PATH executable hijacking.
 
@@ -186,12 +186,30 @@ def _trusted_system_notepad_path() -> str:
     """Return the trusted Windows system Notepad path, if present."""
     import ntpath
 
-    system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\Windows"
-    candidate = ntpath.join(system_root, "System32", "notepad.exe")
-    if os.path.isfile(candidate):
-        # prompt_toolkit passes EDITOR through shlex.split(posix=True); forward
-        # slashes keep the absolute Windows path intact without shell quoting.
-        return candidate.replace("\\", "/")
+    candidates: list[str] = []
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        get_system_directory = getattr(kernel32, "GetSystemDirectoryW", None)
+        if get_system_directory:
+            buf = ctypes.create_unicode_buffer(32768)
+            length = get_system_directory(buf, len(buf))
+            if 0 < length < len(buf):
+                candidates.append(ntpath.join(buf.value, "notepad.exe"))
+    except Exception:
+        # ctypes/windll may be unavailable in some test/sandbox environments.
+        pass
+
+    # Conservative fallback when WinAPI lookup isn't available.
+    if not candidates:
+        candidates.append(r"C:\Windows\System32\notepad.exe")
+
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            # prompt_toolkit passes EDITOR through shlex.split(posix=True); forward
+            # slashes keep the absolute Windows path intact without shell quoting.
+            return candidate.replace("\\", "/")
     # On the extreme off-chance notepad is missing (WinPE, Nano Server), fall
     # back to nothing and let prompt_toolkit's silent no-op do its thing.
     return ""

@@ -137,10 +137,19 @@ class TestConfigureWindowsStdio:
         from hermes_cli import stdio
 
         trusted_notepad = r"C:/Windows/System32/notepad.exe"
-        monkeypatch.setenv("SystemRoot", r"C:\Windows")
         monkeypatch.setattr(stdio.os.path, "isfile", lambda path: path.replace("\\", "/") == trusted_notepad)
 
         assert stdio._default_windows_editor() == trusted_notepad
+
+    def test_trusted_notepad_path_ignores_systemroot_env(self, monkeypatch):
+        from hermes_cli import stdio
+
+        trusted_notepad = r"C:/Windows/System32/notepad.exe"
+        monkeypatch.setenv("SystemRoot", r"C:\evil")
+        monkeypatch.setenv("WINDIR", r"C:\evil")
+        monkeypatch.setattr(stdio.os.path, "isfile", lambda path: path.replace("\\", "/") == trusted_notepad)
+
+        assert stdio._trusted_system_notepad_path() == trusted_notepad
 
     def test_respects_existing_env_var(self, monkeypatch):
         """User's explicit PYTHONIOENCODING wins over our default."""
