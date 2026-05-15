@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import sys
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -190,6 +191,81 @@ class TestVoiceAttachmentSSRFProtection:
         kwargs = async_client_cls.call_args.kwargs
         assert kwargs.get("follow_redirects") is True
         assert kwargs.get("event_hooks", {}).get("response") == [_ssrf_redirect_guard]
+
+    def test_media_auth_header_only_for_trusted_qq_host(self):
+        adapter = self._make_adapter(app_id="a", client_secret="b")
+        adapter._access_token = "secret-token"
+
+        assert adapter._qq_media_headers("https://multimedia.nt.qq.com.cn/file") == {
+            "Authorization": "QQBot secret-token"
+        }
+        assert adapter._qq_media_headers("https://attacker.example/file") == {}
+
+    @pytest.mark.asyncio
+    async def test_limited_download_rejects_large_content_length(self):
+        adapter = self._make_adapter(app_id="a", client_secret="b")
+
+        class Response:
+            headers = {"content-length": str(26 * 1024 * 1024)}
+
+            def raise_for_status(self):
+                pass
+
+            async def aiter_bytes(self):
+                yield b"x"
+
+        class StreamContext:
+            async def __aenter__(self):
+                return Response()
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        adapter._http_client = SimpleNamespace(
+            stream=mock.Mock(return_value=StreamContext())
+        )
+
+        data = await adapter._download_limited_bytes(
+            "https://multimedia.nt.qq.com.cn/too-large",
+            headers={},
+            context="attachment",
+        )
+
+        assert data is None
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_c2c_skips_attachment_processing(self):
+        adapter = self._make_adapter(app_id="a", client_secret="b")
+        adapter.gateway_runner = SimpleNamespace(
+            _is_user_authorized=mock.Mock(return_value=False)
+        )
+        adapter._process_attachments = mock.AsyncMock()
+        handled = []
+
+        async def fake_handle(event):
+            handled.append(event)
+
+        adapter.handle_message = fake_handle  # type: ignore[method-assign]
+
+        await adapter._handle_c2c_message(
+            {
+                "attachments": [
+                    {
+                        "content_type": "image/png",
+                        "url": "https://attacker.example/i.png",
+                    }
+                ],
+            },
+            "msg-1",
+            "hello",
+            {"user_openid": "unauthorized-user"},
+            "",
+        )
+
+        adapter._process_attachments.assert_not_awaited()
+        assert len(handled) == 1
+        assert handled[0].media_urls == []
+        assert handled[0].text == "hello"
 
 
 # ---------------------------------------------------------------------------
