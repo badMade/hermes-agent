@@ -231,6 +231,7 @@ class QQAdapter(BasePlatformAdapter):
         self._interaction_callback: Optional[
             Callable[[InteractionEvent], Awaitable[None]]
         ] = None
+        self._interaction_authorizer: Optional[Callable[[Any], bool]] = None
 
         # Default interaction dispatcher: routes approval-button clicks to
         # tools.approval.resolve_gateway_approval() and update-prompt clicks
@@ -883,6 +884,19 @@ class QQAdapter(BasePlatformAdapter):
         """
         self._interaction_callback = callback
 
+    def set_interaction_authorizer(
+            self,
+            authorizer: Optional[Callable[[Any], bool]],
+    ) -> None:
+        """Register the gateway authorization check for button operators.
+
+        QQ keyboard permissions are chat-scoped by default, so every
+        security-sensitive button click must pass the same authorization
+        policy as an incoming message before it can approve commands or
+        answer update prompts.
+        """
+        self._interaction_authorizer = authorizer
+
     async def _on_interaction(self, d: Any) -> None:
         """Handle an ``INTERACTION_CREATE`` event.
 
@@ -1005,6 +1019,17 @@ class QQAdapter(BasePlatformAdapter):
         if not button_data:
             return
 
+        is_sensitive = (
+            parse_approval_button_data(button_data) is not None
+            or parse_update_prompt_button_data(button_data) is not None
+        )
+        if is_sensitive and not self._is_interaction_authorized(event):
+            logger.warning(
+                "[%s] Dropping unauthorized button click %r from operator=%s",
+                self._log_tag, button_data, event.operator_openid or "(unknown)",
+            )
+            return
+
         approval = parse_approval_button_data(button_data)
         if approval is not None:
             session_key, decision = approval
@@ -1041,6 +1066,85 @@ class QQAdapter(BasePlatformAdapter):
         logger.debug(
             "[%s] Unrecognised button_data %r from interaction %s",
             self._log_tag, button_data, event.id,
+        )
+
+    def _source_for_interaction(self, event: InteractionEvent):
+        """Build a message-like source for gateway authorization checks."""
+        if event.scene == "group":
+            return self.build_source(
+                chat_id=event.group_openid,
+                user_id=event.group_member_openid or event.operator_openid,
+                chat_type="group",
+            )
+        if event.scene == "guild":
+            return self.build_source(
+                chat_id=event.channel_id or event.guild_id,
+                user_id=event.operator_openid,
+                chat_type="group",
+                guild_id=event.guild_id,
+            )
+        return self.build_source(
+            chat_id=event.user_openid or event.operator_openid,
+            user_id=event.operator_openid,
+            chat_type="dm",
+        )
+
+    def _is_interaction_authorized(self, event: InteractionEvent) -> bool:
+        """Return whether the button operator may perform sensitive actions."""
+        source = self._source_for_interaction(event)
+        if self._interaction_authorizer is not None:
+            try:
+                return bool(self._interaction_authorizer(source))
+            except Exception as exc:
+                logger.error(
+                    "[%s] Interaction authorizer failed for operator=%s: %s",
+                    self._log_tag, event.operator_openid or "(unknown)", exc,
+                )
+                return False
+
+        # Fallback for adapter-level use outside GatewayRunner. In the normal
+        # gateway path, set_interaction_authorizer() supplies the canonical
+        # allowlist/pairing policy from gateway/run.py.
+        if not self._is_interaction_allowed_by_env(source):
+            return False
+        if source.chat_type == "dm":
+            return self._is_dm_allowed(source.user_id or "")
+        return self._is_group_allowed(source.chat_id, source.user_id or "")
+
+    @staticmethod
+    def _csv_matches(value: str, target: str) -> bool:
+        """Return whether a comma-separated allowlist contains target."""
+        entries = {item.strip() for item in value.split(",") if item.strip()}
+        return "*" in entries or bool(target and target in entries)
+
+    @classmethod
+    def _is_interaction_allowed_by_env(cls, source: Any) -> bool:
+        """Apply gateway-compatible env allowlists when no authorizer exists."""
+        if os.getenv("QQ_ALLOW_ALL_USERS", "").lower() in {"true", "1", "yes"}:
+            return True
+        if os.getenv("GATEWAY_ALLOW_ALL_USERS", "").lower() in {"true", "1", "yes"}:
+            return True
+
+        user_id = getattr(source, "user_id", "") or ""
+        platform_allowlist = os.getenv("QQ_ALLOWED_USERS", "").strip()
+        global_allowlist = os.getenv("GATEWAY_ALLOWED_USERS", "").strip()
+        group_chat_allowlist = (
+            os.getenv("QQ_GROUP_ALLOWED_USERS", "").strip()
+            if getattr(source, "chat_type", "") in {"group", "forum"}
+            else ""
+        )
+
+        configured = bool(platform_allowlist or global_allowlist or group_chat_allowlist)
+        if not configured:
+            return True
+
+        if group_chat_allowlist and cls._csv_matches(
+                group_chat_allowlist, getattr(source, "chat_id", "") or ""
+        ):
+            return True
+
+        return cls._csv_matches(platform_allowlist, user_id) or cls._csv_matches(
+            global_allowlist, user_id
         )
 
     @staticmethod
