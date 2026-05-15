@@ -60,7 +60,7 @@ _CRON_EXFIL_COMMAND_PATTERNS = [
     (rf'wget\s+[^\n]*https?://[^\s"\'`]*{_CRON_SECRET_VAR_RE}', "exfil_wget_url"),
     (rf'curl\s+[^\n]*(?:--data(?:-raw|-binary|-urlencode)?|-d|--form|-F)\s+[^\n]*{_CRON_SECRET_VAR_RE}', "exfil_curl_data"),
     (rf'wget\s+[^\n]*--post-(?:data|file)=[^\n]*{_CRON_SECRET_VAR_RE}', "exfil_wget_post"),
-    (rf'curl\s+(?:(?![\n;&|]).)*(?:-H|--header)\s+["\']Authorization:\s*(?:Bearer|token)\s+{_CRON_SECRET_VAR_RE}["\']', "exfil_curl_auth_header"),
+    (rf'curl\s+[^\n;&|]*(?:-H|--header)\s+["\']Authorization:\s*(?:Bearer|token)\s+{_CRON_SECRET_VAR_RE}["\']', "exfil_curl_auth_header"),
 ]
 
 _CRON_INVISIBLE_CHARS = {
@@ -69,7 +69,7 @@ _CRON_INVISIBLE_CHARS = {
 }
 
 _CRON_ALLOWED_GITHUB_AUTH_CURL_RE = (
-    rf'\bcurl\b(?:(?![\n;&|]).)*'
+    rf'\bcurl\b[^\n;&|]*'
     rf'(?:-H|--header)\s+["\']Authorization:\s*token\s+{_CRON_SECRET_VAR_RE}["\']'
     r'\s+(?:"https://api\.github\.com(?::\d+)?(?:[/?#][^"\s]*)?"'
     r"|'https://api\.github\.com(?::\d+)?(?:[/?#][^'\s]*)?'"
