@@ -5478,9 +5478,12 @@ def _run_npm_install_deterministic(
 
     Prefers ``npm ci`` (strict, lockfile-preserving) when a lockfile is present;
     falls back to ``npm install`` only if ``npm ci`` fails (e.g. lockfile out of
-    sync on a WIP checkout).  Without this, ``npm install`` on npm ≥ 10 silently
-    rewrites committed lockfiles (stripping ``"peer": true`` etc.), which leaves
-    the working tree dirty and causes the next ``hermes update`` to stash the
+    sync on a WIP checkout). Callers may pass npm safety flags such as
+    ``--ignore-scripts`` for self-update paths that must not execute untrusted
+    package hooks as the Hermes operator. Without this, ``npm install`` on npm
+    ≥ 10 silently rewrites committed lockfiles (stripping ``"peer": true``
+    etc.), which leaves the working tree dirty and causes the next
+    ``hermes update`` to stash the
     lockfile — repeatedly.
     """
     lockfile = cwd / "package-lock.json"
@@ -6842,7 +6845,13 @@ def _update_node_dependencies() -> None:
         result = _run_npm_install_deterministic(
             npm,
             path,
-            extra_args=("--silent", "--no-fund", "--no-audit", "--progress=false"),
+            extra_args=(
+                "--ignore-scripts",
+                "--silent",
+                "--no-fund",
+                "--no-audit",
+                "--progress=false",
+            ),
         )
         if result.returncode == 0:
             print(f"  ✓ {label}")
