@@ -587,6 +587,14 @@ class ProcessRegistry:
             except Exception:
                 pass
             try:
+                # On POSIX, local background processes are started in their own
+                # session/process group; kill the whole group so setup-failure
+                # cleanup cannot leave behind descendants that ignore SIGTERM.
+                if not _IS_WINDOWS:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
+            try:
                 # Preserve existing test/behavior contract: best-effort direct
                 # kill on the original Popen handle as part of cleanup.
                 proc.kill()
