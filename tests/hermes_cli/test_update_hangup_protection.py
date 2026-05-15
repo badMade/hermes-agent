@@ -175,7 +175,7 @@ class TestInstallHangupProtection:
             assert state["log_file"] is None
             assert state["installed"] is False
             if hasattr(signal, "SIGHUP"):
-168:                assert signal.getsignal(signal.SIGHUP) == prev_sighup  # windows-footgun: ok — guarded by hasattr above
+                assert signal.getsignal(signal.SIGHUP) == prev_sighup  # windows-footgun: ok — guarded by hasattr above
         finally:
             _finalize_update_output(state)
 

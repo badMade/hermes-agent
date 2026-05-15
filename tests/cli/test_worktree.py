@@ -354,28 +354,27 @@ class TestGitignoreManagement:
         _ignore_entry = ".worktrees/"
         existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
         if _ignore_entry not in existing.splitlines():
-@@ -355,7 +355,7 @@
--        existing = gitignore.read_text() if gitignore.exists() else ""
-+        existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
-         if _ignore_entry not in existing.splitlines():
-             with open(gitignore, "a", encoding="utf-8") as f:
-                 if existing and not existing.endswith("\n"):
-@@ -362,7 +362,7 @@
--        content = gitignore.read_text()
-+        content = gitignore.read_text(encoding="utf-8")
-         assert _ignore_entry in content.splitlines()
- 
-     def test_does_not_add_duplicate_to_gitignore(self, git_repo):
-@@ -371,7 +371,7 @@
--        content = gitignore.read_text()
-+        content = gitignore.read_text(encoding="utf-8")
-         assert content.count(_ignore_entry) == 1
+            with open(gitignore, "a", encoding="utf-8") as f:
                 if existing and not existing.endswith("\n"):
                     f.write("\n")
                 f.write(f"{_ignore_entry}\n")
 
         content = gitignore.read_text(encoding="utf-8")
-        assert ".worktrees/" in content
+        assert _ignore_entry in content.splitlines()
+
+    def test_does_not_add_duplicate_to_gitignore(self, git_repo):
+        """Running add-logic twice should not duplicate the entry."""
+        gitignore = git_repo / ".gitignore"
+        _ignore_entry = ".worktrees/"
+        gitignore.write_text(f"{_ignore_entry}\n", encoding="utf-8")
+        existing = gitignore.read_text(encoding="utf-8")
+        if _ignore_entry not in existing.splitlines():
+            with open(gitignore, "a", encoding="utf-8") as f:
+                if existing and not existing.endswith("\n"):
+                    f.write("\n")
+                f.write(f"{_ignore_entry}\n")
+        content = gitignore.read_text(encoding="utf-8")
+        assert content.count(_ignore_entry) == 1
 
     def test_does_not_duplicate_gitignore_entry(self, git_repo):
         """If .worktrees/ is already in .gitignore, don't add again."""
