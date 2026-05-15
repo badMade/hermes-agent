@@ -186,6 +186,9 @@ def _trusted_system_notepad_path() -> str:
     """Return the trusted Windows system Notepad path, if present."""
     import ntpath
 
+    # 32768 chars supports Windows extended-length paths (\\?\ prefix), while
+    # still comfortably covering normal MAX_PATH usage.
+    max_windows_path_chars = 32768
     candidates: list[str] = []
     try:
         import ctypes
@@ -193,7 +196,7 @@ def _trusted_system_notepad_path() -> str:
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         get_system_directory = getattr(kernel32, "GetSystemDirectoryW", None)
         if get_system_directory:
-            buf = ctypes.create_unicode_buffer(32768)
+            buf = ctypes.create_unicode_buffer(max_windows_path_chars)
             length = get_system_directory(buf, len(buf))
             if 0 < length < len(buf):
                 candidates.append(ntpath.join(buf.value, "notepad.exe"))

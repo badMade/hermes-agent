@@ -141,7 +141,7 @@ class TestConfigureWindowsStdio:
 
         assert stdio._default_windows_editor() == trusted_notepad
 
-    def test_trusted_notepad_path_ignores_systemroot_env(self, monkeypatch):
+    def test_default_editor_ignores_malicious_systemroot_override(self, monkeypatch):
         from hermes_cli import stdio
 
         trusted_notepad = r"C:/Windows/System32/notepad.exe"
