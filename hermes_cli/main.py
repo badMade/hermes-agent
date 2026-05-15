@@ -677,6 +677,41 @@ def _probe_container(cmd: list, backend: str, via_sudo: bool = False):
         sys.exit(1)
 
 
+_CONTAINER_ALLOWED_BACKENDS = frozenset({"docker", "podman"})
+
+
+def _resolve_container_runtime(container_info: dict) -> str:
+    """Return a trusted Docker/Podman runtime path for container routing."""
+    backend = container_info["backend"]
+    if backend not in _CONTAINER_ALLOWED_BACKENDS:
+        print(
+            f"Error: invalid container backend {backend!r}. Expected docker or podman.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    runtime_path = container_info.get("runtime_path")
+    if runtime_path:
+        runtime = Path(runtime_path)
+        if not runtime.is_absolute() or not os.access(runtime, os.X_OK):
+            print(
+                f"Error: invalid container runtime path {runtime_path!r}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return str(runtime)
+
+    runtime = shutil.which(backend)
+    if runtime:
+        return runtime
+
+    print(
+        f"Error: {backend} not found on PATH. Cannot route to container.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def _exec_in_container(container_info: dict, cli_args: list):
     """Replace the current process with a command inside the managed container.
 
@@ -695,13 +730,7 @@ def _exec_in_container(container_info: dict, cli_args: list):
     exec_user = container_info["exec_user"]
     hermes_bin = container_info["hermes_bin"]
 
-    runtime = shutil.which(backend)
-    if not runtime:
-        print(
-            f"Error: {backend} not found on PATH. Cannot route to container.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    runtime = _resolve_container_runtime(container_info)
 
     # Rootful containers (NixOS systemd service) are invisible to unprivileged
     # users — Podman uses per-user namespaces, Docker needs group access.

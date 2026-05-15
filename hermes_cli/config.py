@@ -241,26 +241,27 @@ def managed_error(action: str = "modify configuration"):
 # Container-aware CLI (NixOS container mode)
 # =============================================================================
 
-def get_container_exec_info() -> Optional[dict]:
-    """Read container mode metadata from HERMES_HOME/.container-mode.
+_CONTAINER_MODE_SYSTEM_FILE = Path("/etc/hermes-agent/container-mode")
+_CONTAINER_MODE_ALLOWED_BACKENDS = frozenset({"docker", "podman"})
 
-    Returns a dict with keys: backend, container_name, exec_user, hermes_bin
-    or None if container mode is not active, we're already inside the
-    container, or HERMES_DEV=1 is set.
 
-    The .container-mode file is written by the NixOS activation script when
-    container.enable = true. It tells the host CLI to exec into the container
-    instead of running locally.
-    """
-    if os.environ.get("HERMES_DEV") == "1":
-        return None
+def _container_mode_candidates() -> List[Tuple[Path, bool]]:
+    """Return (metadata path, trusts runtime_path) in preferred order."""
+    override = os.environ.get("HERMES_CONTAINER_MODE_FILE")
+    if override:
+        return [(Path(override), True)]
+    return [
+        (_CONTAINER_MODE_SYSTEM_FILE, True),
+        (get_hermes_home() / ".container-mode", False),
+    ]
 
-    from hermes_constants import is_container
-    if is_container():
-        return None
 
-    container_mode_file = get_hermes_home() / ".container-mode"
-
+def _read_container_mode_file(
+    container_mode_file: Path,
+    *,
+    allow_runtime_path: bool,
+) -> Optional[dict]:
+    """Parse and validate one container-mode metadata file."""
     try:
         info = {}
         with open(container_mode_file, "r", encoding="utf-8") as f:
@@ -274,16 +275,54 @@ def get_container_exec_info() -> Optional[dict]:
     # All other exceptions (PermissionError, malformed data, etc.) propagate
 
     backend = info.get("backend", "docker")
-    container_name = info.get("container_name", "hermes-agent")
-    exec_user = info.get("exec_user", "hermes")
-    hermes_bin = info.get("hermes_bin", "/data/current-package/bin/hermes")
+    if backend not in _CONTAINER_MODE_ALLOWED_BACKENDS:
+        raise ValueError(
+            f"Invalid container backend {backend!r}; expected 'docker' or 'podman'."
+        )
 
-    return {
+    container_info = {
         "backend": backend,
-        "container_name": container_name,
-        "exec_user": exec_user,
-        "hermes_bin": hermes_bin,
+        "container_name": info.get("container_name", "hermes-agent"),
+        "exec_user": info.get("exec_user", "hermes"),
+        "hermes_bin": info.get("hermes_bin", "/data/current-package/bin/hermes"),
     }
+    runtime_path = info.get("runtime_path") if allow_runtime_path else None
+    if runtime_path:
+        runtime = Path(runtime_path)
+        if not runtime.is_absolute():
+            raise ValueError("container runtime_path must be absolute")
+        container_info["runtime_path"] = runtime_path
+    return container_info
+
+
+def get_container_exec_info() -> Optional[dict]:
+    """Read validated container mode metadata.
+
+    Returns a dict with keys: backend, container_name, exec_user, hermes_bin
+    and optionally runtime_path, or None if container mode is not active,
+    we're already inside the container, or HERMES_DEV=1 is set.
+
+    The NixOS activation script writes the trusted metadata file under
+    /etc/hermes-agent so the containerized agent cannot modify host routing.
+    A legacy HERMES_HOME/.container-mode fallback remains for older installs,
+    but backend values are restricted to Docker/Podman and runtime_path is
+    ignored unless it came from the trusted system metadata path.
+    """
+    if os.environ.get("HERMES_DEV") == "1":
+        return None
+
+    from hermes_constants import is_container
+    if is_container():
+        return None
+
+    for container_mode_file, allow_runtime_path in _container_mode_candidates():
+        info = _read_container_mode_file(
+            container_mode_file,
+            allow_runtime_path=allow_runtime_path,
+        )
+        if info is not None:
+            return info
+    return None
 
 
 # =============================================================================
