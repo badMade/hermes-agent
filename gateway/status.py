@@ -216,6 +216,12 @@ def _write_json_file(
     preserve_symlink: bool = True,
     file_mode: Optional[int] = None,
 ) -> None:
+    """Write JSON payload atomically, with optional explicit post-write mode.
+
+    ``file_mode`` is used when callers need predictable readability after writes
+    that replace the marker path itself (for example, secure marker writes that
+    do not preserve symlinks).
+    """
     atomic_json_write(
         path,
         payload,
