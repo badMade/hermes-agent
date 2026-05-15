@@ -263,7 +263,11 @@ class TestGatewayRuntimeStatus:
             (
                 target,
                 payload,
-                {"indent": None, "preserve_symlink": True, "separators": (",", ":")},
+                {
+                    "indent": None,
+                    "preserve_symlink": True,
+                    "separators": (",", ":"),
+                },
             )
         ]
 
@@ -700,6 +704,7 @@ class TestTakeoverMarker:
         assert ok is True
         assert not marker.is_symlink()
         assert victim.read_text(encoding="utf-8") == "do not overwrite"
+        assert (marker.stat().st_mode & 0o777) == 0o644
         payload = json.loads(marker.read_text(encoding="utf-8"))
         assert payload["target_pid"] == 12345
 
@@ -829,6 +834,7 @@ class TestPlannedStopMarker:
         assert ok is True
         assert not marker.is_symlink()
         assert victim.read_text(encoding="utf-8") == "do not overwrite"
+        assert (marker.stat().st_mode & 0o777) == 0o644
         payload = json.loads(marker.read_text(encoding="utf-8"))
         assert payload["target_pid"] == 12345
 

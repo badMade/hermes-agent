@@ -214,6 +214,7 @@ def _write_json_file(
     payload: dict[str, Any],
     *,
     preserve_symlink: bool = True,
+    file_mode: Optional[int] = None,
 ) -> None:
     atomic_json_write(
         path,
@@ -222,6 +223,8 @@ def _write_json_file(
         preserve_symlink=preserve_symlink,
         separators=(",", ":"),
     )
+    if file_mode is not None:
+        os.chmod(path, file_mode)
 
 
 def _read_pid_record(pid_path: Optional[Path] = None) -> Optional[dict]:
@@ -728,6 +731,7 @@ _TAKEOVER_MARKER_FILENAME = ".gateway-takeover.json"
 _TAKEOVER_MARKER_TTL_S = 60  # Marker older than this is treated as stale
 _PLANNED_STOP_MARKER_FILENAME = ".gateway-planned-stop.json"
 _PLANNED_STOP_MARKER_TTL_S = 60
+_MARKER_FILE_MODE = 0o644
 
 
 def _get_takeover_marker_path() -> Path:
@@ -816,7 +820,12 @@ def write_takeover_marker(target_pid: int) -> bool:
             "replacer_pid": os.getpid(),
             "written_at": _utc_now_iso(),
         }
-        _write_json_file(_get_takeover_marker_path(), record, preserve_symlink=False)
+        _write_json_file(
+            _get_takeover_marker_path(),
+            record,
+            preserve_symlink=False,
+            file_mode=_MARKER_FILE_MODE,
+        )
         return True
     except (OSError, PermissionError):
         return False
@@ -864,7 +873,12 @@ def write_planned_stop_marker(target_pid: int) -> bool:
             "stopper_pid": os.getpid(),
             "written_at": _utc_now_iso(),
         }
-        _write_json_file(_get_planned_stop_marker_path(), record, preserve_symlink=False)
+        _write_json_file(
+            _get_planned_stop_marker_path(),
+            record,
+            preserve_symlink=False,
+            file_mode=_MARKER_FILE_MODE,
+        )
         return True
     except (OSError, PermissionError):
         return False

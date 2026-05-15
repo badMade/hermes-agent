@@ -591,7 +591,8 @@ class ProcessRegistry:
                 # session/process group; kill the whole group so setup-failure
                 # cleanup cannot leave behind descendants that ignore SIGTERM.
                 if not _IS_WINDOWS:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    kill_sig = getattr(signal, "SIGKILL", signal.SIGTERM)
+                    os.killpg(os.getpgid(proc.pid), kill_sig)  # windows-footgun: ok
             except Exception:
                 pass
             try:
