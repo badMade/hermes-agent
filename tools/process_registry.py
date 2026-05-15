@@ -583,15 +583,19 @@ class ProcessRegistry:
             # descendants spawned via setsid) before re-raising so they do not
             # leak as untracked background processes.
             try:
-                if not _IS_WINDOWS:
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    except (ProcessLookupError, PermissionError, OSError):
-                        proc.kill()
-                else:
-                    proc.kill()
+                self._terminate_host_pid(proc.pid)
             except Exception:
                 pass
+            try:
+                # Preserve existing test/behavior contract: best-effort direct
+                # kill on the original Popen handle as part of cleanup.
+                proc.kill()
+            except Exception:
+                try:
+                    if proc.poll() is None:
+                        proc.terminate()
+                except Exception:
+                    pass
             try:
                 proc.wait(timeout=5)
             except Exception:
