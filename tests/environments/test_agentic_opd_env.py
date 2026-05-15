@@ -1,9 +1,18 @@
+import sys
+from unittest.mock import MagicMock, patch
 import pytest
 
-# Skip this test module if atroposlib is not installed (e.g. in some CI environments)
-pytest.importorskip("atroposlib")
-
-from environments.agentic_opd_env import _parse_hint_result
+# We mock atroposlib and its submodules just for the duration of the import
+# to avoid global sys.modules pollution, allowing the test to run even if the dependency is missing in CI.
+with patch.dict('sys.modules', {
+    'atroposlib': MagicMock(),
+    'atroposlib.envs': MagicMock(),
+    'atroposlib.envs.base': MagicMock(),
+    'atroposlib.envs.server_handling': MagicMock(),
+    'atroposlib.envs.server_handling.server_manager': MagicMock(),
+    'atroposlib.type_definitions': MagicMock()
+}):
+    from environments.agentic_opd_env import _parse_hint_result
 
 @pytest.mark.parametrize(
     "text, expected_score, expected_hint",
