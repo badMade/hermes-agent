@@ -387,18 +387,17 @@ class TestTranscribeLocalCommand:
 
             return _TempDir()
 
+        run_calls = []
+
         def fake_run(cmd, *args, **kwargs):
+            run_calls.append((cmd, kwargs))
             if isinstance(cmd, list) and len(cmd) > 0 and cmd[0].endswith("ffmpeg"):
                 output_path = cmd[-1]
                 with open(output_path, "wb") as handle:
                     handle.write(b"RIFF....WAVEfmt ")
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-            # The transcription command might be passed as a string or list
             if isinstance(cmd, list) and len(cmd) > 0 and cmd[0] == "whisper":
-                (out_dir / "test.txt").write_text("hello from local command\n", encoding="utf-8")
-                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-            elif isinstance(cmd, str) and "whisper" in cmd:
                 (out_dir / "test.txt").write_text("hello from local command\n", encoding="utf-8")
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
@@ -415,6 +414,66 @@ class TestTranscribeLocalCommand:
         assert result["success"] is True
         assert result["transcript"] == "hello from local command"
         assert result["provider"] == "local_command"
+        whisper_calls = [
+            (cmd, kwargs)
+            for cmd, kwargs in run_calls
+            if isinstance(cmd, list) and cmd and cmd[0] == "whisper"
+        ]
+        assert whisper_calls
+        assert all("shell" not in kwargs for _, kwargs in whisper_calls)
+
+    def test_command_template_expands_env_prefix(self, monkeypatch, sample_ogg, tmp_path):
+        out_dir = tmp_path / "local-out-expanded"
+        out_dir.mkdir()
+
+        monkeypatch.setenv(
+            "HERMES_LOCAL_STT_COMMAND",
+            "$WHISPER_BIN {input_path} --model {model} --output_dir {output_dir} --language {language}",
+        )
+        monkeypatch.setenv("WHISPER_BIN", "/custom/bin/whisper")
+        monkeypatch.setenv("HERMES_LOCAL_STT_LANGUAGE", "en")
+
+        def fake_tempdir(prefix=None):
+            class _TempDir:
+                def __enter__(self_inner):
+                    return str(out_dir)
+
+                def __exit__(self_inner, exc_type, exc, tb):
+                    return False
+
+            return _TempDir()
+
+        run_calls = []
+
+        def fake_run(cmd, *args, **kwargs):
+            run_calls.append((cmd, kwargs))
+            if isinstance(cmd, list) and len(cmd) > 0 and cmd[0].endswith("ffmpeg"):
+                output_path = cmd[-1]
+                with open(output_path, "wb") as handle:
+                    handle.write(b"RIFF....WAVEfmt ")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            if isinstance(cmd, list) and len(cmd) > 0 and cmd[0] == "/custom/bin/whisper":
+                (out_dir / "test.txt").write_text("hello from local command\n", encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+        monkeypatch.setattr("tools.transcription_tools.tempfile.TemporaryDirectory", fake_tempdir)
+        monkeypatch.setattr("tools.transcription_tools._find_ffmpeg_binary", lambda: "/opt/homebrew/bin/ffmpeg")
+        monkeypatch.setattr("tools.transcription_tools.subprocess.run", fake_run)
+
+        from tools.transcription_tools import _transcribe_local_command
+
+        result = _transcribe_local_command(sample_ogg, "base")
+
+        assert result["success"] is True
+        whisper_calls = [
+            (cmd, kwargs)
+            for cmd, kwargs in run_calls
+            if isinstance(cmd, list) and cmd and cmd[0] == "/custom/bin/whisper"
+        ]
+        assert whisper_calls
 
 
 # ============================================================================

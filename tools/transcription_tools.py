@@ -495,7 +495,8 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
             if prep_error:
                 return {"success": False, "transcript": "", "error": prep_error}
 
-            command = command_template.format(
+            expanded_template = os.path.expandvars(os.path.expanduser(command_template))
+            command = expanded_template.format(
                 input_path=shlex.quote(prepared_input),
                 output_dir=shlex.quote(output_dir),
                 language=shlex.quote(language),

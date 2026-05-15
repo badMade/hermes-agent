@@ -1,4 +1,4 @@
 ## 2024-05-24 - Security Enhancement: YAML Parsing & Subprocess Execution
-**Vulnerability:** Use of `yaml.load` and `subprocess.run(shell=True)`.
-**Learning:** Even when `yaml.load` uses a `SafeLoader`, it is best practice to use `yaml.safe_load` directly. `subprocess.run(shell=True)` can introduce shell injection vulnerabilities and should be replaced with a list of arguments and `shell=False`.
-**Prevention:** Always use `yaml.safe_load`. Avoid `shell=True` in `subprocess` unless absolutely necessary, and prefer passing commands as argument lists.
+**Vulnerability:** Use of `subprocess.run(shell=True)` in local STT command execution.
+**Learning:** `shell=True` can enable shell injection and should be replaced with argv invocation and `shell=False`. The YAML path already used `CSafeLoader`/`SafeLoader`; updates there are about preserving safe semantics and performance clarity, not fixing unsafe deserialization.
+**Prevention:** Avoid `shell=True` in `subprocess` unless absolutely necessary, and prefer passing commands as argument lists. Keep YAML parsing on safe loaders, preferring `CSafeLoader` when available.
