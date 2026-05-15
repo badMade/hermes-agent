@@ -584,13 +584,16 @@ class ProcessRegistry:
             # leak as untracked background processes.
             try:
                 self._terminate_host_pid(proc.pid)
-                proc.kill()
-            except Exception:
-                pass
-            try:
                 proc.wait(timeout=5)
             except Exception:
-                pass
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
             raise
 
         return session
