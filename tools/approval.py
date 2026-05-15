@@ -15,6 +15,7 @@ import re
 import sys
 import threading
 import time
+import uuid
 import unicodedata
 from typing import Optional
 from hermes_cli.config import cfg_get
@@ -477,11 +478,13 @@ _permanent_approved: set = set()
 
 class _ApprovalEntry:
     """One pending dangerous-command approval inside a gateway session."""
-    __slots__ = ("event", "data", "result")
+    __slots__ = ("approval_id", "event", "data", "result")
 
     def __init__(self, data: dict):
+        self.approval_id = str(data.get("approval_id") or uuid.uuid4())
         self.event = threading.Event()
         self.data = data          # command, description, pattern_keys, …
+        self.data["approval_id"] = self.approval_id
         self.result: Optional[str] = None  # "once"|"session"|"always"|"deny"
 
 
@@ -515,13 +518,15 @@ def unregister_gateway_notify(session_key: str) -> None:
 
 
 def resolve_gateway_approval(session_key: str, choice: str,
-                             resolve_all: bool = False) -> int:
+                             resolve_all: bool = False,
+                             approval_id: Optional[str] = None) -> int:
     """Called by the gateway's /approve or /deny handler to unblock
     waiting agent thread(s).
 
     When *resolve_all* is True every pending approval in the session is
-    resolved at once (``/approve all``).  Otherwise only the oldest one
-    is resolved (FIFO).
+    resolved at once (``/approve all``).  Otherwise a supplied
+    *approval_id* resolves that exact entry; without one, the oldest entry
+    is resolved (FIFO) for the text ``/approve`` compatibility path.
 
     Returns the number of approvals resolved (0 means nothing was pending).
     """
@@ -532,6 +537,14 @@ def resolve_gateway_approval(session_key: str, choice: str,
         if resolve_all:
             targets = list(queue)
             queue.clear()
+        elif approval_id:
+            targets = []
+            for idx, entry in enumerate(queue):
+                if entry.approval_id == approval_id:
+                    targets = [queue.pop(idx)]
+                    break
+            if not targets:
+                return 0
         else:
             targets = [queue.pop(0)]
         if not queue:
