@@ -2,48 +2,61 @@ import pathlib
 import sqlite3
 import sys
 from unittest import mock
-
-
-class MockClass:
-    pass
-
-
-class MockAtroposlib:
-    class type_definitions:
-        Item = MockClass
-
-    class envs:
-        class base:
-            EvalHandlingEnum = MockClass
-            BaseEnv = MockClass
-            BaseEnvConfig = MockClass
-            ScoredDataGroup = MockClass
-            ScoredDataItem = MockClass
-
-        class server_handling:
-            class server_manager:
-                APIServerConfig = MockClass
-                ServerBaseline = MockClass
-                ServerManager = MockClass
-
-            class openai_server:
-                OpenAIServerConfig = MockClass
-
-
-sys.modules["atroposlib"] = MockAtroposlib
-sys.modules["atroposlib.envs"] = MockAtroposlib.envs
-sys.modules["atroposlib.envs.base"] = MockAtroposlib.envs.base
-sys.modules["atroposlib.envs.server_handling"] = MockAtroposlib.envs.server_handling
-sys.modules["atroposlib.envs.server_handling.server_manager"] = (
-    MockAtroposlib.envs.server_handling.server_manager
-)
-sys.modules["atroposlib.envs.server_handling.openai_server"] = (
-    MockAtroposlib.envs.server_handling.openai_server
-)
-sys.modules["atroposlib.type_definitions"] = MockAtroposlib.type_definitions
-
 import pytest
-from environments.benchmarks.yc_bench.yc_bench_env import _read_final_score
+
+# We cannot globally mock sys.modules['atroposlib'] here because it leaks to other pytest modules
+# and breaks tests that do conditional `pytest.skip("atroposlib not installed")`.
+
+try:
+    import atroposlib
+except ImportError:
+
+    class MockClass:
+        pass
+
+    class MockAtroposlib:
+        class type_definitions:
+            Item = MockClass
+
+        class envs:
+            class base:
+                EvalHandlingEnum = MockClass
+                BaseEnv = MockClass
+                BaseEnvConfig = MockClass
+                ScoredDataGroup = MockClass
+                ScoredDataItem = MockClass
+
+            class server_handling:
+                class server_manager:
+                    APIServerConfig = MockClass
+                    ServerBaseline = MockClass
+                    ServerManager = MockClass
+
+                class openai_server:
+                    OpenAIServerConfig = MockClass
+
+    # Temporarily patch sys.modules so the import of yc_bench_env succeeds
+    # Then we restore the original state so we don't break other tests.
+    original_modules = dict(sys.modules)
+
+    sys.modules["atroposlib"] = MockAtroposlib
+    sys.modules["atroposlib.envs"] = MockAtroposlib.envs
+    sys.modules["atroposlib.envs.base"] = MockAtroposlib.envs.base
+    sys.modules["atroposlib.envs.server_handling"] = MockAtroposlib.envs.server_handling
+    sys.modules["atroposlib.envs.server_handling.server_manager"] = (
+        MockAtroposlib.envs.server_handling.server_manager
+    )
+    sys.modules["atroposlib.envs.server_handling.openai_server"] = (
+        MockAtroposlib.envs.server_handling.openai_server
+    )
+    sys.modules["atroposlib.type_definitions"] = MockAtroposlib.type_definitions
+
+    from environments.benchmarks.yc_bench.yc_bench_env import _read_final_score
+
+    sys.modules.clear()
+    sys.modules.update(original_modules)
+else:
+    from environments.benchmarks.yc_bench.yc_bench_env import _read_final_score
 
 
 def test_missing_db_file() -> None:
