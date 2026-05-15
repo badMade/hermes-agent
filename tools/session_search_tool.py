@@ -262,17 +262,33 @@ async def _summarize_session(
 # Sources that are excluded from session browsing/searching by default.
 # Third-party integrations (Paperclip agents, etc.) tag their sessions with
 # HERMES_SESSION_SOURCE=tool so they don't clutter the user's session history.
-_HIDDEN_SESSION_SOURCES = ("tool",)
+_HIDDEN_SESSION_SOURCES = ("tool", "acp")
 
 
-def _list_recent_sessions(db, limit: int, current_session_id: str = None) -> str:
+def _excluded_sources_for(current_source: str = None) -> List[str]:
+    """Return hidden sources, allowing a source to search its own sessions."""
+    if not current_source:
+        return list(_HIDDEN_SESSION_SOURCES)
+    return [source for source in _HIDDEN_SESSION_SOURCES if source != current_source]
+
+
+def _list_recent_sessions(
+    db,
+    limit: int,
+    current_session_id: str = None,
+    current_source: str = None,
+) -> str:
     """Return metadata for the most recent sessions (no LLM calls)."""
     try:
-        sessions = db.list_sessions_rich(
-            limit=limit + 5,
-            exclude_sources=list(_HIDDEN_SESSION_SOURCES),
-            order_by_last_active=True,
-        )  # fetch extra to skip current
+        list_kwargs = {
+            "limit": limit + 5,
+            "exclude_sources": _excluded_sources_for(current_source),
+            "order_by_last_active": True,
+        }
+        if current_source:
+            list_kwargs["source"] = current_source
+
+        sessions = db.list_sessions_rich(**list_kwargs)  # fetch extra to skip current
 
         # Resolve current session lineage to exclude it
         current_root = None
@@ -328,6 +344,7 @@ def session_search(
     limit: int = 3,
     db=None,
     current_session_id: str = None,
+    current_source: str = None,
 ) -> str:
     """
     Search past sessions and return focused summaries of matching conversations.
@@ -359,7 +376,7 @@ def session_search(
     # Recent sessions mode: when query is empty, return metadata for recent sessions.
     # No LLM calls — just DB queries for titles, previews, timestamps.
     if not query or not query.strip():
-        return _list_recent_sessions(db, limit, current_session_id)
+        return _list_recent_sessions(db, limit, current_session_id, current_source)
 
     query = query.strip()
 
@@ -370,13 +387,17 @@ def session_search(
             role_list = [r.strip() for r in role_filter.split(",") if r.strip()]
 
         # FTS5 search -- get matches ranked by relevance
-        raw_results = db.search_messages(
-            query=query,
-            role_filter=role_list,
-            exclude_sources=list(_HIDDEN_SESSION_SOURCES),
-            limit=50,  # Get more matches to find unique sessions
-            offset=0,
-        )
+        search_kwargs = {
+            "query": query,
+            "role_filter": role_list,
+            "exclude_sources": _excluded_sources_for(current_source),
+            "limit": 50,  # Get more matches to find unique sessions
+            "offset": 0,
+        }
+        if current_source:
+            search_kwargs["source_filter"] = [current_source]
+
+        raw_results = db.search_messages(**search_kwargs)
 
         if not raw_results:
             return json.dumps({
@@ -606,7 +627,8 @@ registry.register(
         role_filter=args.get("role_filter"),
         limit=args.get("limit", 3),
         db=kw.get("db"),
-        current_session_id=kw.get("current_session_id")),
+        current_session_id=kw.get("current_session_id"),
+        current_source=kw.get("current_source")),
     check_fn=check_session_search_requirements,
     emoji="🔍",
 )
