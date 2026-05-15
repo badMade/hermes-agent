@@ -505,12 +505,10 @@ def _is_local_mode() -> bool:
 def _is_local_backend() -> bool:
     """Return True when the browser runs locally (no cloud provider).
 
-    SSRF protection is only meaningful for cloud backends (Browserbase,
+    Most SSRF protection is only meaningful for cloud backends (Browserbase,
     BrowserUse) where the agent could reach internal resources on a remote
-    machine.  For local backends — Camofox, or the built-in headless
-    Chromium without a cloud provider — the user already has full terminal
-    and network access on the same machine, so the check adds no security
-    value.
+    machine.  Some browser-rendered content paths (notably Camofox) still
+    layer stricter checks before exposing page contents to the model.
     """
     return _is_camofox_mode() or _get_cloud_provider() is None
 
@@ -2167,9 +2165,9 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
         })
 
     # SSRF protection — block private/internal addresses before navigating.
-    # Skipped for local backends (Camofox, headless Chromium without a cloud
-    # provider) because the agent already has full local network access via
-    # the terminal tool.  Also skipped when hybrid routing will auto-spawn a
+    # Skipped for the built-in local Chromium backend because the agent already
+    # has full local network access via the terminal tool.  Also skipped when
+    # hybrid routing will auto-spawn a
     # local Chromium sidecar for this URL (cloud provider configured +
     # private URL + ``browser.auto_local_for_private_urls`` enabled) — the
     # cloud provider never sees the URL in that case.  Can also be opted
@@ -2189,6 +2187,18 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
             "success": False,
             "error": "Blocked: URL targets a cloud metadata endpoint",
         })
+
+    if _is_camofox_mode():
+        if _is_always_blocked_url(url):
+            return json.dumps({
+                "success": False,
+                "error": "Blocked: URL targets a cloud metadata endpoint",
+            })
+        if not _is_safe_url(url):
+            return json.dumps({
+                "success": False,
+                "error": "Blocked: URL targets a private or internal address",
+            })
 
     if (
         not _is_local_backend()

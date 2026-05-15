@@ -1,9 +1,10 @@
 """Tests that browser_navigate SSRF checks respect local-backend mode and
 the allow_private_urls setting.
 
-Local backends (Camofox, headless Chromium without a cloud provider) skip
-SSRF checks entirely — the agent already has full local-network access via
-the terminal tool.
+Local Chromium without a cloud provider skips ordinary private-address SSRF
+checks — the agent already has full local-network access via the terminal tool.
+Camofox still gates browser-rendered content so redirects cannot expose private
+pages to the model.
 
 Cloud backends (Browserbase, BrowserUse) enforce SSRF by default.  Users
 can opt out for cloud mode via ``browser.allow_private_urls: true``.
@@ -84,10 +85,10 @@ class TestPreNavigationSsrf:
 
         assert result["success"] is True
 
-    # -- Local mode: SSRF skipped ----------------------------------------------
+    # -- Local Chromium mode: SSRF skipped --------------------------------------
 
     def test_local_allows_private_url(self, monkeypatch, _common_patches):
-        """Local backends skip SSRF — private URLs are always allowed."""
+        """Local Chromium skips SSRF — private URLs are always allowed."""
         monkeypatch.setattr(browser_tool, "_is_local_backend", lambda: True)
         monkeypatch.setattr(browser_tool, "_allow_private_urls", lambda: False)
         monkeypatch.setattr(browser_tool, "_is_safe_url", lambda url: False)
@@ -97,7 +98,7 @@ class TestPreNavigationSsrf:
         assert result["success"] is True
 
     def test_local_allows_public_url(self, monkeypatch, _common_patches):
-        """Local backends pass public URLs too (sanity check)."""
+        """Local Chromium passes public URLs too (sanity check)."""
         monkeypatch.setattr(browser_tool, "_is_local_backend", lambda: True)
         monkeypatch.setattr(browser_tool, "_allow_private_urls", lambda: False)
         monkeypatch.setattr(browser_tool, "_is_safe_url", lambda url: True)
@@ -105,6 +106,27 @@ class TestPreNavigationSsrf:
         result = json.loads(browser_tool.browser_navigate("https://example.com"))
 
         assert result["success"] is True
+
+    def test_camofox_blocks_private_url_before_delegating(self, monkeypatch, _common_patches):
+        """Camofox is local, but browser content tools must not expose private URLs."""
+        called = False
+
+        def fake_camofox_navigate(url, task_id=None):
+            nonlocal called
+            called = True
+            return json.dumps({"success": True})
+
+        monkeypatch.setattr(browser_tool, "_is_camofox_mode", lambda: True)
+        monkeypatch.setattr(browser_tool, "_is_local_backend", lambda: True)
+        monkeypatch.setattr(browser_tool, "_is_always_blocked_url", lambda url: False)
+        monkeypatch.setattr(browser_tool, "_is_safe_url", lambda url: False)
+        monkeypatch.setattr("tools.browser_camofox.camofox_navigate", fake_camofox_navigate)
+
+        result = json.loads(browser_tool.browser_navigate(self.PRIVATE_URL))
+
+        assert result["success"] is False
+        assert "private or internal address" in result["error"]
+        assert called is False
 
     # -- Always-blocked floor: hybrid routing bypass regression (#16234) -------
 

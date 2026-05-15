@@ -102,6 +102,40 @@ class TestCamofoxNavigate:
         assert result["success"] is False
         assert "Cannot connect" in result["error"]
 
+    @patch("tools.browser_camofox.requests.post")
+    def test_blocks_first_navigation_redirect_to_private_url(self, mock_post, monkeypatch):
+        monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
+        mock_post.return_value = _mock_response(json_data={
+            "tabId": "tab_private_first",
+            "url": "http://169.254.169.254/latest/meta-data/",
+        })
+
+        result = json.loads(camofox_navigate(
+            "https://public.example/redirect", task_id="t_private_first"
+        ))
+
+        assert result["success"] is False
+        assert "cloud metadata endpoint" in result["error"]
+
+    @patch("tools.browser_camofox.requests.post")
+    def test_blocks_existing_tab_redirect_to_private_url(self, mock_post, monkeypatch):
+        monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
+        mock_post.return_value = _mock_response(json_data={
+            "tabId": "tab_private_existing",
+            "url": "https://safe.example",
+        })
+        camofox_navigate("https://safe.example", task_id="t_private_existing")
+
+        mock_post.return_value = _mock_response(json_data={
+            "ok": True,
+            "url": "http://127.0.0.1:8080/admin",
+        })
+        result = json.loads(camofox_navigate(
+            "https://public.example/redirect", task_id="t_private_existing"
+        ))
+
+        assert result["success"] is False
+        assert "private/internal address" in result["error"]
 
 # ---------------------------------------------------------------------------
 # Snapshot
@@ -133,6 +167,26 @@ class TestCamofoxSnapshot:
         assert "[e1]" in result["snapshot"]
         assert result["element_count"] == 2
 
+    @patch("tools.browser_camofox.requests.post")
+    @patch("tools.browser_camofox.requests.get")
+    def test_blocks_snapshot_when_current_url_is_private(self, mock_get, mock_post, monkeypatch):
+        monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
+        mock_post.return_value = _mock_response(json_data={
+            "tabId": "tab_snapshot_private",
+            "url": "https://x.com",
+        })
+        camofox_navigate("https://x.com", task_id="t_snapshot_private")
+
+        mock_get.return_value = _mock_response(json_data={
+            "url": "http://127.0.0.1:8080/admin",
+            "snapshot": "secret admin content",
+            "refsCount": 0,
+        })
+        result = json.loads(camofox_snapshot(task_id="t_snapshot_private"))
+
+        assert result["success"] is False
+        assert "private/internal address" in result["error"]
+        assert "snapshot" not in result
 
 # ---------------------------------------------------------------------------
 # Click / Type / Scroll / Back / Press
