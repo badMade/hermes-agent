@@ -807,19 +807,19 @@ def _run_chrome_fallback_command(
 
     if browser_cmd == "npx agent-browser":
         try:
-            _browser_merged_path = _merge_browser_path(os.environ.get("PATH", ""))
-            cmd_prefix = _resolve_npx_agent_browser_prefix(search_path=_browser_merged_path)
+            browser_merged_path = _merge_browser_path(os.environ.get("PATH", ""))
+            cmd_prefix = _resolve_npx_agent_browser_prefix(search_path=browser_merged_path)
         except FileNotFoundError as e:
             return {"success": False, "error": str(e)}
     else:
         cmd_prefix = [browser_cmd]
-        _browser_merged_path = None
+        browser_merged_path = None
     base_args = cmd_prefix + ["--engine", "chrome", "--session", tmp_session, "--json"]
 
     task_socket_dir = os.path.join(_socket_safe_tmpdir(), f"agent-browser-{tmp_session}")
     os.makedirs(task_socket_dir, mode=0o700, exist_ok=True)
     browser_env = {**os.environ, "AGENT_BROWSER_SOCKET_DIR": task_socket_dir}
-    browser_env["PATH"] = _browser_merged_path or _merge_browser_path(browser_env.get("PATH", ""))
+    browser_env["PATH"] = browser_merged_path or _merge_browser_path(browser_env.get("PATH", ""))
 
     if "AGENT_BROWSER_IDLE_TIMEOUT_MS" not in browser_env:
         browser_env["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = str(BROWSER_SESSION_INACTIVITY_TIMEOUT * 1000)
@@ -1902,14 +1902,14 @@ def _run_browser_command(
     # Only the synthetic npx fallback needs to expand into multiple argv items.
     if browser_cmd == "npx agent-browser":
         try:
-            _browser_merged_path = _merge_browser_path(os.environ.get("PATH", ""))
-            cmd_prefix = _resolve_npx_agent_browser_prefix(search_path=_browser_merged_path)
+            browser_merged_path = _merge_browser_path(os.environ.get("PATH", ""))
+            cmd_prefix = _resolve_npx_agent_browser_prefix(search_path=browser_merged_path)
         except FileNotFoundError as e:
             logger.warning("agent-browser npx fallback unavailable: %s", e)
             return {"success": False, "error": str(e)}
     else:
         cmd_prefix = [browser_cmd]
-        _browser_merged_path = None
+        browser_merged_path = None
 
     cmd_parts = cmd_prefix + backend_args + [
         "--json",
@@ -1936,7 +1936,7 @@ def _run_browser_command(
         # Ensure subprocesses inherit the same browser-specific PATH fallbacks
         # used during CLI discovery.  Reuse the already-computed merged path
         # when available to avoid a redundant computation.
-        browser_env["PATH"] = _browser_merged_path or _merge_browser_path(browser_env.get("PATH", ""))
+        browser_env["PATH"] = browser_merged_path or _merge_browser_path(browser_env.get("PATH", ""))
         browser_env["AGENT_BROWSER_SOCKET_DIR"] = task_socket_dir
 
         # Tell the agent-browser daemon to self-terminate after being idle
