@@ -632,7 +632,7 @@ class DockerEnvironment(BaseEnvironment):
             try:
                 # Stop in background so cleanup doesn't block
                 stop_cmd = [
-                    "/bin/sh", "-c",
+                    "sh", "-c",
                     '(timeout 60 "$1" stop "$2" || "$1" rm -f "$2") >/dev/null 2>&1 &',
                     "sh", self._docker_exe, self._container_id
                 ]
@@ -644,7 +644,7 @@ class DockerEnvironment(BaseEnvironment):
                 # Also schedule removal (stop only leaves it as stopped)
                 try:
                     rm_cmd = [
-                        "/bin/sh", "-c",
+                        "sh", "-c",
                         'sleep 3 && "$1" rm -f "$2" >/dev/null 2>&1 &',
                         "sh", self._docker_exe, self._container_id
                     ]
