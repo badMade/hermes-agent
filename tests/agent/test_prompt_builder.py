@@ -1073,6 +1073,29 @@ class TestEnvironmentHints:
 
 
 # =========================================================================
+# Backend Probe Cache
+# =========================================================================
+
+
+class TestBackendProbeCache:
+    def test_clear_backend_probe_cache(self):
+        from agent.prompt_builder import (
+            _BACKEND_PROBE_CACHE,
+            _clear_backend_probe_cache,
+        )
+
+        # Inject dummy data matching dict[tuple[str, str], str]
+        _BACKEND_PROBE_CACHE[("dummy_host", "dummy_user")] = "dummy_value"
+        assert len(_BACKEND_PROBE_CACHE) > 0
+
+        # Clear cache
+        _clear_backend_probe_cache()
+
+        # Verify cache is empty
+        assert len(_BACKEND_PROBE_CACHE) == 0
+
+
+# =========================================================================
 # Conditional skill activation
 # =========================================================================
 
@@ -1351,21 +1374,3 @@ class TestOpenAIModelExecutionGuidance:
 # =========================================================================
 # Budget warning history stripping
 # =========================================================================
-
-
-class TestBackendProbeCache:
-    def test_clear_backend_probe_cache(self):
-        from agent.prompt_builder import (
-            _BACKEND_PROBE_CACHE,
-            _clear_backend_probe_cache,
-        )
-
-        # Inject dummy data
-        _BACKEND_PROBE_CACHE["dummy_key"] = "dummy_value"
-        assert len(_BACKEND_PROBE_CACHE) > 0
-
-        # Clear cache
-        _clear_backend_probe_cache()
-
-        # Verify cache is empty
-        assert len(_BACKEND_PROBE_CACHE) == 0
