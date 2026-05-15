@@ -972,6 +972,28 @@ class TestNewEndpoints:
             "top_skills": [],
         }
 
+    def test_analytics_models_uses_to_thread(self, monkeypatch):
+        import hermes_cli.web_server as web_server
+
+        calls = {}
+
+        async def fake_to_thread(func, *args, **kwargs):
+            calls["func"] = func
+            calls["args"] = args
+            calls["kwargs"] = kwargs
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(web_server.asyncio, "to_thread", fake_to_thread)
+
+        resp = self.client.get("/api/analytics/models?days=7")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "models" in data
+        assert "totals" in data
+        assert data["period_days"] == 7
+        assert calls["func"] is web_server._sync_get_models_analytics
+        assert calls["args"] == (7,)
+
     def test_analytics_usage_includes_skill_breakdown(self):
         from hermes_state import SessionDB
 

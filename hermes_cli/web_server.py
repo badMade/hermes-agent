@@ -2965,8 +2965,7 @@ async def update_config_raw(body: RawConfigUpdate):
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/analytics/usage")
-async def get_usage_analytics(days: int = 30):
+def _sync_get_usage_analytics(days: int = 30) -> Dict[str, Any]:
     from hermes_state import SessionDB
     from agent.insights import InsightsEngine
 
@@ -3044,6 +3043,11 @@ async def get_usage_analytics(days: int = 30):
         }
     finally:
         db.close()
+
+
+@app.get("/api/analytics/usage")
+async def get_usage_analytics(days: int = 30):
+    return await asyncio.to_thread(_sync_get_usage_analytics, days)
 
 
 def _sync_get_models_analytics(days: int = 30) -> Dict[str, Any]:
