@@ -46,7 +46,7 @@ jobs:
 
       - name: Install ruff + ty
         run: |
-          uv tool install ruff
+          uv tool install ruff==0.15.10
           uv tool install ty
 
       - name: Determine base ref
