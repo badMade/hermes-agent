@@ -18,7 +18,7 @@ def _entrypoint_source() -> str:
 def test_container_entrypoint_chown_does_not_follow_symlinks() -> None:
     src = _entrypoint_source()
     assert (
-        '-exec chown -h "$HERMES_UID:$HERMES_GID" {} +' in src
+        '-exec chown -h "$HERMES_UID:$HERMES_GID" -- {} +' in src
     ), "chown must use -h to avoid following symlinks inside HERMES_HOME"
 
 
