@@ -221,6 +221,12 @@ def _write_json_file(
     ``file_mode`` is used when callers need predictable readability after writes
     that replace the marker path itself (for example, secure marker writes that
     do not preserve symlinks).
+
+    Args:
+        path: Destination JSON file path.
+        payload: JSON object to persist.
+        preserve_symlink: Forwarded to ``atomic_json_write``.
+        file_mode: Optional chmod mode applied after the atomic write.
     """
     atomic_json_write(
         path,
