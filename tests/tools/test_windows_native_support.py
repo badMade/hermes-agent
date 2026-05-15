@@ -129,7 +129,7 @@ class TestConfigureWindowsStdio:
         stdio.configure_windows_stdio()
         # EDITOR should NOT be set when VISUAL already is (prompt_toolkit
         # checks VISUAL first anyway, but we also shouldn't override it).
-        assert os.environ.get("EDITOR", "") != trusted_notepad
+        assert "EDITOR" not in os.environ
         assert os.environ["VISUAL"] == "nvim"
 
     def test_default_windows_editor_uses_trusted_system_notepad(self, monkeypatch):
