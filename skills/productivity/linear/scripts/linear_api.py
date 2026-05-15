@@ -122,67 +122,30 @@ def cmd_list_teams(_args: argparse.Namespace) -> None:
     emit(gql(q).get("teams", {}).get("nodes", []))
 
 
-def _resolve_label_id(name: str) -> tuple[str | None, list[str]]:
-    """Map a label name to UUID, paging through all labels.
-
-    Returns (matched_id_or_None, list_of_all_label_names).
-    """
-    q = """query($after: String) {
-      issueLabels(first: 100, after: $after) {
-        nodes { id name }
-        pageInfo { hasNextPage endCursor }
-      }
-    }"""
+def _resolve_label_id(name: str) -> str | None:
+    """Map a label name to UUID."""
+    q = "query { issueLabels(first: 100) { nodes { id name } } }"
+    labels = gql(q).get("issueLabels", {}).get("nodes", [])
     nl = name.lower()
-    found_id: str | None = None
-    all_names: list[str] = []
-    cursor: str | None = None
-    while True:
-        result = gql(q, {"after": cursor}).get("issueLabels", {})
-        for lbl in result.get("nodes", []):
-            lbl_name = lbl.get("name") or ""
-            all_names.append(lbl_name)
-            if found_id is None and lbl_name.lower() == nl:
-                found_id = str(lbl["id"]) if "id" in lbl else None
-        page_info = result.get("pageInfo", {})
-        if not page_info.get("hasNextPage"):
-            break
-        cursor = page_info.get("endCursor")
-    return found_id, all_names
+    for lbl in labels:
+        if lbl.get("name", "").lower() == nl:
+            return str(lbl["id"]) if "id" in lbl else None
+    return None
 
 
-def _resolve_assignee_id(name: str) -> tuple[str | None, list[str]]:
-    """Map a user name, displayName, or email to UUID, paging through all users.
-
-    Returns (matched_id_or_None, list_of_display_names).
-    Handles None values for displayName/email returned by Linear.
-    """
-    q = """query($after: String) {
-      users(first: 100, after: $after) {
-        nodes { id name email displayName }
-        pageInfo { hasNextPage endCursor }
-      }
-    }"""
+def _resolve_assignee_id(name: str) -> str | None:
+    """Map a user name, displayName, or email to UUID."""
+    q = "query { users(first: 100) { nodes { id name email displayName } } }"
+    users = gql(q).get("users", {}).get("nodes", [])
     nl = name.lower()
-    found_id: str | None = None
-    all_names: list[str] = []
-    cursor: str | None = None
-    while True:
-        result = gql(q, {"after": cursor}).get("users", {})
-        for u in result.get("nodes", []):
-            display = (u.get("displayName") or u.get("name") or "")
-            all_names.append(display)
-            if found_id is None and (
-                (u.get("name") or "").lower() == nl
-                or (u.get("displayName") or "").lower() == nl
-                or (u.get("email") or "").lower() == nl
-            ):
-                found_id = str(u["id"]) if "id" in u else None
-        page_info = result.get("pageInfo", {})
-        if not page_info.get("hasNextPage"):
-            break
-        cursor = page_info.get("endCursor")
-    return found_id, all_names
+    for u in users:
+        if (
+            u.get("name", "").lower() == nl
+            or u.get("displayName", "").lower() == nl
+            or u.get("email", "").lower() == nl
+        ):
+            return str(u["id"]) if "id" in u else None
+    return None
 
 
 def _resolve_team_id(key_or_name: str) -> str | None:
@@ -300,20 +263,16 @@ def cmd_create_issue(args: argparse.Namespace) -> None:
         inp["parentId"] = args.parent
 
     if args.label:
-        lid, avail_labels = _resolve_label_id(args.label)
+        lid = _resolve_label_id(args.label)
         if not lid:
-            sys.stderr.write(
-                f"Label not found: {args.label}. Available: {avail_labels}\n"
-            )
+            sys.stderr.write(f"Label not found: {args.label}\n")
             sys.exit(1)
         inp["labelIds"] = [lid]
 
     if args.assignee:
-        aid, avail_users = _resolve_assignee_id(args.assignee)
+        aid = _resolve_assignee_id(args.assignee)
         if not aid:
-            sys.stderr.write(
-                f"Assignee not found: {args.assignee}. Available: {avail_users}\n"
-            )
+            sys.stderr.write(f"Assignee not found: {args.assignee}\n")
             sys.exit(1)
         inp["assigneeId"] = aid
 
