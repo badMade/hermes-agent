@@ -1730,7 +1730,11 @@ def _quote_windows_batch_arg(arg: str) -> str:
         raise ValueError(
             "Windows batch launcher arguments cannot contain control characters or quotes"
         )
-    return '"' + arg + '"'
+    # Double trailing backslashes so they don't escape the closing quote
+    # in MSVCRT-based downstream processes (like node.exe called by the shim).
+    stripped = arg.rstrip('\\')
+    backslashes = len(arg) - len(stripped)
+    return '"' + arg + ('\\' * backslashes) + '"'
 
 
 def _prepare_browser_popen_command(cmd_parts: List[str]) -> Tuple[Any, Dict[str, Any]]:
