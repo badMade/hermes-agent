@@ -1737,7 +1737,7 @@ def _prepare_browser_popen_command(cmd_parts: List[str]) -> Tuple[Any, Dict[str,
     """Prepare argv/kwargs for launching agent-browser safely."""
     if os.name != "nt" or not cmd_parts or not _is_windows_batch_launcher(cmd_parts[0]):
         return cmd_parts, {}
-    return " ".join(_quote_windows_batch_arg(part) for part in cmd_parts), {"shell": True}
+    return '"' + " ".join(_quote_windows_batch_arg(part) for part in cmd_parts) + '"', {"shell": True}
 
 
 def _extract_screenshot_path_from_text(text: str) -> Optional[str]:
