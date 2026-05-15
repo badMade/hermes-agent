@@ -71,9 +71,9 @@ _CRON_INVISIBLE_CHARS = {
 _CRON_ALLOWED_GITHUB_AUTH_CURL_RE = (
     rf'\bcurl\b(?:(?![\n;&|]).)*'
     rf'(?:-H|--header)\s+["\']Authorization:\s*token\s+{_CRON_SECRET_VAR_RE}["\']'
-    r'\s+(?:"https://api\.github\.com(?:/|\b)[^"\s]*"'
-    r"|'https://api\.github\.com(?:/|\b)[^'\s]*'"
-    r'|https://api\.github\.com(?:/|\b)[^\s]*)\s*$'
+    r'\s+(?:"https://api\.github\.com(?::\d+)?(?:[/?#][^"\s]*)?"'
+    r"|'https://api\.github\.com(?::\d+)?(?:[/?#][^'\s]*)?'"
+    r'|https://api\.github\.com(?::\d+)?(?:[/?#][^\s]*)?)\s*$'
 )
 
 
