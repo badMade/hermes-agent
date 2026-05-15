@@ -32,7 +32,7 @@ _yaml_load_fn = None
 
 
 def yaml_load(content: str):
-    """Parse YAML with lazy import and CSafeLoader preference."""
+    """Parse YAML with lazy import, preferring CSafeLoader for performance."""
     global _yaml_load_fn
     if _yaml_load_fn is None:
         import yaml

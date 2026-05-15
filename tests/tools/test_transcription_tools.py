@@ -417,7 +417,7 @@ class TestTranscribeLocalCommand:
         whisper_calls = [
             (cmd, kwargs)
             for cmd, kwargs in run_calls
-            if isinstance(cmd, list) and cmd and cmd[0] == "whisper"
+            if isinstance(cmd, list) and cmd and cmd[0].endswith("whisper")
         ]
         assert whisper_calls
         assert all(kwargs.get("shell") is not True for _, kwargs in whisper_calls)

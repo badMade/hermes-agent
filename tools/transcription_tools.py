@@ -495,13 +495,13 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
             if prep_error:
                 return {"success": False, "transcript": "", "error": prep_error}
 
-            expanded_template = os.path.expandvars(os.path.expanduser(command_template))
-            command = expanded_template.format(
+            command = command_template.format(
                 input_path=shlex.quote(prepared_input),
                 output_dir=shlex.quote(output_dir),
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
+            command = os.path.expandvars(os.path.expanduser(command))
             command_args = shlex.split(command)
             subprocess.run(command_args, check=True, capture_output=True, text=True)
 
