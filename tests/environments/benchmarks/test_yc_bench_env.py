@@ -1,6 +1,8 @@
+import importlib
 import pathlib
 import sqlite3
 import sys
+import types
 from unittest import mock
 
 
@@ -8,48 +10,79 @@ class MockClass:
     pass
 
 
-class MockAtroposlib:
-    class type_definitions:
-        Item = MockClass
-
-    class envs:
-        class base:
-            EvalHandlingEnum = MockClass
-            BaseEnv = MockClass
-            BaseEnvConfig = MockClass
-            ScoredDataGroup = MockClass
-            ScoredDataItem = MockClass
-
-        class server_handling:
-            class server_manager:
-                APIServerConfig = MockClass
-                ServerBaseline = MockClass
-                ServerManager = MockClass
-
-            class openai_server:
-                OpenAIServerConfig = MockClass
-
-
-sys.modules["atroposlib"] = MockAtroposlib
-sys.modules["atroposlib.envs"] = MockAtroposlib.envs
-sys.modules["atroposlib.envs.base"] = MockAtroposlib.envs.base
-sys.modules["atroposlib.envs.server_handling"] = MockAtroposlib.envs.server_handling
-sys.modules["atroposlib.envs.server_handling.server_manager"] = (
-    MockAtroposlib.envs.server_handling.server_manager
-)
-sys.modules["atroposlib.envs.server_handling.openai_server"] = (
-    MockAtroposlib.envs.server_handling.openai_server
-)
-sys.modules["atroposlib.type_definitions"] = MockAtroposlib.type_definitions
-
 import pytest
-from environments.benchmarks.yc_bench.yc_bench_env import _read_final_score
 
 
-def test_missing_db_file() -> None:
+def _stub_module(name: str, **attrs: object) -> types.ModuleType:
+    module = types.ModuleType(name)
+    for key, value in attrs.items():
+        setattr(module, key, value)
+    return module
+
+
+def _load_yc_bench_module(monkeypatch: pytest.MonkeyPatch):
+    stub_modules = {
+        "atroposlib": _stub_module("atroposlib"),
+        "atroposlib.envs": _stub_module("atroposlib.envs"),
+        "atroposlib.envs.base": _stub_module(
+            "atroposlib.envs.base",
+            EvalHandlingEnum=MockClass,
+            BaseEnv=MockClass,
+            BaseEnvConfig=MockClass,
+            ScoredDataGroup=MockClass,
+            ScoredDataItem=MockClass,
+        ),
+        "atroposlib.envs.server_handling": _stub_module(
+            "atroposlib.envs.server_handling"
+        ),
+        "atroposlib.envs.server_handling.server_manager": _stub_module(
+            "atroposlib.envs.server_handling.server_manager",
+            APIServerConfig=MockClass,
+            ServerBaseline=MockClass,
+            ServerManager=MockClass,
+        ),
+        "atroposlib.envs.server_handling.openai_server": _stub_module(
+            "atroposlib.envs.server_handling.openai_server",
+            OpenAIServerConfig=MockClass,
+        ),
+        "atroposlib.type_definitions": _stub_module(
+            "atroposlib.type_definitions",
+            Item=MockClass,
+        ),
+    }
+
+    stub_modules["atroposlib"].envs = stub_modules["atroposlib.envs"]
+    stub_modules["atroposlib"].type_definitions = stub_modules[
+        "atroposlib.type_definitions"
+    ]
+    stub_modules["atroposlib.envs"].base = stub_modules["atroposlib.envs.base"]
+    stub_modules["atroposlib.envs"].server_handling = stub_modules[
+        "atroposlib.envs.server_handling"
+    ]
+    stub_modules["atroposlib.envs.server_handling"].server_manager = stub_modules[
+        "atroposlib.envs.server_handling.server_manager"
+    ]
+    stub_modules["atroposlib.envs.server_handling"].openai_server = stub_modules[
+        "atroposlib.envs.server_handling.openai_server"
+    ]
+
+    for name, module in stub_modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    module_name = "environments.benchmarks.yc_bench.yc_bench_env"
+    sys.modules.pop(module_name, None)
+    return importlib.import_module(module_name)
+
+
+@pytest.fixture
+def read_final_score(monkeypatch: pytest.MonkeyPatch):
+    return _load_yc_bench_module(monkeypatch)._read_final_score
+
+
+def test_missing_db_file(read_final_score) -> None:
     """Test behavior when the database file does not exist."""
     with mock.patch("os.path.exists", return_value=False):
-        result = _read_final_score("/fake/path/db.sqlite")
+        result = read_final_score("/fake/path/db.sqlite")
 
     assert isinstance(result, dict)
     assert type(result["final_funds_cents"]) is int
@@ -61,7 +94,7 @@ def test_missing_db_file() -> None:
     assert result["terminal_reason"] == "db_missing"
 
 
-def test_db_read_error(tmp_path: pathlib.Path) -> None:
+def test_db_read_error(tmp_path: pathlib.Path, read_final_score) -> None:
     """Test behavior when the database encounters an operational error."""
     db_file = tmp_path / "test.sqlite"
     db_file.write_text("fake db content")  # Ensure file exists to pass os.path.exists
@@ -69,7 +102,7 @@ def test_db_read_error(tmp_path: pathlib.Path) -> None:
     with mock.patch(
         "sqlite3.connect", side_effect=sqlite3.DatabaseError("Corrupted file")
     ):
-        result = _read_final_score(str(db_file))
+        result = read_final_score(str(db_file))
 
     assert result["final_funds_cents"] == 0
     assert result["survived"] is False
@@ -100,39 +133,39 @@ def create_mock_db(
     conn.close()
 
 
-def test_happy_path_survived(tmp_path: pathlib.Path) -> None:
+def test_happy_path_survived(tmp_path: pathlib.Path, read_final_score) -> None:
     """Test standard survival scenario."""
     db_file = tmp_path / "test.sqlite"
     create_mock_db(
         db_file, companies_rows=[1500000], sim_events_rows=[("horizon_end", 100.0)]
     )
-    result = _read_final_score(str(db_file))
+    result = read_final_score(str(db_file))
 
     assert result["final_funds_cents"] == 1500000
     assert result["survived"] is True
     assert result["terminal_reason"] == "horizon_end"
 
 
-def test_happy_path_bankrupt(tmp_path: pathlib.Path) -> None:
+def test_happy_path_bankrupt(tmp_path: pathlib.Path, read_final_score) -> None:
     """Test standard bankruptcy scenario."""
     db_file = tmp_path / "test.sqlite"
     create_mock_db(
         db_file, companies_rows=[-50000], sim_events_rows=[("bankruptcy", 100.0)]
     )
-    result = _read_final_score(str(db_file))
+    result = read_final_score(str(db_file))
 
     assert result["final_funds_cents"] == -50000
     assert result["survived"] is False
     assert result["terminal_reason"] == "bankruptcy"
 
 
-def test_boundary_funds_zero(tmp_path: pathlib.Path) -> None:
+def test_boundary_funds_zero(tmp_path: pathlib.Path, read_final_score) -> None:
     """Test boundary condition where funds_cents is exactly 0."""
     db_file = tmp_path / "test.sqlite"
     create_mock_db(
         db_file, companies_rows=[0], sim_events_rows=[("horizon_end", 100.0)]
     )
-    result = _read_final_score(str(db_file))
+    result = read_final_score(str(db_file))
 
     # 0 funds without bankruptcy means survival based on >= 0 logic
     assert result["final_funds_cents"] == 0
@@ -140,59 +173,61 @@ def test_boundary_funds_zero(tmp_path: pathlib.Path) -> None:
     assert result["terminal_reason"] == "horizon_end"
 
 
-def test_empty_companies_table(tmp_path: pathlib.Path) -> None:
+def test_empty_companies_table(tmp_path: pathlib.Path, read_final_score) -> None:
     """Test when the companies table exists but is empty."""
     db_file = tmp_path / "test.sqlite"
     create_mock_db(db_file, companies_rows=[], sim_events_rows=[("horizon_end", 100.0)])
-    result = _read_final_score(str(db_file))
+    result = read_final_score(str(db_file))
 
     assert result["final_funds_cents"] == 0
     assert result["survived"] is True
     assert result["terminal_reason"] == "horizon_end"
 
 
-def test_empty_sim_events_table(tmp_path: pathlib.Path) -> None:
+def test_empty_sim_events_table(tmp_path: pathlib.Path, read_final_score) -> None:
     """Test when the sim_events table exists but is empty."""
     db_file = tmp_path / "test.sqlite"
     create_mock_db(db_file, companies_rows=[100], sim_events_rows=[])
-    result = _read_final_score(str(db_file))
+    result = read_final_score(str(db_file))
 
     assert result["final_funds_cents"] == 100
     assert result["survived"] is True
     assert result["terminal_reason"] == "unknown"
 
 
-def test_missing_sim_events_table(tmp_path: pathlib.Path) -> None:
+def test_missing_sim_events_table(tmp_path: pathlib.Path, read_final_score) -> None:
     """Test when the sim_events table is entirely missing."""
     db_file = tmp_path / "test.sqlite"
     create_mock_db(db_file, companies_rows=[100], sim_events_rows=None)
-    result = _read_final_score(str(db_file))
+    result = read_final_score(str(db_file))
 
     assert result["final_funds_cents"] == 100
     assert result["survived"] is True
     assert result["terminal_reason"] == "unknown"
 
 
-def test_casing_and_whitespace_robustness(tmp_path: pathlib.Path) -> None:
+def test_casing_and_whitespace_robustness(
+    tmp_path: pathlib.Path, read_final_score
+) -> None:
     """Test terminal_reason robust parsing for casing and whitespace."""
     db_file = tmp_path / "test.sqlite"
     create_mock_db(
-        db_file, companies_rows=[100], sim_events_rows=[("  BankRuptcy  ", 100.0)]
+        db_file, companies_rows=[100], sim_events_rows=[("\n\t BankRuptcy \t", 100.0)]
     )
-    result = _read_final_score(str(db_file))
+    result = read_final_score(str(db_file))
 
     assert result["final_funds_cents"] == 100
     assert result["survived"] is False
     assert result["terminal_reason"] == "bankruptcy"
 
 
-def test_return_shape(tmp_path: pathlib.Path) -> None:
+def test_return_shape(tmp_path: pathlib.Path, read_final_score) -> None:
     """Test that the return dictionary has exactly the right shape and types."""
     db_file = tmp_path / "test.sqlite"
     create_mock_db(
         db_file, companies_rows=[100], sim_events_rows=[("horizon_end", 100.0)]
     )
-    result = _read_final_score(str(db_file))
+    result = read_final_score(str(db_file))
 
     # Assert exact keys
     assert set(result.keys()) == {"final_funds_cents", "survived", "terminal_reason"}

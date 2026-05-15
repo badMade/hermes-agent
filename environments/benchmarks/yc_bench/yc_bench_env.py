@@ -260,14 +260,12 @@ def _read_final_score(db_path: str) -> Dict[str, Any]:
         # Determine terminal reason from 'sim_events' table
         terminal_reason = "unknown"
         try:
-            cur.execute(
-                "SELECT event_type FROM sim_events "
-                "WHERE LOWER(TRIM(event_type)) IN ('bankruptcy', 'horizon_end') "
-                "ORDER BY scheduled_at DESC LIMIT 1"
-            )
-            event_row = cur.fetchone()
-            if event_row:
-                terminal_reason = str(event_row[0]).strip().lower()
+            cur.execute("SELECT event_type FROM sim_events ORDER BY scheduled_at DESC")
+            for event_row in cur.fetchall():
+                normalized_event_type = str(event_row[0]).strip().lower()
+                if normalized_event_type in {"bankruptcy", "horizon_end"}:
+                    terminal_reason = normalized_event_type
+                    break
         except sqlite3.OperationalError:
             # Table may not exist if simulation didn't progress
             pass
