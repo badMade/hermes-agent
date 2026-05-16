@@ -1701,7 +1701,6 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
             enabled_toolsets=["curator_readonly" if dry_run else "curator"],
             quiet_mode=True,
             platform="curator",
-            enabled_toolsets=["skills"],
             skip_context_files=True,
             skip_memory=True,
         )

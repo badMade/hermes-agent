@@ -601,7 +601,7 @@ def test_curator_review_prompt_points_at_constrained_tools_only():
     assert "pin_skill" not in CURATOR_REVIEW_PROMPT
 
 
-def test_run_llm_review_limits_agent_to_skills_toolset(curator_env, monkeypatch):
+def test_run_llm_review_limits_agent_to_curator_toolset(curator_env, monkeypatch):
     """The unattended curator must not inherit the default terminal toolset."""
     # The fixture stubs _run_llm_review for most tests; reload to exercise the
     # real constructor path without making a network call.
@@ -648,7 +648,7 @@ def test_run_llm_review_limits_agent_to_skills_toolset(curator_env, monkeypatch)
     result = curator._run_llm_review("review")
 
     assert result["error"] is None
-    assert captured_kwargs["enabled_toolsets"] == ["skills"]
+    assert captured_kwargs["enabled_toolsets"] == ["curator"]
 
 
 def test_curator_does_not_instruct_model_to_pin():
