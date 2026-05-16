@@ -793,11 +793,10 @@ def _run_chrome_fallback_command(
                 _si = subprocess.STARTUPINFO()
                 _si.dwFlags |= subprocess.STARTF_USESTDHANDLES
                 _popen_extra["startupinfo"] = _si
-            popen_cmd, _batch_popen_extra = _prepare_browser_popen_command(full)
             proc = subprocess.Popen(
-                popen_cmd, stdout=stdout_fd, stderr=stderr_fd,
+                full, stdout=stdout_fd, stderr=stderr_fd,
                 stdin=subprocess.DEVNULL, env=browser_env,
-                **_popen_extra, **_batch_popen_extra,
+                **_popen_extra,
             )
         finally:
             os.close(stdout_fd)
@@ -1713,37 +1712,6 @@ def _find_agent_browser() -> str:
     )
 
 
-def _is_windows_batch_launcher(executable: str) -> bool:
-    """Return True when ``executable`` is a Windows batch shim."""
-    return str(executable).lower().endswith((".cmd", ".bat"))
-
-
-def _quote_windows_batch_arg(arg: str) -> str:
-    """Quote one argv item for cmd.exe batch-shim invocation.
-
-    Windows may route ``.cmd``/``.bat`` targets through ``cmd.exe`` even when
-    ``shell=False``.  Quote every argument so shell metacharacters in URLs (for
-    example ``&``) remain data instead of becoming command separators.
-    """
-    arg = str(arg)
-    if "\x00" in arg or "\r" in arg or "\n" in arg or '"' in arg or "%" in arg:
-        raise ValueError(
-            "Windows batch launcher arguments cannot contain control characters, quotes, or percent signs"
-        )
-    # Double trailing backslashes so they don't escape the closing quote
-    # in MSVCRT-based downstream processes (like node.exe called by the shim).
-    stripped = arg.rstrip('\\')
-    backslashes = len(arg) - len(stripped)
-    return '"' + arg + ('\\' * backslashes) + '"'
-
-
-def _prepare_browser_popen_command(cmd_parts: List[str]) -> Tuple[Any, Dict[str, Any]]:
-    """Prepare argv/kwargs for launching agent-browser safely."""
-    if os.name != "nt" or not cmd_parts or not _is_windows_batch_launcher(cmd_parts[0]):
-        return cmd_parts, {}
-    return '"' + " ".join(_quote_windows_batch_arg(part) for part in cmd_parts) + '"', {"shell": True}
-
-
 def _extract_screenshot_path_from_text(text: str) -> Optional[str]:
     """Extract a screenshot file path from agent-browser human-readable output."""
     if not text:
@@ -1955,14 +1923,13 @@ def _run_browser_command(
                 _si = subprocess.STARTUPINFO()
                 _si.dwFlags |= subprocess.STARTF_USESTDHANDLES
                 _popen_extra["startupinfo"] = _si
-            popen_cmd, _batch_popen_extra = _prepare_browser_popen_command(cmd_parts)
             proc = subprocess.Popen(
-                popen_cmd,
+                cmd_parts,
                 stdout=stdout_fd,
                 stderr=stderr_fd,
                 stdin=subprocess.DEVNULL,
                 env=browser_env,
-                **_popen_extra, **_batch_popen_extra,
+                **_popen_extra,
             )
         finally:
             os.close(stdout_fd)
@@ -2062,9 +2029,13 @@ def _run_browser_command(
         result = {"success": False, "error": str(e)}
 
     # --- Lightpanda automatic Chrome fallback ---
-    # If engine is lightpanda and the result looks broken, retry with Chrome.
-    # This runs for ALL exit paths (timeout, empty, non-JSON, nonzero rc, parsed).
-    fallback_reason = _lightpanda_fallback_reason(engine, command, result)
+    # If the active session is a local Lightpanda daemon and the result looks
+    # broken, retry with Chrome. Cloud CDP sessions intentionally omit
+    # ``--engine`` above, so a configured Lightpanda engine does not prove the
+    # active backend is Lightpanda; falling back locally would bypass the cloud
+    # browser network boundary.
+    fallback_engine = engine if not session_info.get("cdp_url") else "auto"
+    fallback_reason = _lightpanda_fallback_reason(fallback_engine, command, result)
     if fallback_reason:
         logger.info(
             "Lightpanda fallback: retrying '%s' with Chrome (task=%s): %s",
