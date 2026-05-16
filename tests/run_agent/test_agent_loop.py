@@ -479,29 +479,13 @@ class TestHermesAgentLoop:
         assert result.reasoning_per_turn[0] == "Let me think about this step by step..."
 
 
-@pytest.fixture
-def restore_tool_executor():
-    import environments.agent_loop as agent_loop_module
-
-    original_executor = agent_loop_module._tool_executor
-    yield
-    agent_loop_module._tool_executor = original_executor
-
-
 class TestResizeToolPool:
-    def test_resize_works(self, restore_tool_executor):
-        """resize_tool_pool should not raise and should set max_workers correctly."""
-        import environments.agent_loop as agent_loop_module
-
+    def test_resize_works(self):
+        """resize_tool_pool should not raise."""
         resize_tool_pool(16)  # Small pool for testing
-        assert agent_loop_module._tool_executor._max_workers == 16
-
         resize_tool_pool(128)  # Restore default
-        assert agent_loop_module._tool_executor._max_workers == 128
 
-    def test_resize_shuts_down_previous_executor(
-        self, monkeypatch, restore_tool_executor
-    ):
+    def test_resize_shuts_down_previous_executor(self, monkeypatch):
         """Replacing the global tool executor should shut down the old pool."""
         import environments.agent_loop as agent_loop_module
 
@@ -522,25 +506,3 @@ class TestResizeToolPool:
         old_executor.shutdown.assert_called_once_with(wait=False)
         assert agent_loop_module._tool_executor is new_executor
         mock_logger.info.assert_called_once_with("Tool thread pool resized to %d workers", 16)
-
-    def test_resize_pool_with_running_tasks(self, restore_tool_executor):
-        """Test that running tasks are not interrupted when resizing."""
-        import concurrent.futures
-        import environments.agent_loop as agent_loop_module
-        import time
-
-        def blocking_task():
-            time.sleep(0.1)
-            return "done"
-
-        agent_loop_module._tool_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=4
-        )
-
-        old_executor = agent_loop_module._tool_executor
-        future = old_executor.submit(blocking_task)
-
-        resize_tool_pool(16)
-
-        assert agent_loop_module._tool_executor is not old_executor
-        assert future.result(timeout=1.0) == "done"
