@@ -74,7 +74,7 @@ while read PR_NUMBER; do
 
   # 2. Add label to prevent duplicates
   # Ensure the label exists first
-  gh api -X POST repos/$REPO/labels -f name="reviewed" -f color="0e8a16" --silent || true
+  gh api -X POST repos/$REPO/labels -f name="jules-reviewed" -f color="0e8a16" --silent || true
 
   # Add label to PR
   gh pr edit $PR_NUMBER --add-label "reviewed"
