@@ -264,6 +264,17 @@ def _request_approval(action: str, args: Dict[str, Any]) -> Optional[str]:
     # Honor already-granted session approvals before checking for a callback,
     # so that actions approved via approve_session / always_approve continue
     # to work even if the callback is later cleared or never re-registered.
+    cb = _approval_callback
+    if cb is None:
+        return json.dumps({
+            "error": "approval required but no approval callback is registered",
+            "action": action,
+            "hint": (
+                "Destructive computer_use actions require an interactive approval "
+                "callback. Use the interactive CLI or configure an approval-capable "
+                "runtime before retrying."
+            ),
+        })
     if _session_auto_approve:
         return None
     if action in _always_allow:

@@ -2160,6 +2160,93 @@ def _run_browser_command(
     return result
 
 
+def _remote_browser_session(task_id: str) -> bool:
+    """Return True when ``task_id`` is backed by a remote CDP browser."""
+    if _is_camofox_mode():
+        return False
+    try:
+        return bool(_get_session_info(task_id).get("cdp_url"))
+    except Exception:
+        # If global mode says cloud but the session lookup failed, fail toward
+        # the safer cloud behavior at read boundaries.
+        return not _is_local_backend()
+
+
+def _extract_eval_url(result: Dict[str, Any]) -> Optional[str]:
+    """Extract a URL string from an agent-browser eval result."""
+    if not result.get("success"):
+        return None
+    raw = result.get("data", {}).get("result")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip()
+        try:
+            decoded = json.loads(text)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            decoded = text
+        if isinstance(decoded, str):
+            return decoded.strip() or None
+    return str(raw).strip() or None
+
+
+def _current_browser_url(task_id: str) -> Optional[str]:
+    """Return the active page URL for ``task_id`` without exposing page content."""
+    try:
+        from tools.browser_supervisor import SUPERVISOR_REGISTRY  # type: ignore[import-not-found]
+        supervisor = SUPERVISOR_REGISTRY.get(task_id)
+        if supervisor is not None:
+            sup_result = supervisor.evaluate_runtime("window.location.href")
+            if sup_result.get("ok"):
+                raw = sup_result.get("result")
+                if isinstance(raw, str):
+                    return raw.strip() or None
+                if raw is not None:
+                    return str(raw).strip() or None
+    except ImportError:
+        pass
+    except Exception as exc:  # pragma: no cover - defensive, CLI fallback below
+        logger.debug("current URL supervisor lookup failed: %s", exc)
+
+    result = _run_browser_command(task_id, "eval", ["window.location.href"])
+    return _extract_eval_url(result)
+
+
+def _unsafe_current_url_error(task_id: str, action: str) -> Optional[Dict[str, Any]]:
+    """Return an error response when a remote browser is on a blocked URL."""
+    if _is_camofox_mode():
+        return None
+
+    is_remote = _remote_browser_session(task_id)
+    if not is_remote and _is_local_backend():
+        return None
+
+    current_url = _current_browser_url(task_id)
+    if not current_url:
+        if is_remote:
+            _run_browser_command(task_id, "open", ["about:blank"], timeout=10)
+            return {
+                "success": False,
+                "error": f"Blocked: unable to verify current browser URL after {action}",
+            }
+        return None
+
+    if not _is_local_backend() and _is_always_blocked_url(current_url):
+        _run_browser_command(task_id, "open", ["about:blank"], timeout=10)
+        return {
+            "success": False,
+            "error": f"Blocked: {action} landed on a cloud metadata endpoint",
+        }
+
+    if is_remote and not _allow_private_urls() and not _is_safe_url(current_url):
+        _run_browser_command(task_id, "open", ["about:blank"], timeout=10)
+        return {
+            "success": False,
+            "error": f"Blocked: {action} landed on a private/internal address",
+        }
+
+    return None
+
 def _extract_relevant_content(
     snapshot_text: str,
     user_task: Optional[str] = None
@@ -2469,6 +2556,10 @@ def browser_snapshot(
     if not full:
         args.extend(["-c"])  # Compact mode
 
+    unsafe_error = _unsafe_current_url_error(effective_task_id, "snapshot")
+    if unsafe_error is not None:
+        return json.dumps(unsafe_error, ensure_ascii=False)
+
     result = _run_browser_command(effective_task_id, "snapshot", args)
 
     if result.get("success"):
@@ -2535,6 +2626,9 @@ def browser_click(ref: str, task_id: Optional[str] = None) -> str:
     result = _run_browser_command(effective_task_id, "click", [ref])
 
     if result.get("success"):
+        unsafe_error = _unsafe_current_url_error(effective_task_id, "click")
+        if unsafe_error is not None:
+            return json.dumps(_copy_fallback_warning(unsafe_error, result), ensure_ascii=False)
         response = {
             "success": True,
             "clicked": ref
@@ -2574,6 +2668,9 @@ def browser_type(ref: str, text: str, task_id: Optional[str] = None) -> str:
     result = _run_browser_command(effective_task_id, "fill", [ref, text])
 
     if result.get("success"):
+        unsafe_error = _unsafe_current_url_error(effective_task_id, "type")
+        if unsafe_error is not None:
+            return json.dumps(_copy_fallback_warning(unsafe_error, result), ensure_ascii=False)
         response = {
             "success": True,
             "typed": text,
@@ -2655,6 +2752,9 @@ def browser_back(task_id: Optional[str] = None) -> str:
     result = _run_browser_command(effective_task_id, "back", [])
 
     if result.get("success"):
+        unsafe_error = _unsafe_current_url_error(effective_task_id, "back")
+        if unsafe_error is not None:
+            return json.dumps(_copy_fallback_warning(unsafe_error, result), ensure_ascii=False)
         data = result.get("data", {})
         response = {
             "success": True,
@@ -2688,6 +2788,9 @@ def browser_press(key: str, task_id: Optional[str] = None) -> str:
     result = _run_browser_command(effective_task_id, "press", [key])
 
     if result.get("success"):
+        unsafe_error = _unsafe_current_url_error(effective_task_id, "press")
+        if unsafe_error is not None:
+            return json.dumps(_copy_fallback_warning(unsafe_error, result), ensure_ascii=False)
         response = {
             "success": True,
             "pressed": key
@@ -2699,9 +2802,6 @@ def browser_press(key: str, task_id: Optional[str] = None) -> str:
             "error": result.get("error", f"Failed to press {key}")
         }
         return json.dumps(_copy_fallback_warning(response, result), ensure_ascii=False)
-
-
-
 
 
 def browser_console(clear: bool = False, expression: Optional[str] = None, task_id: Optional[str] = None) -> str:
@@ -2794,6 +2894,9 @@ def _browser_eval(expression: str, task_id: Optional[str] = None) -> str:
                         parsed = json.loads(raw_result)
                     except (json.JSONDecodeError, ValueError):
                         pass  # keep as string
+                unsafe_error = _unsafe_current_url_error(effective_task_id, "eval")
+                if unsafe_error is not None:
+                    return json.dumps(unsafe_error, ensure_ascii=False)
                 response = {
                     "success": True,
                     "result": parsed,
@@ -2847,6 +2950,10 @@ def _browser_eval(expression: str, task_id: Optional[str] = None) -> str:
             parsed = json.loads(raw_result)
         except (json.JSONDecodeError, ValueError):
             pass  # keep as string
+
+    unsafe_error = _unsafe_current_url_error(effective_task_id, "eval")
+    if unsafe_error is not None:
+        return json.dumps(_copy_fallback_warning(unsafe_error, result), ensure_ascii=False)
 
     response = {
         "success": True,
