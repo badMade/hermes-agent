@@ -35,7 +35,7 @@ import json
 import logging
 import os
 import queue
-import stat
+import tempfile
 import threading
 
 from datetime import datetime, timezone
@@ -443,47 +443,60 @@ def _embedded_profile_env_path(config: dict[str, Any]):
     return Path.home() / ".hindsight" / "profiles" / f"{_embedded_profile_name(config)}.env"
 
 
-def _ensure_private_hindsight_profile_path(profile_env):
-    """Create and tighten the legacy Hindsight profile path permissions."""
-    hindsight_dir = profile_env.parent.parent
-    profiles_dir = profile_env.parent
-    hindsight_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    profiles_dir.mkdir(mode=0o700, exist_ok=True)
-    hindsight_dir.chmod(0o700)
-    profiles_dir.chmod(0o700)
-    if profile_env.exists():
-        if profile_env.is_symlink():
-            raise OSError(f"Refusing to use symlinked Hindsight profile env: {profile_env}")
-        profile_env.chmod(stat.S_IRUSR | stat.S_IWUSR)
-
-
-def _write_private_text(path, content: str) -> None:
-    """Write text without exposing secret-bearing files through the process umask."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    fd = os.open(path, flags, 0o600)
+def _harden_embedded_profile_env_path(profile_env) -> None:
+    """Restrict Hindsight profile env access to the current user."""
     try:
-        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            fd = -1
-            handle.write(content)
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    finally:
-        if fd != -1:
-            os.close(fd)
+        os.chmod(profile_env.parent, 0o700)
+    except (OSError, NotImplementedError):
+        pass
+    try:
+        if profile_env.exists():
+            os.chmod(profile_env, 0o600)
+    except (OSError, NotImplementedError):
+        pass
 
 
-def _materialize_embedded_profile_env(config: dict[str, Any], *, llm_api_key: str | None = None):
+def _write_embedded_profile_env(profile_env, content: str) -> None:
+    """Atomically write a profile env file without exposing secrets via umask."""
+    profile_env.parent.mkdir(parents=True, exist_ok=True)
+    _harden_embedded_profile_env_path(profile_env)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{profile_env.name}.",
+        suffix=".tmp",
+        dir=str(profile_env.parent),
+        text=True,
+    )
+    try:
+        try:
+            os.chmod(tmp_name, 0o600)
+        except (OSError, NotImplementedError):
+            pass
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_name, profile_env)
+        _harden_embedded_profile_env_path(profile_env)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _materialize_embedded_profile_env(
+    config: dict[str, Any], *, llm_api_key: str | None = None
+):
     """Write the profile-scoped env file that standalone hindsight-embed uses."""
     profile_env = _embedded_profile_env_path(config)
-    _ensure_private_hindsight_profile_path(profile_env)
     env_values = _build_embedded_profile_env(config, llm_api_key=llm_api_key)
-    _write_private_text(
+    _write_embedded_profile_env(
         profile_env,
         "".join(f"{key}={value}\n" for key, value in env_values.items()),
     )
     return profile_env
+
 
 def _sanitize_bank_segment(value: str) -> str:
     """Sanitize a bank_id_template placeholder value.
@@ -1256,9 +1269,9 @@ class HindsightMemoryProvider(MemoryProvider):
                     # the daemon always starts with the right settings.
                     # If the config changed and the daemon is running, stop it.
                     profile_env = _embedded_profile_env_path(self._config)
-                    _ensure_private_hindsight_profile_path(profile_env)
                     expected_env = _build_embedded_profile_env(self._config)
                     saved = _load_simple_env(profile_env)
+                    _harden_embedded_profile_env_path(profile_env)
                     config_changed = saved != expected_env
 
                     if config_changed:
