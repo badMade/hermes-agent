@@ -1,20 +1,5 @@
-import sys
-from unittest.mock import MagicMock, patch
-from __future__ import annotations
-
 import pytest
-
-# We mock atroposlib and its submodules just for the duration of the import
-# to avoid global sys.modules pollution, allowing the test to run even if the dependency is missing in CI.
-with patch.dict('sys.modules', {
-    'atroposlib': MagicMock(),
-    'atroposlib.envs': MagicMock(),
-    'atroposlib.envs.base': MagicMock(),
-    'atroposlib.envs.server_handling': MagicMock(),
-    'atroposlib.envs.server_handling.server_manager': MagicMock(),
-    'atroposlib.type_definitions': MagicMock()
-}):
-    from environments.agentic_opd_env import _parse_hint_result
+from unittest.mock import MagicMock, patch
 
 @pytest.mark.parametrize(
     "text, expected_score, expected_hint",
@@ -58,6 +43,20 @@ with patch.dict('sys.modules', {
     ],
 )
 def test_parse_hint_result(text: str, expected_score: int | None, expected_hint: str) -> None:
-    score, hint = _parse_hint_result(text)
-    assert score == expected_score
-    assert hint == expected_hint
+    # We safely mock atroposlib locally so we can import the module in environments where it's missing.
+    # Using patch.dict automatically restores sys.modules and cleans up any newly imported modules upon exit,
+    # ensuring perfect isolation without breaking the global cache.
+    mocks = {
+        'atroposlib': MagicMock(),
+        'atroposlib.envs': MagicMock(),
+        'atroposlib.envs.base': MagicMock(),
+        'atroposlib.envs.server_handling': MagicMock(),
+        'atroposlib.envs.server_handling.server_manager': MagicMock(),
+        'atroposlib.type_definitions': MagicMock()
+    }
+
+    with patch.dict('sys.modules', mocks):
+        from environments.agentic_opd_env import _parse_hint_result
+        score, hint = _parse_hint_result(text)
+        assert score == expected_score
+        assert hint == expected_hint
