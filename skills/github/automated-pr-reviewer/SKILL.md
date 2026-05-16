@@ -1,14 +1,12 @@
 ## automated-pr-reviewer
 
-description: "Automated PR reviewer: scans for '@jules' comments and triggers code reviews."
+description: "Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews."
 version: 1.0.0
-author: badMade
+author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
-metadata:
-  hermes:
-    tags: [GitHub, Code-Review, Automation, Pull-Requests, review]
-    related_skills: [github-code-review]
+tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, review]
+related_skills: [github-code-review, cronjob]
 
 # Automated PR Reviewer Workflow
 
@@ -45,7 +43,7 @@ When invoked, the agent should run the following bash script to find and process
 if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
   echo "GitHub CLI (gh) is not installed or not authenticated."
   # gracefully return
-  exit 1
+  return 1 2>/dev/null || true
 fi
 
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
@@ -59,7 +57,7 @@ gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \"@jules\
 if [ ! -s "$PRS_FILE" ]; then
   echo "No new PRs to review."
   # gracefully return
-  exit 0
+  return 0 2>/dev/null || true
 fi
 
 while read PR_NUMBER; do
