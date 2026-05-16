@@ -147,7 +147,7 @@ def _open_drive_download_destination(path: Path, cwd: Path):
             os.close(dir_fd)
             dir_fd = next_fd
 
-        fd = os.open(parts[-1], file_flags, 0o666, dir_fd=dir_fd)
+        fd = os.open(parts[-1], file_flags, 0o666, dir_fd=dir_fd)  # dir_fd: guarded POSIX-only above
     except OSError as exc:
         raise ValueError(
             f"Unsafe Drive download output path contains a symlink or non-directory component: {path}"
@@ -155,7 +155,7 @@ def _open_drive_download_destination(path: Path, cwd: Path):
     finally:
         os.close(dir_fd)
 
-    return os.fdopen(fd, "wb")
+    return os.fdopen(fd, "wb")  # transfers fd ownership; no double-close
 
 
 SCOPES = [
