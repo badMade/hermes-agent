@@ -79,10 +79,6 @@ class TestDDGSProviderIsConfigured:
 
         from tools.web_providers.ddgs import ddgs_package_available
 
-        # Clear the lru_cache so this call actually inspects the (now-mutated)
-        # sys.path rather than returning a cached result from a prior test.
-        ddgs_package_available.cache_clear()
-
         assert ddgs_package_available() is False
         assert not marker.exists()
 

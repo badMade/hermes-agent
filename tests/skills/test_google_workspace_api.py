@@ -374,6 +374,22 @@ def test_open_drive_download_destination_rejects_final_symlink(api_module, tmp_p
     assert outside.read_text() == "outside"
 
 
+def test_open_drive_download_destination_windows_fallback_writes_file(
+    api_module, tmp_path, monkeypatch
+):
+    """On Windows, fallback open path still creates parent dirs and writes bytes."""
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    out_path = cwd / "nested" / "file.bin"
+
+    monkeypatch.setattr(api_module.sys, "platform", "win32")
+
+    with api_module._open_drive_download_destination(out_path, cwd) as fh:
+        fh.write(b"payload")
+
+    assert out_path.read_bytes() == b"payload"
+
+
 def test_drive_download_rejects_symlink_parent_after_mkdir(api_module, tmp_path, monkeypatch):
     """drive_download refuses to write when a parent directory is a symlink (TOCTOU guard).
 
