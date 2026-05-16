@@ -79,6 +79,7 @@ class TestDDGSProviderIsConfigured:
 
         from tools.web_providers.ddgs import ddgs_package_available
 
+        ddgs_package_available.cache_clear()
         assert ddgs_package_available() is False
         assert not marker.exists()
 
