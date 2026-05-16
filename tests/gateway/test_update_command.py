@@ -491,6 +491,7 @@ class TestSendUpdateNotification:
         assert "alice" not in sent_text
         assert "https://[REDACTED]@github.com/badMade/hermes-agent.git" in sent_text
 
+    @pytest.mark.asyncio
     async def test_sends_notification_with_thread_metadata(self, tmp_path):
         """Final update notification preserves thread metadata when present."""
         runner = _make_runner()
