@@ -26,7 +26,9 @@ def build_write_denied_paths(home: str) -> set[str]:
             os.path.join(home, ".ssh", "id_rsa"),
             os.path.join(home, ".ssh", "id_ed25519"),
             os.path.join(home, ".ssh", "config"),
+            os.path.join(home, ".hermes", ".env"),
             str(hermes_home / ".env"),
+            str(hermes_home / "config.yaml"),
             os.path.join(home, ".bashrc"),
             os.path.join(home, ".zshrc"),
             os.path.join(home, ".profile"),
@@ -96,14 +98,29 @@ def _candidate_write_denied_homes() -> Iterable[str]:
         yield resolved
 
 
-def is_write_denied(path: str) -> bool:
-    """Return True if path is blocked by the write denylist or safe root."""
+def is_write_denied(path: str, home: str | None = None) -> bool:
+    """Return True if path is blocked by the write denylist or safe root.
+
+    Args:
+        path: Candidate write path.
+        home: Optional target-environment home directory. When file tools run
+            over SSH or another remote backend, this must be the remote home
+            rather than the local Hermes process home.
+    """
     resolved = os.path.realpath(os.path.expanduser(str(path)))
 
-    for home in _candidate_write_denied_homes():
-        if resolved in build_write_denied_paths(home):
+    # Always protect the process home and subprocess home; also include any
+    # explicitly-provided remote home (e.g. SSH backend).
+    candidate_homes = list(_candidate_write_denied_homes())
+    if home:
+        explicit_home = os.path.realpath(os.path.expanduser(home))
+        if explicit_home not in candidate_homes:
+            candidate_homes.append(explicit_home)
+
+    for h in candidate_homes:
+        if resolved in build_write_denied_paths(h):
             return True
-        for prefix in build_write_denied_prefixes(home):
+        for prefix in build_write_denied_prefixes(h):
             if resolved.startswith(prefix):
                 return True
 
