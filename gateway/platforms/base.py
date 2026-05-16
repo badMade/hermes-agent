@@ -586,10 +586,6 @@ async def download_public_url_bytes_aiohttp(
                 continue
 
             if resp.status >= 400:
-                try:
-                    resp.raise_for_status()
-                except Exception as exc:
-                    raise PublicUrlDownloadHTTPError(resp.status, current_url) from exc
                 raise PublicUrlDownloadHTTPError(resp.status, current_url)
 
             length = (
@@ -611,12 +607,10 @@ async def download_public_url_bytes_aiohttp(
             total = 0
             content = getattr(resp, "content", None)
             iter_chunked = getattr(content, "iter_chunked", None) if content is not None else None
-            can_stream_chunks = (
-                callable(iter_chunked)
-                and not inspect.iscoroutinefunction(iter_chunked)
-            )
-            if can_stream_chunks:
+            if callable(iter_chunked):
                 chunk_iter = iter_chunked(64 * 1024)
+                if inspect.isawaitable(chunk_iter):
+                    chunk_iter = await chunk_iter
                 if hasattr(chunk_iter, "__aiter__"):
                     async for chunk in chunk_iter:
                         total += len(chunk)
