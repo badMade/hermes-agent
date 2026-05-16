@@ -4425,8 +4425,15 @@ def sanitize_env_file() -> int:
     return fixes
 
 
+def _should_sanitize_non_ascii_credential(key: str) -> bool:
+    """Return True for outbound credentials that are safe to ASCII-strip."""
+    from hermes_cli.env_loader import should_sanitize_non_ascii_credential
+
+    return should_sanitize_non_ascii_credential(key)
+
+
 def _check_non_ascii_credential(key: str, value: str) -> str:
-    """Warn and strip non-ASCII characters from credential values.
+    """Warn and strip non-ASCII characters from outbound credential values.
 
     API keys and tokens must be pure ASCII — they are sent as HTTP header
     values which httpx/httpcore encode as ASCII.  Non-ASCII characters
@@ -4473,8 +4480,10 @@ def save_env_value(key: str, value: str):
     if not _ENV_VAR_NAME_RE.match(key):
         raise ValueError(f"Invalid environment variable name: {key!r}")
     value = value.replace("\n", "").replace("\r", "")
-    # API keys / tokens must be ASCII — strip non-ASCII with a warning.
-    value = _check_non_ascii_credential(key, value)
+    # Outbound API keys / tokens must be ASCII for HTTP headers.  Do not
+    # lossy-normalize inbound auth secrets (for example WEBHOOK_SECRET).
+    if _should_sanitize_non_ascii_credential(key):
+        value = _check_non_ascii_credential(key, value)
     ensure_hermes_home()
     env_path = get_env_path()
 
