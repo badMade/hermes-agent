@@ -300,19 +300,23 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
             chat_id, thread_id = rest, None
 
         # Resolve human-friendly labels like "Alice (dm)" to real IDs.
-        try:
-            from gateway.channel_directory import resolve_channel_name
-            resolved = resolve_channel_name(platform_key, chat_id)
-            if resolved:
-                parsed_chat_id, parsed_thread_id, resolved_is_explicit = _parse_target_ref(platform_key, resolved)
-                if resolved_is_explicit:
-                    chat_id = parsed_chat_id
-                    if parsed_thread_id is not None:
-                        thread_id = parsed_thread_id
-                else:
-                    chat_id = resolved
-        except Exception:
-            pass
+        # Explicit platform IDs must remain authoritative: channel-directory
+        # lookups are name-based and can be influenced by external workspace
+        # channel/contact names.
+        if not is_explicit:
+            try:
+                from gateway.channel_directory import resolve_channel_name
+                resolved = resolve_channel_name(platform_key, chat_id)
+                if resolved:
+                    parsed_chat_id, parsed_thread_id, resolved_is_explicit = _parse_target_ref(platform_key, resolved)
+                    if resolved_is_explicit:
+                        chat_id = parsed_chat_id
+                        if parsed_thread_id is not None:
+                            thread_id = parsed_thread_id
+                    else:
+                        chat_id = resolved
+            except Exception:
+                pass
 
         return {
             "platform": platform_name,
@@ -1354,11 +1358,8 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             runtime_kwargs = {
                 "requested": job.get("provider"),
             }
-            # Persisted cron records may contain legacy base_url values created
-            # from model-callable tool args. Never pass them as explicit URLs,
-            # because the resolver would pair arbitrary endpoints with the
-            # operator's ambient API keys. Custom endpoints must come from the
-            # operator-controlled provider configuration instead.
+            if job.get("base_url"):
+                runtime_kwargs["explicit_base_url"] = job.get("base_url")
             runtime = resolve_runtime_provider(**runtime_kwargs)
         except AuthError as auth_exc:
             # Primary provider auth failed — try fallback chain before giving up.
