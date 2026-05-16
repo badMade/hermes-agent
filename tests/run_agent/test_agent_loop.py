@@ -1,4 +1,3 @@
-# mypy: ignore-errors
 """
 Tests for environments/agent_loop.py — HermesAgentLoop.
 
@@ -245,9 +244,7 @@ class TestHermesAgentLoop:
     async def test_tool_call_then_text(self, basic_tools, valid_names):
         """Model calls a tool, then responds with text."""
         server = MockServer([
-            make_tool_response(
-                "todo", {"todos": [{"id": "1", "content": "test", "status": "pending"}]}
-            ),
+            make_tool_response("todo", {"todos": [{"id": "1", "content": "test", "status": "pending"}]}),
             make_text_response("I created a todo for you."),
         ])
         agent = HermesAgentLoop(
@@ -270,15 +267,7 @@ class TestHermesAgentLoop:
         """Model keeps calling tools until max_turns is hit."""
         # Create responses that always call a tool
         responses = [
-            make_tool_response(
-                "todo",
-                {
-                    "todos": [
-                        {"id": str(i), "content": f"task {i}", "status": "pending"}
-                    ]
-                },
-                tool_call_id=f"call_{i}",
-            )
+            make_tool_response("todo", {"todos": [{"id": str(i), "content": f"task {i}", "status": "pending"}]}, tool_call_id=f"call_{i}")
             for i in range(10)
         ]
         server = MockServer(responses)
@@ -422,9 +411,7 @@ class TestHermesAgentLoop:
         """Memory tool should return error in RL environments."""
         valid = {"terminal", "read_file", "todo", "memory"}
         server = MockServer([
-            make_tool_response(
-                "memory", {"action": "add", "target": "user", "content": "test"}
-            ),
+            make_tool_response("memory", {"action": "add", "target": "user", "content": "test"}),
             make_text_response("Done"),
         ])
         agent = HermesAgentLoop(
@@ -494,7 +481,6 @@ class TestHermesAgentLoop:
 
 @pytest.fixture
 def restore_tool_executor():
-    """Fixture to ensure the global _tool_executor is restored after tests."""
     import environments.agent_loop as agent_loop_module
 
     original_executor = agent_loop_module._tool_executor
@@ -539,6 +525,7 @@ class TestResizeToolPool:
 
     def test_resize_pool_with_running_tasks(self, restore_tool_executor):
         """Test that running tasks are not interrupted when resizing."""
+        import concurrent.futures
         import environments.agent_loop as agent_loop_module
         import time
 
@@ -546,22 +533,14 @@ class TestResizeToolPool:
             time.sleep(0.1)
             return "done"
 
-        # Make sure the executor is fresh and not already shutdown by other tests
-        import concurrent.futures
-
         agent_loop_module._tool_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=4
         )
 
-        # Submit a task to the old executor
         old_executor = agent_loop_module._tool_executor
         future = old_executor.submit(blocking_task)
 
-        # Resize the pool
         resize_tool_pool(16)
 
-        # The new executor is set
         assert agent_loop_module._tool_executor is not old_executor
-
-        # The future should still complete successfully because wait=False was used
         assert future.result(timeout=1.0) == "done"
