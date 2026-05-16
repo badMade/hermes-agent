@@ -102,4 +102,4 @@ When you are asked to "check for PRs to review" or when this skill is run:
 2. For each PR number output by the script, read the diff using `git diff`.
 3. Analyze the diff using your code review capabilities.
 4. Post the review as a PR comment or PR Review (as detailed in `github-code-review`).
-5. Ensure the label `reviewed` is added to prevent re-processing.
+5. Ensure the label jules-reviewed is added to prevent re-processing.
