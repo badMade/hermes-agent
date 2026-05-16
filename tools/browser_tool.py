@@ -99,6 +99,11 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Evaluated once at import time so tests can patch ``browser_tool._IS_WINDOWS``
+# without mutating the global ``os.name`` attribute (which would also affect
+# pathlib.Path's class selection and break other test-fixture infrastructure).
+_IS_WINDOWS = os.name == "nt"
+
 # Standard PATH entries for environments with minimal PATH (e.g. systemd services).
 # Includes Android/Termux and macOS Homebrew locations needed for agent-browser,
 # npx, node, and Android's glibc runner (grun).
@@ -488,6 +493,77 @@ def _requires_real_termux_browser_install(browser_cmd: str) -> bool:
     return _is_termux_environment() and _is_local_mode() and browser_cmd.strip() == "npx agent-browser"
 
 
+def _resolve_npx_agent_browser_prefix(search_path: Optional[str] = None) -> List[str]:
+    """Return a safe argv prefix for the synthetic ``npx agent-browser`` fallback.
+
+    Parameters
+    ----------
+    search_path:
+        PATH string used to search for ``npx`` and ``node`` binaries.  Defaults
+        to ``_merge_browser_path(os.environ.get("PATH", ""))`` so that the same
+        extended set of directories the child subprocess will inherit is consulted
+        here too, preventing false fail-closed errors when npx lives only in a
+        browser-tool-specific directory not yet in the live process environment.
+        Pass an explicit value when the caller has already computed the merged
+        PATH (avoids a redundant computation).
+    """
+    effective_path = (
+        search_path
+        if search_path is not None
+        else _merge_browser_path(os.environ.get("PATH", ""))
+    )
+    npx_bin = shutil.which("npx", path=effective_path) or "npx"
+    if not _IS_WINDOWS:
+        return [npx_bin, "agent-browser"]
+
+    # Use os.path string functions rather than pathlib.Path so that patching
+    # os.name in tests does not cause pathlib to attempt WindowsPath
+    # instantiation on non-Windows platforms.
+    _, npx_ext = os.path.splitext(npx_bin)
+    npx_suffix = npx_ext.lower()
+    if npx_suffix in {".exe", ".com"}:
+        return [npx_bin, "agent-browser"]
+    if npx_suffix not in {".cmd", ".bat"}:
+        raise FileNotFoundError(
+            "Refusing to launch unresolved npx on Windows; install agent-browser "
+            "locally with 'npm install' or ensure Node.js/npm are installed correctly."
+        )
+
+    # Windows batch shims reinterpret cmd.exe metacharacters in later argv
+    # entries. Bypass npx.cmd by invoking npm's JS CLI through node.exe.
+    npx_dir = os.path.dirname(npx_bin)
+    npx_cli = os.path.join(npx_dir, "node_modules", "npm", "bin", "npx-cli.js")
+    if not os.path.isfile(npx_cli):
+        raise FileNotFoundError(
+            "Refusing to launch npx.cmd with browser arguments on Windows; "
+            "could not locate npm's npx-cli.js. Install agent-browser locally "
+            "with 'npm install' or ensure Node.js/npm are installed correctly."
+        )
+
+    def _valid_windows_node(candidate: Optional[str]) -> Optional[str]:
+        if not candidate:
+            return None
+        _, ext = os.path.splitext(candidate)
+        if ext.lower() in {".exe", ".com"} and os.path.isfile(candidate):
+            return candidate
+        sibling_exe = os.path.join(os.path.dirname(candidate), "node.exe")
+        if os.path.isfile(sibling_exe):
+            return sibling_exe
+        return None
+
+    node_bin = (
+        _valid_windows_node(shutil.which("node.exe", path=effective_path))
+        or _valid_windows_node(shutil.which("node", path=effective_path))
+        or _valid_windows_node(os.path.join(npx_dir, "node.exe"))
+    )
+    if not node_bin:
+        raise FileNotFoundError(
+            "Refusing to launch npx.cmd with browser arguments on Windows; "
+            "could not locate a real node.exe for npm's npx-cli.js."
+        )
+    return [node_bin, npx_cli, "agent-browser"]
+
+
 def _termux_browser_install_error() -> str:
     return (
         "Local browser automation on Termux cannot rely on the bare npx fallback. "
@@ -726,22 +802,21 @@ def _run_chrome_fallback_command(
             )
         return {"success": False, "error": hint}
 
-    # On Windows npx is npx.cmd — use shutil.which so CreateProcessW can
-    # execute the batch shim.  shutil.which honours PATHEXT on Windows and
-    # returns the plain executable on POSIX.  If npx isn't on PATH (Termux,
-    # bare container), fall back to the bare name and let Popen raise with
-    # a readable "FileNotFoundError: 'npx'" rather than WinError 193.
     if browser_cmd == "npx agent-browser":
-        _npx_bin = shutil.which("npx") or "npx"
-        cmd_prefix = [_npx_bin, "agent-browser"]
+        try:
+            browser_merged_path = _merge_browser_path(os.environ.get("PATH", ""))
+            cmd_prefix = _resolve_npx_agent_browser_prefix(search_path=browser_merged_path)
+        except FileNotFoundError as e:
+            return {"success": False, "error": str(e)}
     else:
         cmd_prefix = [browser_cmd]
+        browser_merged_path = None
     base_args = cmd_prefix + ["--engine", "chrome", "--session", tmp_session, "--json"]
 
     task_socket_dir = os.path.join(_socket_safe_tmpdir(), f"agent-browser-{tmp_session}")
     os.makedirs(task_socket_dir, mode=0o700, exist_ok=True)
     browser_env = {**os.environ, "AGENT_BROWSER_SOCKET_DIR": task_socket_dir}
-    browser_env["PATH"] = _merge_browser_path(browser_env.get("PATH", ""))
+    browser_env["PATH"] = browser_merged_path or _merge_browser_path(browser_env.get("PATH", ""))
 
     if "AGENT_BROWSER_IDLE_TIMEOUT_MS" not in browser_env:
         browser_env["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = str(BROWSER_SESSION_INACTIVITY_TIMEOUT * 1000)
@@ -1854,12 +1929,16 @@ def _run_browser_command(
 
     # Keep concrete executable paths intact, even when they contain spaces.
     # Only the synthetic npx fallback needs to expand into multiple argv items.
-    # shutil.which resolves npx → npx.cmd on Windows; bare "npx" stays on POSIX.
     if browser_cmd == "npx agent-browser":
-        _npx_bin = shutil.which("npx") or "npx"
-        cmd_prefix = [_npx_bin, "agent-browser"]
+        try:
+            browser_merged_path = _merge_browser_path(os.environ.get("PATH", ""))
+            cmd_prefix = _resolve_npx_agent_browser_prefix(search_path=browser_merged_path)
+        except FileNotFoundError as e:
+            logger.warning("agent-browser npx fallback unavailable: %s", e)
+            return {"success": False, "error": str(e)}
     else:
         cmd_prefix = [browser_cmd]
+        browser_merged_path = None
 
     cmd_parts = cmd_prefix + backend_args + [
         "--json",
@@ -1884,8 +1963,9 @@ def _run_browser_command(
         browser_env = {**os.environ}
 
         # Ensure subprocesses inherit the same browser-specific PATH fallbacks
-        # used during CLI discovery.
-        browser_env["PATH"] = _merge_browser_path(browser_env.get("PATH", ""))
+        # used during CLI discovery.  Reuse the already-computed merged path
+        # when available to avoid a redundant computation.
+        browser_env["PATH"] = browser_merged_path or _merge_browser_path(browser_env.get("PATH", ""))
         browser_env["AGENT_BROWSER_SOCKET_DIR"] = task_socket_dir
 
         # Tell the agent-browser daemon to self-terminate after being idle
