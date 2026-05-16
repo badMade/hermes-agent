@@ -176,7 +176,6 @@ class TestDispatch:
         assert parsed["ok"] is True
         assert ("type", {"text": "echo approved"}) in noop_backend.calls
 
-
 class TestApprovalGate:
     def test_destructive_action_without_callback_fails_closed(self):
         from tools.computer_use.tool import handle_computer_use, set_approval_callback
@@ -197,7 +196,6 @@ class TestApprovalGate:
         assert parsed["ok"] is True
         assert parsed["action"] == "type"
         assert ("type", {"text": "hello"}) in noop_backend.calls
-
 
 # ---------------------------------------------------------------------------
 # Safety guards (type / key block lists)
