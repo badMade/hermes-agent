@@ -21,7 +21,7 @@ This skill sets up a scheduled workflow that monitors GitHub repository Pull Req
 2. **Scan**: It queries GitHub for PR comments mentioning `@jules`.
 3. **Filter**: It filters out PRs that already have the jules-reviewed label.
 4. **Action**: For each matching PR, the agent performs a comprehensive code review.
-5. **Mark Done**: Once reviewed, it adds the `reviewed` label to the PR and posts the review comment.
+5. **Mark Done**: Once reviewed, it adds the jules-reviewed label to the PR and posts the review comment.
 
 ## Setting Up the Automation
 
