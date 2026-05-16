@@ -857,8 +857,14 @@ def _resolve_openai_tts_api_key_for_base_url(
 ) -> str:
     """Use the shared OpenAI key only for trusted OpenAI/default endpoints."""
     default_base_url = (default_base_url or DEFAULT_OPENAI_BASE_URL).strip().rstrip("/")
-    if base_url == default_base_url or _is_official_openai_tts_base_url(base_url):
+    if base_url == default_base_url:
         return default_api_key
+
+    if _is_official_openai_tts_base_url(base_url):
+        direct_key = resolve_openai_audio_api_key()
+        if direct_key:
+            return direct_key
+        raise ValueError("tts.openai.base_url points to OpenAI but no OpenAI API key is configured")
 
     custom_api_key = (get_env_value(CUSTOM_OPENAI_TTS_API_KEY_ENV) or "").strip()
     if custom_api_key:
