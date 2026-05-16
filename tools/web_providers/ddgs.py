@@ -118,7 +118,6 @@ class DDGSSearchProvider(WebSearchProvider):
 
         try:
             from ddgs import DDGS  # type: ignore
-
             web_results = []
             with DDGS() as client:
                 for i, hit in enumerate(client.text(query, max_results=safe_limit)):
