@@ -874,7 +874,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
 
         payload["path"] = url
         resp = self._client.post("/api/v1/resources", payload)
-        result = resp.get("result", {})
+        result = resp.get("result") or {}
 
         return json.dumps({
             "status": "added",
