@@ -7,8 +7,8 @@ license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, Review]
-    related_skills: [github-code-review, cronjob]
+    tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, review]
+    related_skills: [github-code-review]
 ---
 
 # Automated PR Reviewer Workflow
@@ -55,8 +55,8 @@ fi
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 echo "Scanning $REPO for '@jules' comments..."
 
-# Search for open PRs (skip ones already processed by either label)
-gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \"@jules\" -label:reviewed -label:jules-reviewed" \
+# Search for open PRs
+gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \"@jules\" -label:reviewed" \
   --jq '.items[].number' > /tmp/prs_to_review.txt
 
 if [ ! -s /tmp/prs_to_review.txt ]; then
@@ -75,14 +75,12 @@ while read PR_NUMBER; do
   # Note for Agent: At this point, the agent should use the `github-code-review`
   # skill's methodology to review `git diff main...HEAD`.
 
-  # 2. Add labels to prevent duplicates (review-gate requires `reviewed`)
-  # Ensure labels exist first
+  # 2. Add label to prevent duplicates
+  # Ensure the label exists first
   gh api -X POST repos/$REPO/labels -f name="reviewed" -f color="0e8a16" --silent || true
-  gh api -X POST repos/$REPO/labels -f name="jules-reviewed" -f color="5319e7" --silent || true
 
-  # Add labels to PR
+  # Add label to PR
   gh pr edit $PR_NUMBER --add-label "reviewed"
-  gh pr edit $PR_NUMBER --add-label "jules-reviewed"
 
   # 3. Reply to the PR acknowledging completion
   # Note for Agent: Make sure the actual code review is also submitted using the github-code-review standard.
