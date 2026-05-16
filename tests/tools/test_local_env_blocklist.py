@@ -76,9 +76,18 @@ class TestProviderEnvBlocklist:
     def test_auxiliary_api_key_vars_are_stripped(self):
         """Auxiliary direct-endpoint API keys must not leak to terminal subprocesses."""
         auxiliary_secret_vars = {
+        auxiliary_secret_vars = {
             "AUXILIARY_VISION_API_KEY": "vision-secret",
             "AUXILIARY_WEB_EXTRACT_API_KEY": "web-secret",
+            "AUXILIARY_COMPRESSION_API_KEY": "compression-secret",
+            "AUXILIARY_SESSION_SEARCH_API_KEY": "search-secret",
+            "AUXILIARY_SKILLS_HUB_API_KEY": "skills-secret",
             "AUXILIARY_APPROVAL_API_KEY": "approval-secret",
+            "AUXILIARY_MCP_API_KEY": "mcp-secret",
+            "AUXILIARY_TITLE_GENERATION_API_KEY": "title-secret",
+            "AUXILIARY_TRIAGE_SPECIFIER_API_KEY": "triage-secret",
+            "AUXILIARY_CURATOR_API_KEY": "curator-secret",
+        }
         }
         result_env = _run_with_env(extra_os_env=auxiliary_secret_vars)
 
@@ -240,7 +249,14 @@ class TestBlocklistCoverage:
         extras = {
             "AUXILIARY_VISION_API_KEY",
             "AUXILIARY_WEB_EXTRACT_API_KEY",
+            "AUXILIARY_COMPRESSION_API_KEY",
+            "AUXILIARY_SESSION_SEARCH_API_KEY",
+            "AUXILIARY_SKILLS_HUB_API_KEY",
             "AUXILIARY_APPROVAL_API_KEY",
+            "AUXILIARY_MCP_API_KEY",
+            "AUXILIARY_TITLE_GENERATION_API_KEY",
+            "AUXILIARY_TRIAGE_SPECIFIER_API_KEY",
+            "AUXILIARY_CURATOR_API_KEY",
         }
         assert extras.issubset(_HERMES_PROVIDER_ENV_BLOCKLIST)
 
