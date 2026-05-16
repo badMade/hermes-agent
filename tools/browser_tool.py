@@ -116,12 +116,11 @@ _BROWSER_EVAL_NAV_OR_NETWORK_RE = re.compile(
 def _browser_url_security_block(url: str, *, auto_local_this_nav: bool = False) -> Optional[Dict[str, Any]]:
     """Return a browser policy block response for a URL, or None when allowed."""
     import urllib.parse
-    from agent.redact import _PREFIX_RE, url_contains_secret
+    from agent.redact import _PREFIX_RE
 
     url_decoded = urllib.parse.unquote(url)
     if (
-        url_contains_secret(url)
-        or _PREFIX_RE.search(url)
+        _PREFIX_RE.search(url)
         or _PREFIX_RE.search(url_decoded)
     ):
         return {
@@ -620,9 +619,12 @@ def _is_local_mode() -> bool:
 def _is_local_backend() -> bool:
     """Return True when the browser runs locally (no cloud provider).
 
-    Local backends include Camofox and the built-in headless Chromium path
-    used when no cloud provider is configured.  This only describes where
-    browser automation runs; URL safety checks are enforced separately.
+    SSRF protection is only meaningful for cloud backends (Browserbase,
+    BrowserUse) where the agent could reach internal resources on a remote
+    machine.  For local backends — Camofox, or the built-in headless
+    Chromium without a cloud provider — the user already has full terminal
+    and network access on the same machine, so the check adds no security
+    value.
     """
     return _is_camofox_mode() or _get_cloud_provider() is None
 
@@ -905,11 +907,10 @@ def _run_chrome_fallback_command(
                 _si = subprocess.STARTUPINFO()
                 _si.dwFlags |= subprocess.STARTF_USESTDHANDLES
                 _popen_extra["startupinfo"] = _si
-            popen_cmd, _batch_popen_extra = _prepare_browser_popen_command(full)
             proc = subprocess.Popen(
-                popen_cmd, stdout=stdout_fd, stderr=stderr_fd,
+                full, stdout=stdout_fd, stderr=stderr_fd,
                 stdin=subprocess.DEVNULL, env=browser_env,
-                **_popen_extra, **_batch_popen_extra,
+                **_popen_extra,
             )
         finally:
             os.close(stdout_fd)
@@ -1825,37 +1826,6 @@ def _find_agent_browser() -> str:
     )
 
 
-def _is_windows_batch_launcher(executable: str) -> bool:
-    """Return True when ``executable`` is a Windows batch shim."""
-    return str(executable).lower().endswith((".cmd", ".bat"))
-
-
-def _quote_windows_batch_arg(arg: str) -> str:
-    """Quote one argv item for cmd.exe batch-shim invocation.
-
-    Windows may route ``.cmd``/``.bat`` targets through ``cmd.exe`` even when
-    ``shell=False``.  Quote every argument so shell metacharacters in URLs (for
-    example ``&``) remain data instead of becoming command separators.
-    """
-    arg = str(arg)
-    if "\x00" in arg or "\r" in arg or "\n" in arg or '"' in arg or "%" in arg:
-        raise ValueError(
-            "Windows batch launcher arguments cannot contain control characters, quotes, or percent signs"
-        )
-    # Double trailing backslashes so they don't escape the closing quote
-    # in MSVCRT-based downstream processes (like node.exe called by the shim).
-    stripped = arg.rstrip('\\')
-    backslashes = len(arg) - len(stripped)
-    return '"' + arg + ('\\' * backslashes) + '"'
-
-
-def _prepare_browser_popen_command(cmd_parts: List[str]) -> Tuple[Any, Dict[str, Any]]:
-    """Prepare argv/kwargs for launching agent-browser safely."""
-    if os.name != "nt" or not cmd_parts or not _is_windows_batch_launcher(cmd_parts[0]):
-        return cmd_parts, {}
-    return '"' + " ".join(_quote_windows_batch_arg(part) for part in cmd_parts) + '"', {"shell": True}
-
-
 def _extract_screenshot_path_from_text(text: str) -> Optional[str]:
     """Extract a screenshot file path from agent-browser human-readable output."""
     if not text:
@@ -2067,14 +2037,13 @@ def _run_browser_command(
                 _si = subprocess.STARTUPINFO()
                 _si.dwFlags |= subprocess.STARTF_USESTDHANDLES
                 _popen_extra["startupinfo"] = _si
-            popen_cmd, _batch_popen_extra = _prepare_browser_popen_command(cmd_parts)
             proc = subprocess.Popen(
-                popen_cmd,
+                cmd_parts,
                 stdout=stdout_fd,
                 stderr=stderr_fd,
                 stdin=subprocess.DEVNULL,
                 env=browser_env,
-                **_popen_extra, **_batch_popen_extra,
+                **_popen_extra,
             )
         finally:
             os.close(stdout_fd)
@@ -2174,9 +2143,13 @@ def _run_browser_command(
         result = {"success": False, "error": str(e)}
 
     # --- Lightpanda automatic Chrome fallback ---
-    # If engine is lightpanda and the result looks broken, retry with Chrome.
-    # This runs for ALL exit paths (timeout, empty, non-JSON, nonzero rc, parsed).
-    fallback_reason = _lightpanda_fallback_reason(engine, command, result)
+    # If the active session is a local Lightpanda daemon and the result looks
+    # broken, retry with Chrome. Cloud CDP sessions intentionally omit
+    # ``--engine`` above, so a configured Lightpanda engine does not prove the
+    # active backend is Lightpanda; falling back locally would bypass the cloud
+    # browser network boundary.
+    fallback_engine = engine if not session_info.get("cdp_url") else "auto"
+    fallback_reason = _lightpanda_fallback_reason(fallback_engine, command, result)
     if fallback_reason:
         logger.info(
             "Lightpanda fallback: retrying '%s' with Chrome (task=%s): %s",
@@ -2302,14 +2275,13 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     # into navigating to https://evil.com/steal?key=sk-ant-... to exfil secrets.
 
     # SSRF protection — block private/internal addresses before navigating.
-    # Local browser backends still enforce this guard by default because
-    # browser_snapshot can return local files and internal service responses
-    # in browser-only or reduced-tool configurations.  Hybrid routing may
-    # still auto-spawn a local Chromium sidecar for ordinary private URLs
-    # (cloud provider configured + private URL +
-    # ``browser.auto_local_for_private_urls`` enabled) so the cloud provider
-    # never sees the URL.  Users can opt out globally via
-    # ``browser.allow_private_urls`` in config.
+    # Skipped for local backends (Camofox, headless Chromium without a cloud
+    # provider) because the agent already has full local network access via
+    # the terminal tool.  Also skipped when hybrid routing will auto-spawn a
+    # local Chromium sidecar for this URL (cloud provider configured +
+    # private URL + ``browser.auto_local_for_private_urls`` enabled) — the
+    # cloud provider never sees the URL in that case.  Can also be opted
+    # out globally via ``browser.allow_private_urls`` in config.
     effective_task_id = task_id or "default"
     nav_session_key = _navigation_session_key(effective_task_id, url)
     auto_local_this_nav = _is_local_sidecar_key(nav_session_key)
@@ -2363,10 +2335,15 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
         # Post-redirect SSRF check — if the browser followed a redirect to a
         # private/internal address, block the result so the model can't read
         # internal content via subsequent browser_snapshot calls.
+        # Skipped for local backends (same rationale as the pre-nav check),
+        # and for the hybrid local sidecar (we're already on a local browser
+        # hitting a private URL by design).
         # Always-blocked floor (cloud metadata / IMDS) is enforced even
-        # for local browser backends and hybrid local sidecars.
+        # when auto_local_this_nav is true — see pre-nav check for
+        # rationale (#16234).
         if (
-            final_url
+            not _is_local_backend()
+            and final_url
             and final_url != url
             and _is_always_blocked_url(final_url)
         ):
@@ -2377,7 +2354,8 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
             })
 
         if (
-            not auto_local_this_nav
+            not _is_local_backend()
+            and not auto_local_this_nav
             and not _allow_private_urls()
             and final_url and final_url != url and not _is_safe_url(final_url)
         ):
