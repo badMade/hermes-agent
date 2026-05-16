@@ -1,5 +1,7 @@
 import sys
 from unittest.mock import MagicMock, patch
+from __future__ import annotations
+
 import pytest
 
 # We mock atroposlib and its submodules just for the duration of the import
