@@ -265,7 +265,6 @@ class TestRecentSessionListing:
             order_by_last_active=True,
         )
 
-
     def test_current_source_scopes_recent_listing(self):
         from unittest.mock import MagicMock
 
@@ -355,6 +354,32 @@ class TestSessionSearch:
         result = json.loads(session_search(query="test"))
         assert result["success"] is True
         mock_db.search_messages.assert_called_once()
+
+    def test_search_scopes_to_current_source_when_known(self):
+        from unittest.mock import MagicMock
+        from tools.session_search_tool import session_search
+
+        mock_db = MagicMock()
+        mock_db.search_messages.return_value = []
+
+        result = json.loads(
+            session_search(
+                query="secret",
+                db=mock_db,
+                current_session_id="current",
+                session_source="cli",
+            )
+        )
+
+        assert result["success"] is True
+        mock_db.search_messages.assert_called_once_with(
+            query="secret",
+            source_filter=["cli"],
+            role_filter=None,
+            exclude_sources=["tool", "acp"],
+            limit=50,
+            offset=0,
+        )
 
     def test_empty_query_returns_error(self):
         from tools.session_search_tool import session_search
