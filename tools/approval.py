@@ -315,10 +315,9 @@ def _contains_sudo_stdin_invocation(command: str) -> bool:
     expect_command = True
     for index, word in enumerate(words):
         # Pipe/semicolon/subshell operators start a new command.
-        # shlex with punctuation_chars=True returns `<` and `(` as separate
-        # tokens, so `<(` / `>(` are never a single token here — `(` is
-        # already matched by the set check below.
-        if set(word) <= set(";&|()`") or word == "{":
+        # process substitution may appear as a combined `<(` / `>(` token
+        # depending on tokenizer behavior, so those are explicit boundaries too.
+        if set(word) <= set(";&|()`") or word in {"{", "<(", ">("}:
             expect_command = True
             continue
         if not expect_command:
