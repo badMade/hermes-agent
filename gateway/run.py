@@ -5921,10 +5921,10 @@ class GatewayRunner:
             _cmd_def_inner = _resolve_cmd_inner(_evt_cmd) if _evt_cmd else None
             if (
                 _cmd_def_inner
-                and _cmd_def_inner.cli_only
-                and not _cmd_def_inner.gateway_config_gate
+                and getattr(_cmd_def_inner, "cli_only", False)
+                and not getattr(_cmd_def_inner, "gateway_config_gate", None)
             ):
-                return f"Command `/{_cmd_def_inner.name}` is only available in the local CLI."
+                return f"Command `/{getattr(_cmd_def_inner, 'name', _evt_cmd)}` is only available in the local CLI."
 
             # Slash command access control on the running-agent fast-path.
             # Mirrors the cold-path gate further below so non-admin users
@@ -6234,8 +6234,8 @@ class GatewayRunner:
         if (
             command
             and _cmd_def
-            and _cmd_def.cli_only
-            and not _cmd_def.gateway_config_gate
+            and getattr(_cmd_def, "cli_only", False)
+            and not getattr(_cmd_def, "gateway_config_gate", None)
         ):
             return f"Command `/{canonical}` is only available in the local CLI."
 
@@ -6330,8 +6330,8 @@ class GatewayRunner:
         if (
             command
             and _cmd_def
-            and _cmd_def.cli_only
-            and not _cmd_def.gateway_config_gate
+            and getattr(_cmd_def, "cli_only", False)
+            and not getattr(_cmd_def, "gateway_config_gate", None)
         ):
             return f"Command `/{canonical}` is only available in the local CLI."
 
