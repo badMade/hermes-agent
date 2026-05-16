@@ -314,10 +314,11 @@ def _contains_sudo_stdin_invocation(command: str) -> bool:
 
     expect_command = True
     for index, word in enumerate(words):
-        # Pipe/semicolon/subshell operators start a new command.  Bash process
-        # substitution tokens also introduce an inner command, unlike plain
-        # redirections (<, >), which only introduce filename/fd arguments.
-        if set(word) <= set(";&|()`") or word in {"<(", ">(", "{", "}", "\n"}:
+        # Pipe/semicolon/subshell operators start a new command.
+        # shlex with punctuation_chars=True returns `<` and `(` as separate
+        # tokens, so `<(` / `>(` are never a single token here — `(` is
+        # already matched by the set check below.
+        if set(word) <= set(";&|()`") or word == "{":
             expect_command = True
             continue
         if not expect_command:
