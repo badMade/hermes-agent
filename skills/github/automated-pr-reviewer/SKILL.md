@@ -1,6 +1,6 @@
 ---
 name: automated-pr-reviewer
-description: "Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews."
+description: "Automated PR reviewer: scans for '@jules' comments on PRs and triggers code reviews."
 version: 1.0.0
 author: badMade
 license: MIT
@@ -48,29 +48,32 @@ When invoked, the agent should run the following bash script to find and process
 # Ensure we are in a git repository and GH CLI is authenticated
 if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
   echo "GitHub CLI (gh) is not installed or not authenticated."
-  # gracefully return
-  return 1 2>/dev/null || true
+  exit 1
 fi
 
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 echo "Scanning $REPO for '@jules' comments..."
 
 # Search for open PRs
+PRS_FILE=$(mktemp)
 gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \"@jules\" -label:jules-reviewed" \
-  --jq '.items[].number' > /tmp/prs_to_review.txt
+  --jq '.items[].number' > "$PRS_FILE"
 
-if [ ! -s /tmp/prs_to_review.txt ]; then
+if [ ! -s "$PRS_FILE" ]; then
   echo "No new PRs to review."
-  # gracefully return
-  return 0 2>/dev/null || true
+  rm -f "$PRS_FILE"
+  exit 0
 fi
+
+REVIEW_RUN_ID="$$-$(date +%s)-$RANDOM"
 
 while read PR_NUMBER; do
   echo "Found request for PR #$PR_NUMBER. Starting review..."
 
-  # Checkout PR locally to do the review
-  git fetch origin pull/$PR_NUMBER/head:pr-$PR_NUMBER
-  git checkout pr-$PR_NUMBER
+  # Checkout PR locally to do the review (unique branch name to avoid concurrent-run collisions)
+  BRANCH_NAME="pr-review-${PR_NUMBER}-${REVIEW_RUN_ID}"
+  git fetch origin pull/$PR_NUMBER/head:"$BRANCH_NAME"
+  git checkout "$BRANCH_NAME"
 
   # Note for Agent: At this point, the agent should use the `github-code-review`
   # skill's methodology to review `git diff main...HEAD`.
@@ -90,9 +93,11 @@ while read PR_NUMBER; do
 
   # Clean up branch
   git checkout -
-  git branch -D pr-$PR_NUMBER
+  git branch -D "$BRANCH_NAME"
 
-done < /tmp/prs_to_review.txt
+done < "$PRS_FILE"
+
+rm -f "$PRS_FILE"
 
 echo "Review pass complete."
 ```
