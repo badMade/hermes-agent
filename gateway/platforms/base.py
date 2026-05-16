@@ -536,6 +536,17 @@ async def _ssrf_redirect_guard(response):
 MAX_GATEWAY_MEDIA_DOWNLOAD_BYTES = 20 * 1024 * 1024
 
 
+class PublicUrlDownloadHTTPError(RuntimeError):
+    """HTTP status error raised by download_public_url_bytes_aiohttp."""
+
+    def __init__(self, status: int, url: str):
+        self.status = status
+        self.url = url
+        super().__init__(
+            f"HTTP {status} while downloading {safe_url_for_log(url)}"
+        )
+
+
 async def download_public_url_bytes_aiohttp(
     session,
     url: str,
@@ -575,31 +586,48 @@ async def download_public_url_bytes_aiohttp(
                 continue
 
             if resp.status >= 400:
-                resp.raise_for_status()
+                try:
+                    resp.raise_for_status()
+                except Exception as exc:
+                    raise PublicUrlDownloadHTTPError(resp.status, current_url) from exc
+                raise PublicUrlDownloadHTTPError(resp.status, current_url)
 
             length = (
                 resp.headers.get("Content-Length")
                 if hasattr(resp, "headers")
                 else None
             )
+            if inspect.isawaitable(length):
+                length = await length
             if length is not None:
                 try:
-                    if int(length) > max_bytes:
-                        raise ValueError(f"Download exceeds {max_bytes} byte limit")
-                except ValueError:
-                    if str(length).strip().isdigit():
-                        raise
+                    length_int = int(length)
+                except (TypeError, ValueError):
+                    length_int = None
+                if length_int is not None and length_int > max_bytes:
+                    raise ValueError(f"Download exceeds {max_bytes} byte limit")
 
             chunks: list[bytes] = []
             total = 0
             content = getattr(resp, "content", None)
-            if content is not None and hasattr(content, "iter_chunked"):
-                async for chunk in content.iter_chunked(64 * 1024):
-                    total += len(chunk)
-                    if total > max_bytes:
+            iter_chunked = getattr(content, "iter_chunked", None) if content is not None else None
+            can_stream_chunks = (
+                callable(iter_chunked)
+                and not inspect.iscoroutinefunction(iter_chunked)
+            )
+            if can_stream_chunks:
+                chunk_iter = iter_chunked(64 * 1024)
+                if hasattr(chunk_iter, "__aiter__"):
+                    async for chunk in chunk_iter:
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise ValueError(f"Download exceeds {max_bytes} byte limit")
+                        chunks.append(chunk)
+                    data = b"".join(chunks)
+                else:
+                    data = await resp.read()
+                    if len(data) > max_bytes:
                         raise ValueError(f"Download exceeds {max_bytes} byte limit")
-                    chunks.append(chunk)
-                data = b"".join(chunks)
             else:
                 data = await resp.read()
                 if len(data) > max_bytes:

@@ -27,6 +27,7 @@ from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,
     MessageType,
+    PublicUrlDownloadHTTPError,
     SendResult,
     download_public_url_bytes_aiohttp,
 )
@@ -428,6 +429,20 @@ class MattermostAdapter(BasePlatformAdapter):
                 )
                 fname = final_url.rsplit("/", 1)[-1].split("?")[0] or f"{kind}.png"
                 break
+            except PublicUrlDownloadHTTPError as exc:
+                should_retry = exc.status == 429 or exc.status >= 500
+                if should_retry and attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+                logger.warning(
+                    "Mattermost: failed to download %s (status %s): %s",
+                    url,
+                    exc.status,
+                    exc,
+                )
+                return await self.send(
+                    chat_id, f"{caption or ''}\n{url}".strip(), reply_to
+                )
             except Exception as exc:
                 if attempt < 2:
                     await asyncio.sleep(1.5 * (attempt + 1))
