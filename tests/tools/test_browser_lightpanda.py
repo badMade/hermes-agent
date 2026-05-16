@@ -602,7 +602,7 @@ class TestEngineOverride:
         mock_proc.returncode = 0
         mock_stdout = json.dumps({"success": True, "data": {"snapshot": "", "refs": {}}})
 
-        with patch("tools.browser_tool._get_session_info", return_value={"cdp_url": "wss://cloud.example/session"}), \
+        with patch("tools.browser_tool._get_session_info", return_value={"cdp_url": "wss://cloud.example/session", "session_name": "cdp-cloud-session"}), \
              patch("tools.browser_tool._find_agent_browser", return_value="/usr/bin/agent-browser"), \
              patch("tools.browser_tool._is_camofox_mode", return_value=False), \
              patch("subprocess.Popen", return_value=mock_proc) as popen, \
