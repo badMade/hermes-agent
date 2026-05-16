@@ -76,7 +76,6 @@ class TestProviderEnvBlocklist:
     def test_auxiliary_api_key_vars_are_stripped(self):
         """Auxiliary direct-endpoint API keys must not leak to terminal subprocesses."""
         auxiliary_secret_vars = {
-        auxiliary_secret_vars = {
             "AUXILIARY_VISION_API_KEY": "vision-secret",
             "AUXILIARY_WEB_EXTRACT_API_KEY": "web-secret",
             "AUXILIARY_COMPRESSION_API_KEY": "compression-secret",
@@ -87,7 +86,6 @@ class TestProviderEnvBlocklist:
             "AUXILIARY_TITLE_GENERATION_API_KEY": "title-secret",
             "AUXILIARY_TRIAGE_SPECIFIER_API_KEY": "triage-secret",
             "AUXILIARY_CURATOR_API_KEY": "curator-secret",
-        }
         }
         result_env = _run_with_env(extra_os_env=auxiliary_secret_vars)
 
