@@ -435,9 +435,8 @@ class MattermostAdapter(BasePlatformAdapter):
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
                 logger.warning(
-                    "Mattermost: failed to download %s (status %s): %s",
+                    "Mattermost: failed to download %s: %s",
                     url,
-                    exc.status,
                     exc,
                 )
                 return await self.send(
@@ -871,5 +870,4 @@ class MattermostAdapter(BasePlatformAdapter):
         )
 
         await self.handle_message(msg_event)
-
 
