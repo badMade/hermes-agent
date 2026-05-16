@@ -1365,6 +1365,10 @@ DEFAULT_CONFIG = {
         # same task/profile (spawn_failed, timed_out, or crashed). Reassignment
         # resets the streak for the new profile.
         "failure_limit": 2,
+        # Cross-profile dispatch policy for profile-global kanban tools.
+        # Example: {"techlead": ["researcher", "coder"]}. Dispatcher-spawned
+        # workers keep their existing task-scoped fan-out behavior.
+        "allowed_assignees": {},
     },
 
     # execute_code settings — controls the tool used for programmatic tool calls.
@@ -2060,6 +2064,16 @@ OPTIONAL_ENV_VARS = {
         "prompt": "OpenAI API Key (for Whisper STT + TTS)",
         "url": "https://platform.openai.com/api-keys",
         "tools": ["voice_transcription", "openai_tts"],
+        "password": True,
+        "category": "tool",
+    },
+    "VOICE_TOOLS_OPENAI_CUSTOM_KEY": {
+        "description": (
+            "Endpoint-specific API key for custom OpenAI-compatible TTS base_url values"
+        ),
+        "prompt": "Custom OpenAI-compatible TTS API key",
+        "url": "",
+        "tools": ["openai_tts"],
         "password": True,
         "category": "tool",
     },
@@ -4808,21 +4822,12 @@ def edit_config():
         import shutil
         import sys as _sys
         if _sys.platform == "win32":
-            import ntpath
-
-            from hermes_cli.stdio import _trusted_system_notepad_path
-
-            candidates = [_trusted_system_notepad_path(), 'code', 'vim', 'vi', 'nano']
-            is_abs_editor = ntpath.isabs
+            candidates = ['notepad', 'code', 'vim', 'vi', 'nano']
         else:
             candidates = ['nano', 'vim', 'vi', 'code', 'notepad']
-            is_abs_editor = os.path.isabs
         for cmd in candidates:
-            if not cmd:
-                continue
-            resolved = cmd if is_abs_editor(cmd) else shutil.which(cmd)
-            if resolved:
-                editor = resolved
+            if shutil.which(cmd):
+                editor = cmd
                 break
     
     if not editor:
@@ -4850,7 +4855,7 @@ def set_config_value(key: str, value: str):
         'TERMINAL_SSH_HOST', 'TERMINAL_SSH_USER', 'TERMINAL_SSH_KEY',
         'SUDO_PASSWORD', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN',
         'GITHUB_TOKEN', 'HONCHO_API_KEY', 'WANDB_API_KEY',
-        'TINKER_API_KEY',
+        'TINKER_API_KEY', 'API_SERVER_KEY', 'GATEWAY_PROXY_KEY', 'WEBHOOK_SECRET',
     ]
     
     if key.upper() in api_keys or key.upper().endswith(('_API_KEY', '_TOKEN')) or key.upper().startswith('TERMINAL_SSH'):
