@@ -119,5 +119,5 @@ When you are asked to "check for PRs to review" or when this skill is run:
 1. Run the bash snippet above to identify authorized PR numbers and display their diffs.
 2. For each authorized PR number output by the script, analyze only the static diff and any needed base-branch context.
 3. Do not checkout the PR branch and do not run tests, linters, package scripts, build commands, hooks, or other commands from the PR.
-4. Post the review as a PR comment or PR Review using the static-review parts of `github-code-review`.
+4. Post the review as a PR comment or PR Review based only on the static diff and permitted base-branch context gathered without checking out or executing PR code.
 5. After the review is posted successfully, add the `jules-reviewed` label to prevent re-processing.
