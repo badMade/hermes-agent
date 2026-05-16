@@ -325,7 +325,7 @@ _SUDO_STDIN_ALLOW = [
     "sudo -s whoami",
     # sudo-looking text after a non-wrapper command is an argument, not a command
     "env echo sudo -S whoami",
-    # redirect operator followed by sudo is not a piped command
+    # Plain redirection targets named like sudo flags are not command invocations.
     "echo hi > sudo -S whoami",
 ]
 

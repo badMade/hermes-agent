@@ -314,9 +314,9 @@ def _contains_sudo_stdin_invocation(command: str) -> bool:
 
     expect_command = True
     for index, word in enumerate(words):
-        # Pipe/semicolon/subshell operators start a new command.
-        # process substitution may appear as a combined `<(` / `>(` token
-        # depending on tokenizer behavior, so those are explicit boundaries too.
+        # Pipe/semicolon/subshell operators start a new command.  Bash process
+        # substitution tokens also introduce an inner command, unlike plain
+        # redirections (<, >), which only introduce filename/fd arguments.
         if set(word) <= set(";&|()`") or word in {"{", "<(", ">("}:
             expect_command = True
             continue
