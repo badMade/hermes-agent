@@ -82,9 +82,10 @@ while read -r PR_NUMBER; do
   fi
 
   # Require at least one genuine trigger comment (exact @jules token, not @jules-bot etc.)
-  # from a trusted repository participant. The regex anchors @jules as a standalone token.
+  # from a trusted repository participant. Negative lookahead/lookbehind ensure @jules
+  # is not part of a longer username (e.g. @jules-bot, @jules_jr are rejected).
   TRUSTED_COMMENT_COUNT=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
-    --jq '.[] | select((.body // "") | test("(^|[^a-zA-Z0-9_-])@jules([^a-zA-Z0-9_-]|$)")) | select(.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR") | .id' \
+    --jq '.[] | select((.body // "") | test("(?<![a-zA-Z0-9_-])@jules(?![a-zA-Z0-9_-])")) | select(.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR") | .id' \
     | wc -l | tr -d ' ')
 
   if [ "$TRUSTED_COMMENT_COUNT" -eq 0 ]; then
