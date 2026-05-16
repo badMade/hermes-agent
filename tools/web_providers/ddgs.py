@@ -27,6 +27,7 @@ See https://duckduckgo.com/?q=duckduckgo+tos for terms of use.
 
 from __future__ import annotations
 
+import functools
 import logging
 from importlib import metadata, util
 from pathlib import Path
@@ -46,6 +47,27 @@ def _path_within(child: Path, parent: Path) -> bool:
         return False
 
 
+import functools
+import logging
+from importlib import metadata, util
+from pathlib import Path
+from typing import Any, Dict
+
+from tools.web_providers.base import WebSearchProvider
+
+logger = logging.getLogger(__name__)
+
+
+def _path_within(child: Path, parent: Path) -> bool:
+    """Return True when ``child`` resolves inside ``parent``."""
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+@functools.lru_cache(maxsize=1)
 def ddgs_package_available() -> bool:
     """Return True when the installed ``ddgs`` distribution owns the import target.
 
@@ -110,7 +132,13 @@ class DDGSSearchProvider(WebSearchProvider):
                 "error": "ddgs package is not installed or is shadowed — run `pip install ddgs`",
             }
 
-        from ddgs import DDGS  # type: ignore
+        # DDGS().text yields at most `max_results` items; we cap defensively
+        # in case the package ignores the hint.
+        safe_limit = max(1, int(limit))
+
+        try:
+            from ddgs import DDGS  # type: ignore
+            web_results = []
 
         # DDGS().text yields at most `max_results` items; we cap defensively
         # in case the package ignores the hint.
