@@ -157,6 +157,7 @@ class TestBridgeAuth:
         adapter._session_path = tmp_path / "session"
         bridge_script = tmp_path / "bridge.js"
         bridge_script.write_text("// test bridge", encoding="utf-8")
+        (tmp_path / "node_modules").mkdir()
         adapter._bridge_script = str(bridge_script)
 
         token = adapter._ensure_bridge_token()
@@ -257,9 +258,8 @@ class TestDataInitialized:
             # Must NOT raise NameError
             result = await adapter.connect()
 
-        # connect() returns True (warn-and-proceed path)
-        assert result is True
-        assert adapter._running is True
+        assert result is False
+        assert adapter._running is False
 
 
 # ---------------------------------------------------------------------------
