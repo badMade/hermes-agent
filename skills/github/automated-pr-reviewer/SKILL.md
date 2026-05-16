@@ -5,8 +5,10 @@ version: 1.0.0
 author: badMade
 license: MIT
 platforms: [linux, macos, windows]
-tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron]
-related_skills: [github-code-review, cronjob]
+metadata:
+  hermes:
+    tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron]
+    related_skills: [github-code-review, cronjob]
 ---
 
 # Automated PR Reviewer Workflow
