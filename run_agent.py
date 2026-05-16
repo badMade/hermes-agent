@@ -14288,6 +14288,11 @@ class AIAgent:
                 # gets a fresh budget on the compressed context.
                 self._empty_content_retries = 0
                 self._thinking_prefill_retries = 0
+                self._invalid_tool_retries = 0
+                self._invalid_json_retries = 0
+                self._incomplete_scratchpad_retries = 0
+                self._codex_incomplete_retries = 0
+                self._post_tool_empty_retried = False
                 self._last_content_with_tools = None
                 self._last_content_tools_all_housekeeping = False
                 self._mute_post_response = False
