@@ -1013,7 +1013,8 @@ def _get_platform_tools(
                 toolset_names = legacy_toolset_names
                 break
 
-    if toolset_names is None or not isinstance(toolset_names, list):
+    has_explicit_platform_toolsets = isinstance(toolset_names, list)
+    if not has_explicit_platform_toolsets:
         plat_info = PLATFORMS.get(platform)
         if plat_info:
             default_ts = plat_info["default_toolset"]
@@ -1152,9 +1153,9 @@ def _get_platform_tools(
         and ts not in platform_default_keys
     }
 
-    # MCP servers are expected to be available on all platforms by default.
-    # If the platform explicitly lists one or more MCP server names, treat that
-    # as an allowlist. Otherwise include every globally enabled MCP server.
+    # MCP servers are available by default only for platforms using their
+    # implicit default toolset. Once platform_toolsets explicitly lists tools,
+    # that list becomes the platform allowlist; MCP servers must be named there.
     # Special sentinel: "no_mcp" in the toolset list disables all MCP servers.
     mcp_servers = config.get("mcp_servers") or {}
     enabled_mcp_servers = {
@@ -1173,7 +1174,7 @@ def _get_platform_tools(
     if include_default_mcp_servers:
         if explicit_mcp_servers or "no_mcp" in toolset_names:
             enabled_toolsets.update(explicit_mcp_servers)
-        else:
+        elif not has_explicit_platform_toolsets:
             enabled_toolsets.update(enabled_mcp_servers)
     else:
         enabled_toolsets.update(explicit_mcp_servers)
