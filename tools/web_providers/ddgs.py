@@ -27,6 +27,7 @@ See https://duckduckgo.com/?q=duckduckgo+tos for terms of use.
 
 from __future__ import annotations
 
+import functools
 import logging
 from importlib import metadata, util
 from pathlib import Path
@@ -136,3 +137,4 @@ class DDGSSearchProvider(WebSearchProvider):
             "DDGS search '%s': %d results (limit %d)", query, len(web_results), limit
         )
         return {"success": True, "data": {"web": web_results}}
+

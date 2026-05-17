@@ -423,6 +423,20 @@ class TestTeePattern:
         assert dangerous is True
         assert key is not None
 
+    def test_tee_absolute_home_ssh_authorized_keys(self):
+        dangerous, key, desc = detect_dangerous_command(
+            "cat key | tee /home/alice/.ssh/authorized_keys"
+        )
+        assert dangerous is True
+        assert key is not None
+
+    def test_tee_split_quoted_home_ssh_authorized_keys(self):
+        dangerous, key, desc = detect_dangerous_command(
+            'cat key | tee "$HOME"/.ssh/authorized_keys'
+        )
+        assert dangerous is True
+        assert key is not None
+
     def test_tee_block_device(self):
         dangerous, key, desc = detect_dangerous_command("echo x | tee /dev/sda")
         assert dangerous is True
@@ -440,6 +454,18 @@ class TestTeePattern:
 
     def test_tee_quoted_custom_hermes_home_env(self):
         dangerous, key, desc = detect_dangerous_command('echo x | tee "$HERMES_HOME/.env"')
+        assert dangerous is True
+        assert key is not None
+
+    def test_tee_split_quoted_custom_hermes_home_env(self):
+        dangerous, key, desc = detect_dangerous_command('echo x | tee "$HERMES_HOME"/.env')
+        assert dangerous is True
+        assert key is not None
+
+    def test_tee_absolute_home_hermes_env(self):
+        dangerous, key, desc = detect_dangerous_command(
+            "echo x | tee /home/alice/.hermes/.env"
+        )
         assert dangerous is True
         assert key is not None
 
@@ -488,6 +514,20 @@ class TestSensitiveRedirectPattern:
 
     def test_append_to_home_ssh_authorized_keys(self):
         dangerous, key, desc = detect_dangerous_command("cat key >> $HOME/.ssh/authorized_keys")
+        assert dangerous is True
+        assert key is not None
+
+    def test_append_to_absolute_home_ssh_authorized_keys(self):
+        dangerous, key, desc = detect_dangerous_command(
+            "cat key >> /home/alice/.ssh/authorized_keys"
+        )
+        assert dangerous is True
+        assert key is not None
+
+    def test_append_to_split_quoted_home_ssh_authorized_keys(self):
+        dangerous, key, desc = detect_dangerous_command(
+            'cat key >> "$HOME"/.ssh/authorized_keys'
+        )
         assert dangerous is True
         assert key is not None
 
