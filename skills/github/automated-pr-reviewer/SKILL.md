@@ -1,5 +1,4 @@
-## automated-pr-reviewer
-
+---
 description: "Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews."
 version: 1.0.0
 author: Hermes Agent
@@ -7,6 +6,10 @@ license: MIT
 platforms: [linux, macos, windows]
 tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, review]
 related_skills: [github-code-review, cronjob]
+---
+
+# automated-pr-reviewer
+
 
 # Automated PR Reviewer Workflow
 
