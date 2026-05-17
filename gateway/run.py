@@ -13887,11 +13887,24 @@ class GatewayRunner:
             "model": "hermes-agent",
             "messages": api_messages,
             "stream": True,
-            "hermes_proxy_scope": {
+        }
+
+        from gateway.proxy_scope_auth import (
+            PROXY_SCOPE_SIGNATURE_HEADER,
+            PROXY_SCOPE_TIMESTAMP_HEADER,
+            get_proxy_scope_key,
+            sign_proxy_scope,
+        )
+        proxy_scope_key = get_proxy_scope_key()
+        if proxy_scope_key:
+            proxy_scope = {
                 "origin_platform": platform_key,
                 "enabled_toolsets": enabled_toolsets,
-            },
-        }
+            }
+            proxy_scope_ts, proxy_scope_sig = sign_proxy_scope(proxy_scope, proxy_scope_key)
+            body["hermes_proxy_scope"] = proxy_scope
+            headers[PROXY_SCOPE_TIMESTAMP_HEADER] = proxy_scope_ts
+            headers[PROXY_SCOPE_SIGNATURE_HEADER] = proxy_scope_sig
 
         # Set up platform streaming if available -------------------------
         _stream_consumer = None

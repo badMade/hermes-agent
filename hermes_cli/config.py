@@ -2502,6 +2502,14 @@ OPTIONAL_ENV_VARS = {
         "category": "messaging",
         "advanced": True,
     },
+    "GATEWAY_PROXY_SCOPE_KEY": {
+        "description": "Shared secret used to sign trusted gateway proxy scope metadata. Configure the same value on the gateway proxy and remote API server to preserve per-platform tool scope.",
+        "prompt": "Gateway proxy scope signing key",
+        "url": None,
+        "password": True,
+        "category": "messaging",
+        "advanced": True,
+    },
     "WEBHOOK_ENABLED": {
         "description": "Enable the webhook platform adapter for receiving events from GitHub, GitLab, etc.",
         "prompt": "Enable webhooks (true/false)",

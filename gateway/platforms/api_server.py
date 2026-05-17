@@ -50,6 +50,12 @@ from gateway.platforms.base import (
     SendResult,
     is_network_accessible,
 )
+from gateway.proxy_scope_auth import (
+    PROXY_SCOPE_SIGNATURE_HEADER,
+    PROXY_SCOPE_TIMESTAMP_HEADER,
+    get_proxy_scope_key,
+    verify_proxy_scope_signature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1006,6 +1012,16 @@ class APIServerAdapter(BasePlatformAdapter):
         if proxy_scope is not None:
             if not isinstance(proxy_scope, dict):
                 return web.json_response(_openai_error("Invalid hermes_proxy_scope"), status=400)
+            if not verify_proxy_scope_signature(
+                proxy_scope,
+                get_proxy_scope_key(),
+                request.headers.get(PROXY_SCOPE_TIMESTAMP_HEADER),
+                request.headers.get(PROXY_SCOPE_SIGNATURE_HEADER),
+            ):
+                return web.json_response(
+                    _openai_error("hermes_proxy_scope requires trusted gateway proxy authentication"),
+                    status=403,
+                )
             raw_platform = proxy_scope.get("origin_platform")
             if raw_platform is not None:
                 origin_platform = str(raw_platform).strip()
