@@ -682,19 +682,27 @@ def cmd_disable(name: str) -> None:
     )
 
 
+def _plugin_config_key(root: Path, plugin_dir: Path) -> Optional[str]:
+    """Return the path-derived plugin key used in config allow/block lists."""
+    try:
+        return plugin_dir.relative_to(root).as_posix()
+    except ValueError:
+        return None
+
+
 def _resolve_plugin_config_name(name: str) -> Optional[str]:
     """Return the stable config key for an installed or bundled plugin."""
     user_dir = _plugins_dir()
     if user_dir.is_dir():
         candidate = user_dir / name
         if candidate.is_dir():
-            return candidate.name
+            return _plugin_config_key(user_dir, candidate)
         for child in user_dir.iterdir():
             if not child.is_dir():
                 continue
             manifest = _read_manifest(child)
             if manifest.get("name") == name:
-                return child.name
+                return _plugin_config_key(user_dir, child)
 
     from hermes_cli.plugins import get_bundled_plugins_dir
 
@@ -705,13 +713,13 @@ def _resolve_plugin_config_name(name: str) -> Optional[str]:
             (candidate / "plugin.yaml").exists()
             or (candidate / "plugin.yml").exists()
         ):
-            return candidate.name
+            return _plugin_config_key(repo_plugins, candidate)
         for child in repo_plugins.iterdir():
             if not child.is_dir():
                 continue
             manifest = _read_manifest(child)
             if manifest.get("name") == name:
-                return child.name
+                return _plugin_config_key(repo_plugins, child)
     return None
 
 

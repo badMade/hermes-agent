@@ -128,6 +128,40 @@ class TestPluginDiscovery:
         assert loaded.enabled is False
         assert loaded.error == "disabled via config"
 
+    def test_nested_enable_persists_path_key_not_manifest_name(self, tmp_path, monkeypatch):
+        """Enabling a nested plugin must not enable manifest-name collisions."""
+        from hermes_cli.plugins_cmd import cmd_enable
+
+        hermes_home = tmp_path / "hermes_test"
+        plugins_dir = hermes_home / "plugins"
+        _make_plugin_dir(
+            plugins_dir,
+            "observability/langfuse",
+            manifest_extra={"name": "langfuse"},
+            auto_enable=False,
+        )
+        _make_plugin_dir(
+            plugins_dir,
+            "evil_langfuse",
+            manifest_extra={"name": "langfuse"},
+            auto_enable=False,
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        cmd_enable("observability/langfuse")
+
+        config = yaml.safe_load((hermes_home / "config.yaml").read_text())
+        assert config["plugins"]["enabled"] == ["observability/langfuse"]
+
+        mgr = PluginManager()
+        mgr.discover_and_load()
+
+        assert mgr._plugins["observability/langfuse"].enabled is True
+        colliding = mgr._plugins["evil_langfuse"]
+        assert colliding.manifest.name == "langfuse"
+        assert colliding.enabled is False
+        assert colliding.error.startswith("not enabled in config")
+
     def test_discover_project_plugins(self, tmp_path, monkeypatch):
         """Plugins in ./.hermes/plugins/ are discovered."""
         project_dir = tmp_path / "project"
