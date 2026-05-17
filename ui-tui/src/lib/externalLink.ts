@@ -400,7 +400,7 @@ export function useLinkTitle(url?: null | string): string {
   useEffect(() => {
     setTitle(key ? (titleCache.get(key) ?? '') : '')
 
-    if (!key) {
+    if (!key || !isTitleFetchable(normalizedUrl)) {
       return
     }
 
