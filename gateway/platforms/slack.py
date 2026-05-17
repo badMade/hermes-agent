@@ -436,16 +436,13 @@ class SlackAdapter(BasePlatformAdapter):
     def _pop_slash_context(
         self, chat_id: str,
     ) -> Optional[Dict[str, Any]]:
-        """Return and remove the slash-command context for *chat_id*, if fresh.
+        """Return and remove the current user's slash-command context.
 
         Contexts older than ``_SLASH_CTX_TTL`` seconds are silently discarded.
-
-        Uses the ``_slash_user_id`` ContextVar (set in ``_handle_slash_command``)
-        to match the exact ``(channel_id, user_id)`` key.  This prevents a
-        concurrent slash command from a different user on the same channel from
-        stealing another user's ephemeral context.  Falls back to a
-        channel-only scan when the ContextVar is unset (e.g. send() called
-        from a non-slash code path — should not match anything).
+        The remaining lookup must match the exact ``(channel_id, user_id)``
+        tuple, with ``user_id`` supplied by the slash-command ContextVar.
+        A normal channel send has no slash user context and must not consume a
+        pending ``response_url`` for an unrelated user.
         """
         now = time.monotonic()
         # Clean up stale entries on every lookup — dict is small.
@@ -456,21 +453,10 @@ class SlackAdapter(BasePlatformAdapter):
         for k in stale_keys:
             self._slash_command_contexts.pop(k, None)
 
-        # Precise match: (channel_id, user_id) from ContextVar.
         uid = _slash_user_id.get()
-        if uid:
-            return self._slash_command_contexts.pop((chat_id, uid), None)
-
-        # Fallback: channel-only scan (only reachable when ContextVar is
-        # unset, i.e. send() called outside a slash-command async context).
-        match_key = None
-        for key in list(self._slash_command_contexts):
-            if key[0] == chat_id:
-                match_key = key
-                break
-        if match_key is None:
+        if not uid:
             return None
-        return self._slash_command_contexts.pop(match_key)
+        return self._slash_command_contexts.pop((chat_id, uid), None)
 
     async def _send_slash_ephemeral(
         self,
