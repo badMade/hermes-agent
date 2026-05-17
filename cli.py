@@ -8811,7 +8811,6 @@ class HermesCLI:
             return  # mcp_servers unchanged (some other section was edited)
 
         old_mcp = self._config_mcp_servers
-        self._config_mcp_servers = new_mcp
 
         if self._mcp_stdio_config_changed(old_mcp, new_mcp):
             print()
@@ -8831,6 +8830,22 @@ class HermesCLI:
         _reload_thread.join(timeout=30)
         if _reload_thread.is_alive():
             print("  ⚠️  MCP reload timed out (30s). Some servers may not have reconnected.")
+            return
+
+        self._config_mcp_servers = new_mcp
+
+    def _refresh_config_mcp_baseline(self) -> None:
+        """Record the MCP config that was actually accepted for reload decisions."""
+        from hermes_cli.config import get_config_path
+
+        try:
+            cfg_path = get_config_path()
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            self._config_mcp_servers = cfg.get("mcp_servers") or {}
+            self._config_mtime = cfg_path.stat().st_mtime
+        except Exception:
+            pass
 
     @staticmethod
     def _mcp_stdio_config_changed(old_mcp: dict, new_mcp: dict) -> bool:
@@ -9062,6 +9077,7 @@ class HermesCLI:
                 except Exception:
                     pass  # Best-effort
 
+            self._refresh_config_mcp_baseline()
             print(f"  ✅ Agent updated — {len(self.agent.tools if self.agent else [])} tool(s) available")
 
         except Exception as e:
