@@ -27,7 +27,6 @@ See https://duckduckgo.com/?q=duckduckgo+tos for terms of use.
 
 from __future__ import annotations
 
-import functools
 import logging
 from typing import Any, Dict
 
@@ -97,4 +96,3 @@ class DDGSSearchProvider(WebSearchProvider):
 
         logger.info("DDGS search '%s': %d results (limit %d)", query, len(web_results), limit)
         return {"success": True, "data": {"web": web_results}}
-
