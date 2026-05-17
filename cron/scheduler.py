@@ -1255,13 +1255,14 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         chat_id="",
         chat_name="",
     )
-    _cron_delivery_vars = (
-        "HERMES_CRON_AUTO_DELIVER_PLATFORM",
-        "HERMES_CRON_AUTO_DELIVER_CHAT_ID",
-        "HERMES_CRON_AUTO_DELIVER_THREAD_ID",
+    _cron_context_vars = (
+        ("HERMES_CRON_SESSION", "1"),
+        ("HERMES_CRON_AUTO_DELIVER_PLATFORM", ""),
+        ("HERMES_CRON_AUTO_DELIVER_CHAT_ID", ""),
+        ("HERMES_CRON_AUTO_DELIVER_THREAD_ID", ""),
     )
-    for _var_name in _cron_delivery_vars:
-        _VAR_MAP[_var_name].set("")
+    for _var_name, _var_value in _cron_context_vars:
+        _VAR_MAP[_var_name].set(_var_value)
 
     # Per-job working directory.  When set (and validated at create/update
     # time), we point TERMINAL_CWD at it so:
@@ -1649,7 +1650,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 os.environ["TERMINAL_CWD"] = _prior_terminal_cwd
         # Clean up ContextVar session/delivery state for this job.
         clear_session_vars(_ctx_tokens)
-        for _var_name in _cron_delivery_vars:
+        for _var_name, _ in _cron_context_vars:
             _VAR_MAP[_var_name].set("")
         if _session_db:
             try:
