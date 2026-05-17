@@ -24,6 +24,7 @@ except ImportError:
 from pathlib import Path
 from typing import Callable
 
+from agent.file_safety import is_write_denied
 from hermes_constants import get_hermes_home
 from tools.environments.base import _file_mtime_key
 
@@ -417,7 +418,16 @@ class FileSyncManager:
         ):
             remote_dir = str(Path(remote).parent)
             if remote_path.startswith(remote_dir + "/"):
-                host_dir = str(Path(host).parent)
+                host_dir = Path(host).parent
+                try:
+                    if host_dir.resolve() == hermes_home:
+                        logger.warning(
+                            "sync_back: skipping inferred top-level HERMES_HOME path %s",
+                            remote_path,
+                        )
+                        continue
+                except OSError:
+                    pass
                 suffix = remote_path[len(remote_dir):]
-                return host_dir + suffix
+                return str(host_dir) + suffix
         return None
