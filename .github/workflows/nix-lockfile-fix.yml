@@ -175,9 +175,19 @@ jobs:
               repo: context.repo.repo,
               pull_number: Number(prNumber),
             });
+
+            const headRepo = pr.head.repo;
+            const baseRepo = `${context.repo.owner}/${context.repo.repo}`;
+            if (!headRepo || headRepo.full_name !== baseRepo) {
+              core.setFailed(
+                'Refusing to run lockfile fix on a fork PR because it would execute untrusted PR code with repository secrets.'
+              );
+              return;
+            }
+
             core.setOutput('ref', pr.head.ref);
-            core.setOutput('repo', pr.head.repo.name);
-            core.setOutput('owner', pr.head.repo.owner.login);
+            core.setOutput('repo', context.repo.repo);
+            core.setOutput('owner', context.repo.owner);
             core.setOutput('pr', String(pr.number));
 
       # Wipe the sticky lockfile-check comment to a "running" state as soon
