@@ -272,7 +272,7 @@ def test_drive_download_path_rejects_reserved_remote_names(api_module, tmp_path,
     monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(tmp_path))
 
     for remote_name in (".", "..", "../", "nested/.."):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="reserved|filename|empty"):
             api_module._safe_drive_download_path("", remote_name)
 
 
