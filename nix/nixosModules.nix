@@ -235,6 +235,7 @@
     });
 
     identityFile = "${cfg.stateDir}/.container-identity";
+    containerModeFile = "/etc/hermes-agent/container-mode";
 
     # Default: /var/lib/hermes/workspace → /data/workspace.
     # Custom paths outside stateDir pass through unchanged (user must add extraVolumes).
@@ -799,13 +800,14 @@
           hermes_install_file /dev/null ${cfg.stateDir}/.hermes/.managed 0644
 
           # Container mode metadata — tells the host CLI to exec into the
-          # container instead of running locally. Removed when container mode
-          # is disabled so the host CLI falls back to native execution.
+          # container instead of running locally. Keep it root-owned outside
+          # HERMES_HOME so the containerized agent cannot alter host routing.
           ${if cfg.container.enable then ''
             _container_mode_tmp="$(mktemp ${cfg.stateDir}/.hermes/.container-mode.XXXXXX)"
             cat > "$_container_mode_tmp" <<'HERMES_CONTAINER_MODE_EOF'
     # Written by NixOS activation script. Do not edit manually.
     backend=${cfg.container.backend}
+    runtime_path=${containerBin}
     container_name=${containerName}
     exec_user=${cfg.user}
     hermes_bin=${containerDataDir}/current-package/bin/hermes
@@ -814,6 +816,8 @@
             mv -Tf "$_container_mode_tmp.installed" ${cfg.stateDir}/.hermes/.container-mode
             rm -f "$_container_mode_tmp"
           '' else ''
+            rm -f ${containerModeFile}
+            rmdir /etc/hermes-agent 2>/dev/null || true
             rm -f ${cfg.stateDir}/.hermes/.container-mode
 
             # Remove symlink bridge for hostUsers
