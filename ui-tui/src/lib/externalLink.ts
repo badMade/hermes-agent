@@ -332,7 +332,7 @@ async function fetchHtmlTitle(normalizedUrl: string): Promise<string> {
         'Accept-Language': 'en-US,en;q=0.7',
         'User-Agent': TITLE_USER_AGENT
       },
-      redirect: 'follow',
+      redirect: 'manual',
       signal: controller.signal
     })
 
@@ -400,7 +400,7 @@ export function useLinkTitle(url?: null | string): string {
   useEffect(() => {
     setTitle(key ? (titleCache.get(key) ?? '') : '')
 
-    if (!key || !isTitleFetchable(normalizedUrl)) {
+    if (!key) {
       return
     }
 
@@ -408,7 +408,6 @@ export function useLinkTitle(url?: null | string): string {
 
     subs.add(setTitle)
     titleSubs.set(key, subs)
-    void fetchLinkTitle(normalizedUrl)
 
     return () => {
       subs.delete(setTitle)

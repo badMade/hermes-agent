@@ -2,7 +2,7 @@ import { PassThrough } from 'stream'
 
 import { Box, renderSync } from '@hermes/ink'
 import React from 'react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AUDIO_DIRECTIVE_RE, INLINE_RE, Md, MEDIA_LINE_RE, stripInlineMarkup } from '../components/markdown.js'
 import { stripAnsi } from '../lib/text.js'
@@ -13,6 +13,11 @@ const BEL = String.fromCharCode(7)
 const ESC = String.fromCharCode(27)
 const CSI_RE = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, 'g')
 const OSC_RE = new RegExp(`${ESC}\\][\\s\\S]*?(?:${BEL}|${ESC}\\\\)`, 'g')
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 const renderPlain = (node: React.ReactNode) => {
   const stdout = new PassThrough()
@@ -250,6 +255,24 @@ describe('Md link labels', () => {
     )
 
     expect(lines.join('\n')).toContain('Trip details')
+  })
+
+  it('does not fetch titles while rendering untrusted links', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPlain(
+      React.createElement(
+        Box,
+        { width: 120 },
+        React.createElement(Md, {
+          t: DEFAULT_THEME,
+          text: '[details](https://attacker.example/collect?secret=token) and https://attacker.example/bare?secret=token'
+        })
+      )
+    )
+
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 
