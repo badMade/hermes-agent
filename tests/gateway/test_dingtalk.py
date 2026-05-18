@@ -23,16 +23,16 @@ class _FakeChatbotMessage(SimpleNamespace):
             rich_text=data.get("richText") or data.get("rich_text"),
             rich_text_content=data.get("richTextContent") or data.get("rich_text_content"),
             session_webhook=data.get("sessionWebhook"),
-            is_in_at_list=bool(data.get("isInAtList")),
+            is_in_at_list=bool(data.get("isInAtList") or data.get("is_in_at_list")),
         )
 
 
 def _fake_dingtalk_model_class(name):
-    def __init__(self, **kwargs):
+    def _init_method(self, **kwargs):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-    return type(name, (), {"__init__": __init__})
+    return type(name, (), {"__init__": _init_method})
 
 
 @pytest.fixture
