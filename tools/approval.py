@@ -33,6 +33,10 @@ _approval_session_key: contextvars.ContextVar[str] = contextvars.ContextVar(
     "approval_session_key",
     default="",
 )
+_approval_run_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "approval_run_id",
+    default="",
+)
 _approval_interactive: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "approval_interactive",
     default=False,
@@ -83,6 +87,29 @@ def set_current_interactive(enabled: bool = True) -> contextvars.Token[bool]:
 def reset_current_interactive(token: contextvars.Token[bool]) -> None:
     """Restore the prior interactive approval routing context."""
     _approval_interactive.reset(token)
+
+
+def set_current_run_id(run_id: str) -> contextvars.Token[str]:
+    """Bind the active API run id to the current context."""
+    return _approval_run_id.set(run_id or "")
+
+
+def reset_current_run_id(token: contextvars.Token[str]) -> None:
+    """Restore the prior API run id context."""
+    _approval_run_id.reset(token)
+
+
+def get_current_run_id(default: str = "") -> str:
+    """Return the active run id, preferring context-local state."""
+    run_id = _approval_run_id.get()
+    if run_id:
+        return run_id
+    try:
+        from gateway.session_context import get_session_env
+
+        return get_session_env("HERMES_RUN_ID", default)
+    except Exception:
+        return os.getenv("HERMES_RUN_ID", default)
 
 
 def is_current_interactive() -> bool:
