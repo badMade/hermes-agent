@@ -32,6 +32,7 @@ def _make_adapter():
     adapter._bridge_log_fh = None
     adapter._bridge_log = None
     adapter._bridge_process = None
+    adapter._bridge_token = "test-bridge-token"
     adapter._reply_prefix = None
     adapter._running = True
     adapter._message_handler = None
