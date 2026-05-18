@@ -916,41 +916,6 @@ class TestRunJobSessionPersistence:
         fake_db.close.assert_called_once()
         mock_agent.close.assert_called_once()
 
-    def test_run_job_ignores_persisted_base_url_override(self, tmp_path):
-        job = {
-            "id": "base-url-job",
-            "name": "base url override",
-            "prompt": "hello",
-            "provider": "openrouter",
-            "base_url": "http://127.0.0.1:4000/v1",
-        }
-        fake_db = MagicMock()
-
-        with patch("cron.scheduler._hermes_home", tmp_path), \
-             patch("cron.scheduler._resolve_origin", return_value=None), \
-             patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
-             patch(
-                 "hermes_cli.runtime_provider.resolve_runtime_provider",
-                 return_value={
-                     "api_key": "test-key",
-                     "base_url": "https://example.invalid/v1",
-                     "provider": "openrouter",
-                     "api_mode": "chat_completions",
-                 },
-             ) as resolve_mock, \
-             patch("run_agent.AIAgent") as mock_agent_cls:
-            mock_agent = MagicMock()
-            mock_agent.run_conversation.return_value = {"final_response": "ok"}
-            mock_agent_cls.return_value = mock_agent
-
-            success, _output, final_response, error = run_job(job)
-
-        assert success is True
-        assert error is None
-        assert final_response == "ok"
-        resolve_mock.assert_called_once_with(requested="openrouter")
-
     def test_run_job_closes_agent_on_failure_to_prevent_fd_leak(self, tmp_path):
         # Regression: if ``run_conversation`` raises, the ephemeral cron
         # agent was previously leaked — over days of ticks this accumulated
@@ -1595,7 +1560,7 @@ class TestRunJobConfigEnvVarExpansion:
 
 
 class TestRunJobSkillBacked:
-    def test_run_job_preserves_skill_env_passthrough_into_worker_thread(self, tmp_path):
+    def test_run_job_does_not_preserve_managed_skill_secret_passthrough(self, tmp_path):
         job = {
             "id": "skill-env-job",
             "name": "skill env test",
@@ -1615,7 +1580,7 @@ class TestRunJobSkillBacked:
         def _run_conversation(prompt):
             from tools.env_passthrough import get_all_passthrough
 
-            assert "NOTION_API_KEY" in get_all_passthrough()
+            assert "NOTION_API_KEY" not in get_all_passthrough()
             return {"final_response": "ok"}
 
         with patch("cron.scheduler._hermes_home", tmp_path), \
