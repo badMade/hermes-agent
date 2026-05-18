@@ -1983,6 +1983,12 @@ def delegate_task(
     except ValueError as exc:
         return tool_error(str(exc))
 
+    if acp_command or acp_args:
+        logger.warning(
+            "Ignoring caller-supplied ACP command/args for delegate_task; "
+            "ACP delegation transport is controlled by trusted configuration only."
+        )
+
     # Normalize to task list
     max_children = _get_max_concurrent_children()
     recovered_tasks, tasks_error = _recover_tasks_from_json_string(tasks)
@@ -2040,6 +2046,11 @@ def delegate_task(
     children = []
     try:
         for i, t in enumerate(task_list):
+            if t.get("acp_command") or t.get("acp_args"):
+                logger.warning(
+                    "Ignoring task-supplied ACP command/args for delegate_task; "
+                    "ACP delegation transport is controlled by trusted configuration only."
+                )
             # Per-task role beats top-level; normalise again so unknown
             # per-task values warn and degrade to leaf uniformly.
             effective_role = _normalize_role(t.get("role") or top_role)

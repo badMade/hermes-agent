@@ -115,6 +115,17 @@ def test_get_platform_tools_default_telegram_includes_messaging():
     assert "messaging" in enabled
 
 
+def test_get_platform_tools_webhook_defaults_to_no_tools():
+    """Webhook payloads are provider-authenticated but still untrusted prompt input."""
+    assert _get_platform_tools({}, "webhook", include_default_mcp_servers=False) == set()
+
+
+def test_get_platform_tools_webhook_allows_explicit_opt_in():
+    config = {"platform_toolsets": {"webhook": ["terminal"]}}
+
+    assert _get_platform_tools(config, "webhook", include_default_mcp_servers=False) == {"terminal"}
+
+
 def test_get_platform_tools_homeassistant_platform_keeps_homeassistant_toolset():
     enabled = _get_platform_tools({}, "homeassistant")
 
