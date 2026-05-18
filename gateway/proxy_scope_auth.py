@@ -18,11 +18,6 @@ PROXY_SCOPE_MAX_CLOCK_SKEW_SECONDS = 300
 
 def get_proxy_scope_key() -> str:
     """Return the shared secret used to authenticate proxy scope metadata."""
-from functools import lru_cache
-
-@lru_cache(maxsize=1)
-def get_proxy_scope_key() -> str:
-    """Return the shared secret used to authenticate proxy scope metadata."""
     return os.getenv(PROXY_SCOPE_KEY_ENV, "").strip()
 
 
@@ -31,7 +26,11 @@ def canonicalize_proxy_scope(proxy_scope: Mapping[str, Any]) -> str:
     return json.dumps(proxy_scope, sort_keys=True, separators=(",", ":"))
 
 
-def sign_proxy_scope(proxy_scope: Mapping[str, Any], secret: str, timestamp: int | None = None) -> tuple[str, str]:
+def sign_proxy_scope(
+    proxy_scope: Mapping[str, Any],
+    secret: str,
+    timestamp: int | None = None,
+) -> tuple[str, str]:
     """Return ``(timestamp, signature)`` headers for trusted proxy scope metadata."""
     ts = str(int(time.time() if timestamp is None else timestamp))
     payload = f"{ts}.{canonicalize_proxy_scope(proxy_scope)}".encode("utf-8")
@@ -47,18 +46,13 @@ def verify_proxy_scope_signature(
     *,
     now: int | None = None,
 ) -> bool:
-    """Return whether the supplied signature authenticates the proxy scope."""
-def verify_proxy_scope_signature(
-    proxy_scope: Mapping[str, Any],
-    secret: str,
-    timestamp: str | None,
-    signature: str | None,
-    *,
-    now: int | None = None,
-) -> bool:
-    """Return whether the supplied signature authenticates the proxy scope."""
+    """Return whether the supplied signature authenticates the proxy scope.
+
+    Returns ``False`` when no secret is configured so that proxy scope metadata
+    is rejected unless a shared key has been provisioned on both sides.
+    """
     if not secret:
-        return True
+        return False
     if not timestamp or not signature:
         return False
     try:
@@ -69,13 +63,6 @@ def verify_proxy_scope_signature(
     if abs(current - ts_int) > PROXY_SCOPE_MAX_CLOCK_SKEW_SECONDS:
         return False
     expected_timestamp, expected_signature = sign_proxy_scope(proxy_scope, secret, ts_int)
-    return hmac.compare_digest(timestamp, expected_timestamp) and hmac.compare_digest(signature, expected_signature)
-    try:
-        ts_int = int(timestamp)
-    except (TypeError, ValueError):
-        return False
-    current = int(time.time() if now is None else now)
-    if abs(current - ts_int) > PROXY_SCOPE_MAX_CLOCK_SKEW_SECONDS:
-        return False
-    expected_timestamp, expected_signature = sign_proxy_scope(proxy_scope, secret, ts_int)
-    return hmac.compare_digest(timestamp, expected_timestamp) and hmac.compare_digest(signature, expected_signature)
+    return hmac.compare_digest(timestamp, expected_timestamp) and hmac.compare_digest(
+        signature, expected_signature
+    )
