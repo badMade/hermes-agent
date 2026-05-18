@@ -1406,10 +1406,11 @@ DEFAULT_CONFIG = {
         # same task/profile (spawn_failed, timed_out, or crashed). Reassignment
         # resets the streak for the new profile.
         "failure_limit": 2,
-        # Cross-profile dispatch policy for profile-global kanban tools.
-        # Example: {"techlead": ["researcher", "coder"]}. Dispatcher-spawned
-        # workers keep their existing task-scoped fan-out behavior.
-        "allowed_assignees": {},
+        # Named profiles may assign tasks only to themselves by default. Add
+        # explicit profile names here (or "*" for trusted operator profiles)
+        # to permit cross-profile delegation from that profile's Kanban CLI /
+        # gateway surface. The default root profile keeps operator semantics.
+        "allowed_assignees": [],
     },
 
     # execute_code settings — controls the tool used for programmatic tool calls.
