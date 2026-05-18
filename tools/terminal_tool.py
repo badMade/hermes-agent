@@ -1009,7 +1009,7 @@ def _resolve_container_task_id(task_id: Optional[str]) -> str:
         return task_id
     if task_id in _task_container_aliases:
         return _task_container_aliases[task_id]
-    if re.fullmatch(r"api-session(?:-[A-Za-z0-9][A-Za-z0-9-]*)?", task_id):
+    if re.fullmatch(r"api-session(?:-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)?", task_id):
         return "default"
     if _is_subagent_task_id(task_id):
         return "default"
