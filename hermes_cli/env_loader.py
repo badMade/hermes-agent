@@ -20,7 +20,12 @@ _SANITIZED_CREDENTIAL_SUFFIXES = ("_API_KEY", "_TOKEN")
 # from the inherited process environment. In Nix container mode, HERMES_HOME/.env
 # is writable by the containerized Hermes user, so letting dotenv set these would
 # allow container-controlled files to influence host execution.
-_PROTECTED_DOTENV_KEYS = frozenset({"HERMES_CONTAINER_MODE_FILE"})
+_PROTECTED_DOTENV_KEYS = frozenset({
+    "HERMES_CONTAINER_MODE_FILE",
+    "HERMES_DEV",
+    "HERMES_MANAGED",
+    "HERMES_HOME",
+})
 
 
 def _restore_protected_dotenv_keys(original_values: dict[str, str | None]) -> None:
