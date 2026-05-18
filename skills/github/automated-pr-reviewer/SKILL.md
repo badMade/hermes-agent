@@ -45,54 +45,15 @@ When invoked, the agent should run the following bash script to find and process
 # Ensure we are in a git repository and GH CLI is authenticated
 if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
   echo "GitHub CLI (gh) is not installed or not authenticated."
-  # gracefully return
-  return 1 2>/dev/null || true
+  exit 1
 fi
 
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 echo "Scanning $REPO for '@jules' comments..."
 
-# Search for open PRs
+# Search for open PRs and output their numbers
 gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \"@jules\" -label:reviewed" \
-  --jq '.items[].number' > /tmp/prs_to_review.txt
-
-if [ ! -s /tmp/prs_to_review.txt ]; then
-  echo "No new PRs to review."
-  # gracefully return
-  return 0 2>/dev/null || true
-fi
-
-while read PR_NUMBER; do
-  echo "Found request for PR #$PR_NUMBER. Starting review..."
-
-  # Checkout PR locally to do the review
-  git fetch origin pull/$PR_NUMBER/head:pr-$PR_NUMBER
-  git checkout pr-$PR_NUMBER
-
-  # Note for Agent: At this point, the agent should use the `github-code-review`
-  # skill's methodology to review `git diff main...HEAD`.
-
-  # 2. Add label to prevent duplicates
-  # Ensure the label exists first
-  gh api -X POST repos/$REPO/labels -f name="reviewed" -f color="0e8a16" --silent || true
-
-  # Add label to PR
-  gh pr edit $PR_NUMBER --add-label "reviewed"
-
-  # 3. Reply to the PR acknowledging completion
-  # Note for Agent: Make sure the actual code review is also submitted using the github-code-review standard.
-  gh pr comment $PR_NUMBER --body "Code review completed by @jules. Added the \`reviewed\` label."
-
-  echo "Completed PR #$PR_NUMBER"
-
-  # Clean up branch
-  git checkout -
-  git branch -D pr-$PR_NUMBER
-
-done < /tmp/prs_to_review.txt
-
-echo "Review pass complete."
-```
+  --jq '.items[].number'
 
 ## Agent Instructions
 
