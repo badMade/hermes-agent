@@ -75,6 +75,71 @@ def _error(message: str) -> dict:
     return {"error": _sanitize_error_text(message)}
 
 
+def _path_is_relative_to(path: Path, root: Path) -> bool:
+    """Return True when path is inside root without requiring Python 3.9's is_relative_to."""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _matrix_media_allowed_roots() -> list[Path]:
+    """Return safe local roots for Matrix send_message media uploads."""
+    roots = [Path.cwd(), Path(tempfile.gettempdir())]
+
+    try:
+        from hermes_constants import get_hermes_home
+        hermes_home = get_hermes_home()
+        roots.extend([hermes_home / "cache", hermes_home / "outputs"])
+    except Exception:
+        pass
+
+    for raw_root in os.getenv("HERMES_SEND_MESSAGE_MEDIA_ROOTS", "").split(os.pathsep):
+        if raw_root.strip():
+            roots.append(Path(raw_root.strip()).expanduser())
+
+    resolved_roots: list[Path] = []
+    for root in roots:
+        try:
+            resolved_roots.append(root.expanduser().resolve(strict=False))
+        except Exception:
+            continue
+    return resolved_roots
+
+
+def _validate_matrix_media_path(media_path: str) -> tuple[Path | None, str | None]:
+    """Validate a Matrix send_message media path before handing it to the adapter."""
+    try:
+        resolved = Path(media_path).expanduser().resolve(strict=True)
+        stat_result = resolved.stat()
+    except FileNotFoundError:
+        return None, "Media file not found"
+    except OSError:
+        return None, "Media file is not accessible"
+
+    if not resolved.is_file():
+        return None, "Media path must be a regular file"
+
+    if stat_result.st_size > _MATRIX_MEDIA_MAX_BYTES:
+        return None, f"Media file exceeds the {_MATRIX_MEDIA_MAX_BYTES // (1024 * 1024)} MiB Matrix upload limit"
+
+    if _SENSITIVE_MEDIA_DIR_NAMES.intersection(resolved.parts) or resolved.name in _SENSITIVE_MEDIA_FILE_NAMES:
+        return None, "Media file is in a sensitive location and cannot be uploaded"
+
+    try:
+        from agent.file_safety import is_write_denied
+        if is_write_denied(str(resolved)):
+            return None, "Media file is in a sensitive location and cannot be uploaded"
+    except Exception:
+        pass
+
+    if not any(_path_is_relative_to(resolved, root) for root in _matrix_media_allowed_roots()):
+        return None, "Media file is outside allowed send_message media roots"
+
+    return resolved, None
+
+
 def _signal_attachment_roots() -> list[Path]:
     """Return Hermes-managed cache roots that may be sent as Signal attachments."""
     from hermes_constants import get_hermes_dir, get_hermes_home
