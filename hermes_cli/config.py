@@ -478,6 +478,11 @@ def _ensure_hermes_home_managed(home: Path):
 DEFAULT_CONFIG = {
     "model": "",
     "providers": {},
+    "acp": {
+        # ACP clients can provide MCP server definitions per session. Stdio
+        # transports execute local commands, so only operator config can opt in.
+        "allow_client_stdio_mcp_servers": False,
+    },
     "fallback_providers": [],
     "credential_pool_strategies": {},
     "toolsets": ["hermes-cli"],
@@ -1191,16 +1196,13 @@ DEFAULT_CONFIG = {
         # Timeout (seconds) for each !`cmd` snippet when inline_shell is on.
         "inline_shell_timeout": 10,
         # Run the keyword/pattern security scanner on skills the agent
-        # writes via skill_manage (create/edit/patch).  Off by default
-        # because the agent can already execute the same code paths via
-        # terminal() with no gate, so the scan adds friction (blocks
-        # skills that mention risky keywords in prose) without meaningful
-        # security.  Turn on if you want the belt-and-suspenders — a
-        # dangerous verdict will then surface as a tool error to the
-        # agent, which can retry with the flagged content removed.
+        # writes via skill_manage (create/edit/patch). Enabled by default
+        # because skills are durable instructions that future sessions may
+        # load automatically; a dangerous verdict surfaces as a tool error
+        # to the agent, which can retry with the flagged content removed.
         # External hub installs (trusted/community sources) are always
         # scanned regardless of this setting.
-        "guard_agent_created": False,
+        "guard_agent_created": True,
     },
 
     # Curator — background skill maintenance.
@@ -1406,10 +1408,11 @@ DEFAULT_CONFIG = {
         # same task/profile (spawn_failed, timed_out, or crashed). Reassignment
         # resets the streak for the new profile.
         "failure_limit": 2,
-        # Cross-profile dispatch policy for profile-global kanban tools.
-        # Example: {"techlead": ["researcher", "coder"]}. Dispatcher-spawned
-        # workers keep their existing task-scoped fan-out behavior.
-        "allowed_assignees": {},
+        # Named profiles may assign tasks only to themselves by default. Add
+        # explicit profile names here (or "*" for trusted operator profiles)
+        # to permit cross-profile delegation from that profile's Kanban CLI /
+        # gateway surface. The default root profile keeps operator semantics.
+        "allowed_assignees": [],
     },
 
     # execute_code settings — controls the tool used for programmatic tool calls.
@@ -2141,10 +2144,9 @@ OPTIONAL_ENV_VARS = {
     },
 
     # ── Bundled skills (opt-in: only needed if the user uses that skill) ──
-    # These use category="skill" (distinct from "tool") so the sandbox
-    # env blocklist in tools/environments/local.py does NOT rewrite them —
-    # skills legitimately need these passed through to curl via
-    # tools/env_passthrough.py when the user's skill calls out.
+    # These are managed secrets: they can be saved/reloaded by Hermes, but
+    # subprocess sandboxes must not inherit them implicitly or via skill
+    # env_passthrough registration.
     "NOTION_API_KEY": {
         "description": "Notion integration token (used by the `notion` skill)",
         "prompt": "Notion API key",
