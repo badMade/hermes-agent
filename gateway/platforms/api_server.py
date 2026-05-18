@@ -726,6 +726,16 @@ class APIServerAdapter(BasePlatformAdapter):
     # (e.g. ``agent:main:webui:dm:user-42``) while staying small enough
     # that the sanitized form is safe to pass into Honcho / state.db.
     _MAX_SESSION_HEADER_LEN = 256
+    _API_SESSION_KEY_PREFIX = "api-server"
+
+    def _api_session_scope_key(self, raw: str) -> str:
+        """Return a deterministic API-server-only memory scope key."""
+        scope_digest = hmac.new(
+            self._api_key.encode("utf-8"),
+            raw.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{self._API_SESSION_KEY_PREFIX}-{scope_digest}"
 
     def _parse_session_key_header(
         self, request: "web.Request"
@@ -742,9 +752,10 @@ class APIServerAdapter(BasePlatformAdapter):
         on validation failure.
 
         Security: like session continuation, accepting a caller-supplied
-        memory scope requires API-key authentication so that an
-        unauthenticated client on a local-only server can't inject itself
-        into another user's long-term memory scope by guessing a key.
+        memory scope requires API-key authentication.  The caller's key is
+        then converted to an API-server namespace bound to the configured
+        bearer key, so API clients cannot impersonate deterministic native
+        gateway session keys (for example Telegram/Slack memory scopes).
         """
         raw = request.headers.get("X-Hermes-Session-Key", "").strip()
         if not raw:
@@ -777,7 +788,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 status=400,
             )
 
-        return raw, None
+        return self._api_session_scope_key(raw), None
 
     # ------------------------------------------------------------------
     # Session DB helper
@@ -810,17 +821,14 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_start_callback=None,
         tool_complete_callback=None,
         gateway_session_key: Optional[str] = None,
-        origin_platform: Optional[str] = None,
-        enabled_toolsets_override: Optional[List[str]] = None,
     ) -> Any:
         """
         Create an AIAgent instance using the gateway's runtime config.
 
         Uses _resolve_runtime_agent_kwargs() to pick up model, api_key,
         base_url, etc. from config.yaml / env vars.  Toolsets are resolved
-        from config.yaml platform_toolsets.api_server by default. Gateway
-        proxy calls may pass the originating platform's resolved toolsets so
-        a proxied chat keeps the same capability scope as the native gateway.
+        from config.yaml platform_toolsets.api_server (same as all other
+        gateway platforms), falling back to the hermes-api-server default.
 
         ``gateway_session_key`` is a stable per-channel identifier supplied
         by the client (via ``X-Hermes-Session-Key``).  Unlike ``session_id``
@@ -838,22 +846,13 @@ class APIServerAdapter(BasePlatformAdapter):
         model = _resolve_gateway_model()
 
         user_config = _load_gateway_config()
-        if enabled_toolsets_override is None:
-            platform_key = origin_platform or "api_server"
-            enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-        else:
-            enabled_toolsets = sorted(str(ts) for ts in enabled_toolsets_override)
+        enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
 
         max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
 
         # Load fallback provider chain so the API server platform has the
         # same fallback behaviour as Telegram/Discord/Slack (fixes #4954).
         fallback_model = GatewayRunner._load_fallback_model()
-
-        # API clients may omit X-Hermes-Session-Key.  In that case, use the
-        # request/transcript session_id as the internal long-term-memory scope so
-        # cwd-based Honcho defaults cannot merge unrelated API conversations.
-        effective_gateway_session_key = gateway_session_key or session_id
 
         agent = AIAgent(
             model=model,
@@ -864,7 +863,7 @@ class APIServerAdapter(BasePlatformAdapter):
             ephemeral_system_prompt=ephemeral_system_prompt or None,
             enabled_toolsets=enabled_toolsets,
             session_id=session_id,
-            platform=origin_platform or "api_server",
+            platform="api_server",
             stream_delta_callback=stream_delta_callback,
             tool_progress_callback=tool_progress_callback,
             tool_start_callback=tool_start_callback,
@@ -872,7 +871,7 @@ class APIServerAdapter(BasePlatformAdapter):
             session_db=self._ensure_session_db(),
             fallback_model=fallback_model,
             reasoning_config=reasoning_config,
-            gateway_session_key=effective_gateway_session_key,
+            gateway_session_key=gateway_session_key,
         )
         return agent
 
@@ -1032,6 +1031,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 if not isinstance(raw_toolsets, list) or not all(isinstance(ts, str) for ts in raw_toolsets):
                     return web.json_response(_openai_error("Invalid hermes_proxy_scope.enabled_toolsets"), status=400)
                 enabled_toolsets_override = [ts for ts in raw_toolsets if ts]
+
 
         # Extract system message (becomes ephemeral system prompt layered ON TOP of core)
         system_prompt = None
@@ -1212,8 +1212,6 @@ class APIServerAdapter(BasePlatformAdapter):
                 tool_complete_callback=_on_tool_complete,
                 agent_ref=agent_ref,
                 gateway_session_key=gateway_session_key,
-                origin_platform=origin_platform,
-                enabled_toolsets_override=enabled_toolsets_override,
             ))
 
             return await self._write_sse_chat_completion(
@@ -1230,8 +1228,6 @@ class APIServerAdapter(BasePlatformAdapter):
                 ephemeral_system_prompt=system_prompt,
                 session_id=session_id,
                 gateway_session_key=gateway_session_key,
-                origin_platform=origin_platform,
-                enabled_toolsets_override=enabled_toolsets_override,
             )
 
         idempotency_key = request.headers.get("Idempotency-Key")
@@ -2733,8 +2729,6 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_complete_callback=None,
         agent_ref: Optional[list] = None,
         gateway_session_key: Optional[str] = None,
-        origin_platform: Optional[str] = None,
-        enabled_toolsets_override: Optional[List[str]] = None,
     ) -> tuple:
         """
         Create an agent and run a conversation in a thread executor.
@@ -2758,8 +2752,6 @@ class APIServerAdapter(BasePlatformAdapter):
                 tool_start_callback=tool_start_callback,
                 tool_complete_callback=tool_complete_callback,
                 gateway_session_key=gateway_session_key,
-                origin_platform=origin_platform,
-                enabled_toolsets_override=enabled_toolsets_override,
             )
             if agent_ref is not None:
                 agent_ref[0] = agent

@@ -12,7 +12,6 @@ import contextvars
 import logging
 import os
 import re
-import shlex
 import sys
 import threading
 import time
@@ -116,12 +115,22 @@ def _is_gateway_approval_context() -> bool:
     return bool(_get_session_platform())
 
 # Sensitive write targets that should trigger approval even when referenced
-# via shell expansions like $HOME or $HERMES_HOME.
-_SSH_SENSITIVE_PATH = r'(?:~|\$home|\$\{home\})/\.ssh(?:/|$)'
+# via shell expansions like $HOME or $HERMES_HOME. Shell quoting can split a
+# path across tokens (for example, "$HOME"/.ssh), so permit a closing quote
+# between a home variable and the following slash.
+_SHELL_QUOTE = r'["\']?'
+_HOME_PATH_PREFIX = (
+    r'(?:~|\$home|\$\{home\})'
+    rf'{_SHELL_QUOTE}'
+    r'|/home/[^/\s"\'`]+'
+    r'|/users/[^/\s"\'`]+'
+    r'|/root'
+)
+_HERMES_HOME_PREFIX = r'(?:\$hermes_home|\$\{hermes_home\})' rf'{_SHELL_QUOTE}'
+_SSH_SENSITIVE_PATH = rf'(?:{_HOME_PATH_PREFIX})/\.ssh(?:/|$)'
 _HERMES_ENV_PATH = (
-    r'(?:~\/\.hermes/|'
-    r'(?:\$home|\$\{home\})/\.hermes/|'
-    r'(?:\$hermes_home|\$\{hermes_home\})/)'
+    rf'(?:(?:{_HOME_PATH_PREFIX})/\.hermes/|'
+    rf'(?:{_HERMES_HOME_PREFIX})/)'
     r'\.env\b'
 )
 _PROJECT_ENV_PATH = r'(?:(?:/|\.{1,2}/)?(?:[^\s/"\'`]+/)*\.env(?:\.[^/\s"\'`]+)*)'
@@ -185,11 +194,16 @@ _CMDPOS = (
     r'\s*'
 )
 
+_RM_PATH_QUOTE = r'["\']?'
+_RM_TARGET_END = r'["\']?(?=\s|$|[;&|)])'
+_RM_PROTECTED_DIRS = r'(?:home|root|etc|usr|var|bin|sbin|boot|lib)'
+
 HARDLINE_PATTERNS = [
     # rm recursive targeting the root filesystem or protected roots
-    (r'\brm\s+(-[^\s]*\s+)*(/|/\*|/ \*)(\s|$)', "recursive delete of root filesystem"),
-    (r'\brm\s+(-[^\s]*\s+)*(/home|/home/\*|/root|/root/\*|/etc|/etc/\*|/usr|/usr/\*|/var|/var/\*|/bin|/bin/\*|/sbin|/sbin/\*|/boot|/boot/\*|/lib|/lib/\*)(\s|$)', "recursive delete of system directory"),
-    (r'\brm\s+(-[^\s]*\s+)*(~|\$HOME)(/?|/\*)?(\s|$)', "recursive delete of home directory"),
+    (rf'\brm\s+(-[^\s]*\s+)*{_RM_PATH_QUOTE}(?:/|/\*|/ \*){_RM_TARGET_END}', "recursive delete of root filesystem"),
+    (rf'\brm\s+(-[^\s]*\s+)*{_RM_PATH_QUOTE}/(?:{_RM_PROTECTED_DIRS})(?:/+|/\*)?{_RM_TARGET_END}', "recursive delete of system directory"),
+    (rf'\brm\s+(-[^\s]*\s+)*{_RM_PATH_QUOTE}/\{{[^}}\s]*(?:{_RM_PROTECTED_DIRS})[^}}\s]*\}}(?:/+|/\*)?{_RM_TARGET_END}', "recursive delete of system directory"),
+    (rf'\brm\s+(-[^\s]*\s+)*{_RM_PATH_QUOTE}(?:~|\$HOME|\$\{{HOME\}})(?:/+|/\*)?{_RM_TARGET_END}', "recursive delete of home directory"),
     # Filesystem format
     (r'\bmkfs(\.[a-z0-9]+)?\b', "format filesystem (mkfs)"),
     # Raw block device overwrites (dd + redirection)
@@ -232,124 +246,27 @@ HARDLINE_PATTERNS_COMPILED = [
 # Treat this as an unconditional block — there is never a legitimate
 # reason for the agent to pipe passwords to sudo -S when no password
 # has been configured.
-_SUDO_OPTION_ARGS = {
-    # sudo options whose argument may appear as the next shell word.  Keep this
-    # list focused on options that can precede another sudo option such as -S.
-    "-C", "-D", "-g", "-h", "-p", "-r", "-t", "-T", "-U", "-u",
-    "--askpass", "--chdir", "--close-from", "--group", "--host",
-    "--login-class", "--other-user", "--prompt", "--role", "--type",
-    "--user",
-}
-
-
-def _shell_words(command: str) -> list[str]:
-    """Tokenize enough shell syntax to identify command-position sudo words."""
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    return list(lexer)
-
-
-def _looks_like_env_assignment(word: str) -> bool:
-    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", word))
-
-
-def _sudo_after_env_wrapper(words: list[str], index: int) -> int | None:
-    """Return the sudo index for command-position ``env ... sudo`` wrappers."""
-    if words[index] == "sudo":
-        return index
-    if words[index] != "env":
-        return None
-
-    cursor = index + 1
-    while cursor < len(words):
-        word = words[cursor]
-        if word == "sudo":
-            return cursor
-        if word.startswith("-") or _looks_like_env_assignment(word):
-            cursor += 1
-            continue
-        return None
-    return None
-
-
-def _sudo_option_consumes_next(word: str) -> bool:
-    if word in _SUDO_OPTION_ARGS:
-        return True
-    if word.startswith("--"):
-        option = word.split("=", 1)[0]
-        return option in _SUDO_OPTION_ARGS and "=" not in word
-    return len(word) == 2 and word in _SUDO_OPTION_ARGS
-
-
-def _sudo_word_uses_stdin(word: str) -> bool:
-    if word == "--stdin" or word.startswith("--stdin="):
-        return True
-    return word.startswith("-") and not word.startswith("--") and "S" in word[1:]
-
-
-def _sudo_invocation_uses_stdin(words: list[str], sudo_index: int) -> bool:
-    cursor = sudo_index + 1
-    while cursor < len(words):
-        word = words[cursor]
-        if word == "--":
-            return False
-        if _sudo_word_uses_stdin(word):
-            return True
-        if word.startswith("-"):
-            cursor += 2 if _sudo_option_consumes_next(word) else 1
-            continue
-        if _looks_like_env_assignment(word):
-            cursor += 1
-            continue
-        return False
-    return False
-
-
-def _contains_sudo_stdin_invocation(command: str) -> bool:
-    """Detect command-position sudo invocations that read a password on stdin."""
-    try:
-        words = _shell_words(command)
-    except ValueError:
-        return False
-
-    expect_command = True
-    for index, word in enumerate(words):
-        # Pipe/semicolon/subshell operators start a new command.  Bash process
-        # substitution tokens also introduce an inner command, unlike plain
-        # redirections (<, >), which only introduce filename/fd arguments.
-        if set(word) <= set(";&|()`") or word in {"{", "<(", ">("}:
-            expect_command = True
-            continue
-        if not expect_command:
-            continue
-
-        # Leading env assignments (e.g. DEBUG=1) are not the command itself;
-        # keep expect_command True so the following word is also evaluated.
-        if _looks_like_env_assignment(word):
-            continue
-        sudo_index = _sudo_after_env_wrapper(words, index)
-        if sudo_index is not None and _sudo_invocation_uses_stdin(words, sudo_index):
-            return True
-        expect_command = False
-    return False
+_SUDO_STDIN_RE = re.compile(
+    r'(?:^|[;&|`\n]|&&|\|\||\$\()\s*sudo\s+-S\b',
+    re.IGNORECASE)
 
 
 def _check_sudo_stdin_guard(command: str) -> tuple:
-    """Detect sudo stdin-password mode without configured SUDO_PASSWORD.
+    """Detect ``sudo -S`` (stdin password) without configured SUDO_PASSWORD.
 
     When SUDO_PASSWORD is set, ``_transform_sudo_command`` injects ``-S``
     internally — that path is legitimate and handled elsewhere.  This guard
     only fires when SUDO_PASSWORD is *not* set, meaning the LLM explicitly
-    wrote sudo stdin-password options to pipe a guessed password.
+    wrote ``sudo -S`` to pipe a guessed password.
 
     Returns:
         (is_blocked: bool, description: str | None)
     """
     if "SUDO_PASSWORD" in os.environ:
         return (False, None)
-    normalized = _normalize_command_for_detection(command)
-    if _contains_sudo_stdin_invocation(normalized):
-        return (True, "sudo password guessing via stdin (sudo -S/--stdin)")
+    normalized = _normalize_command_for_detection(command).lower()
+    if _SUDO_STDIN_RE.search(normalized):
+        return (True, "sudo password guessing via stdin (sudo -S)")
     return (False, None)
 
 
@@ -424,11 +341,6 @@ DANGEROUS_PATTERNS = [
     (r'\b(python[23]?|perl|ruby|node)\s+-[ec]\s+', "script execution via -e/-c flag"),
     (r'\b(curl|wget)\b.*\|\s*(ba)?sh\b', "pipe remote content to shell"),
     (r'\b(bash|sh|zsh|ksh)\s+<\s*<?\s*\(\s*(curl|wget)\b', "execute remote script via process substitution"),
-    # Wrapper for the same upstream remote installer used by the Computer
-    # Use post-setup hook. Gate the benign-looking CLI command just like the
-    # underlying curl-to-shell execution it triggers.
-    (r'\b(?:(?:(?:[\w.-]+|\.\.?)\/)*hermes|python[0-9.]*\s+-m\s+hermes_cli\.main)\s+computer-use\s+install\b',
-     "computer-use installer executes remote shell script"),
     (rf'\btee\b.*["\']?{_SENSITIVE_WRITE_TARGET}', "overwrite system file via tee"),
     (rf'>>?\s*["\']?{_SENSITIVE_WRITE_TARGET}', "overwrite system file via redirection"),
     (rf'\btee\b.*["\']?{_PROJECT_SENSITIVE_WRITE_TARGET}["\']?{_COMMAND_TAIL}', "overwrite project env/config via tee"),
@@ -1154,16 +1066,21 @@ def check_all_command_guards(command: str, env_type: str,
     # --yolo or approvals.mode=off: bypass all approval prompts.
     # Gateway /yolo is session-scoped; CLI --yolo remains process-scoped.
     approval_mode = _get_approval_mode()
-    if is_truthy_value(os.getenv("HERMES_YOLO_MODE")) or is_current_session_yolo_enabled() or approval_mode == "off":
+    if (
+        is_truthy_value(os.getenv("HERMES_YOLO_MODE"))
+        or is_current_session_yolo_enabled()
+        or approval_mode == "off"
+    ):
         return {"approved": True, "message": None}
 
     is_cli = os.getenv("HERMES_INTERACTIVE")
     is_gateway = _is_gateway_approval_context()
     is_ask = os.getenv("HERMES_EXEC_ASK")
+    is_oneshot = is_truthy_value(os.getenv("HERMES_ONESHOT_MODE"))
 
     # Preserve the existing non-interactive behavior: outside CLI/gateway/ask
     # flows, we do not block on approvals and we skip external guard work.
-    if not is_cli and not is_gateway and not is_ask:
+    if not is_cli and not is_gateway and not is_ask and not is_oneshot:
         # Cron sessions: respect cron_mode config
         if os.getenv("HERMES_CRON_SESSION"):
             if _get_cron_approval_mode() == "deny":
@@ -1222,6 +1139,19 @@ def check_all_command_guards(command: str, env_type: str,
     # Nothing to warn about
     if not warnings:
         return {"approved": True, "message": None}
+
+    if is_oneshot:
+        combined_desc = "; ".join(desc for _, desc, _ in warnings)
+        return {
+            "approved": False,
+            "message": (
+                f"BLOCKED: Command requires approval ({combined_desc}) "
+                "but oneshot mode has no interactive user. Re-run with "
+                "--yolo only if you trust the prompt and project context."
+            ),
+            "pattern_key": warnings[0][0],
+            "description": combined_desc,
+        }
 
     # --- Phase 2.5: Smart approval (auxiliary LLM risk assessment) ---
     # When approvals.mode=smart, ask the aux LLM before prompting the user.

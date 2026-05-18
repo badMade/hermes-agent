@@ -7,9 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from gateway.config import Platform, PlatformConfig, StreamingConfig
+from gateway.config import Platform, StreamingConfig
 from gateway.platforms.base import resolve_proxy_url
-from gateway.platforms.api_server import APIServerAdapter
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource
 
@@ -284,13 +283,9 @@ class TestRunAgentViaProxy:
         # Verify streaming is requested
         assert session.captured_json["stream"] is True
 
-        # Verify the originating platform scope is preserved for the remote API server.
-        proxy_scope = session.captured_json["hermes_proxy_scope"]
-        assert proxy_scope["origin_platform"] == "matrix"
-        assert "enabled_toolsets" in proxy_scope
-
         # Verify response was assembled
         assert result["final_response"] == "Hello world"
+
 
 
     @pytest.mark.asyncio
@@ -323,6 +318,7 @@ class TestRunAgentViaProxy:
             "origin_platform": "matrix",
             "enabled_toolsets": ["todo"],
         }
+
 
     @pytest.mark.asyncio
     async def test_handles_http_error(self, monkeypatch):
@@ -593,3 +589,4 @@ class TestAPIServerProxyScope:
         assert captured["platform"] == "matrix"
         assert captured["enabled_toolsets"] == ["todo"]
         assert captured["session_id"] == "sess"
+
