@@ -43,8 +43,28 @@ def verify_proxy_scope_signature(
     now: int | None = None,
 ) -> bool:
     """Return whether the supplied signature authenticates the proxy scope."""
-    if not secret or not timestamp or not signature:
+def verify_proxy_scope_signature(
+    proxy_scope: Mapping[str, Any],
+    secret: str,
+    timestamp: str | None,
+    signature: str | None,
+    *,
+    now: int | None = None,
+) -> bool:
+    """Return whether the supplied signature authenticates the proxy scope."""
+    if not secret:
+        return True
+    if not timestamp or not signature:
         return False
+    try:
+        ts_int = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    current = int(time.time() if now is None else now)
+    if abs(current - ts_int) > PROXY_SCOPE_MAX_CLOCK_SKEW_SECONDS:
+        return False
+    expected_timestamp, expected_signature = sign_proxy_scope(proxy_scope, secret, ts_int)
+    return hmac.compare_digest(timestamp, expected_timestamp) and hmac.compare_digest(signature, expected_signature)
     try:
         ts_int = int(timestamp)
     except (TypeError, ValueError):
