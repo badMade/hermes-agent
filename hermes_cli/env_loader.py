@@ -107,10 +107,7 @@ def _sanitize_loaded_credentials() -> None:
 
 
 def _load_dotenv_with_fallback(path: Path, *, override: bool) -> None:
-    protected_values = {
-        key: os.environ.get(key) if key in os.environ else None
-        for key in _PROTECTED_DOTENV_KEYS
-    }
+    protected_values = {key: os.environ.get(key) for key in _PROTECTED_DOTENV_KEYS}
     try:
         try:
             load_dotenv(dotenv_path=path, override=override, encoding="utf-8")
