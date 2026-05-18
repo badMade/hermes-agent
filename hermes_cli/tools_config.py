@@ -1175,9 +1175,9 @@ def _get_platform_tools(
         explicit_mcp_servers = explicit_passthrough & enabled_mcp_servers
         enabled_toolsets.update(explicit_passthrough - enabled_mcp_servers)
     if include_default_mcp_servers:
-        if explicit_mcp_servers or "no_mcp" in toolset_names:
+        if explicit_mcp_servers or ("no_mcp" in toolset_names if toolset_names else False):
             enabled_toolsets.update(explicit_mcp_servers)
-        elif not has_explicit_platform_toolsets:
+        else:
             enabled_toolsets.update(enabled_mcp_servers)
     else:
         enabled_toolsets.update(explicit_mcp_servers)
