@@ -693,8 +693,11 @@ def _resolve_plugin_config_name(name: str) -> Optional[str]:
     """Return the stable config key for an installed or bundled plugin."""
     user_dir = _plugins_dir()
     if user_dir.is_dir():
-        candidate = user_dir / name
-        if candidate.is_dir():
+        if candidate.is_dir() and (
+            (candidate / "plugin.yaml").exists()
+            or (candidate / "plugin.yml").exists()
+            or (candidate / "__init__.py").exists()
+        ):
             return _plugin_config_key(user_dir, candidate)
         for child in user_dir.iterdir():
             if not child.is_dir():
