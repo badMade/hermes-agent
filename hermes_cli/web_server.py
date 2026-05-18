@@ -3222,15 +3222,7 @@ def _ws_client_is_allowed(ws: "WebSocket") -> bool:
 # the chat tab generates on mount; entries auto-evict when the last subscriber
 # drops AND the publisher has disconnected.
 _event_channels: dict[str, set] = {}
-# Hold fire-and-forget broadcast tasks so they aren't garbage-collected before
-# the websocket send completes; callbacks drop them once the send finishes.
-_broadcast_tasks: set[asyncio.Task] = set()
-# TestClient opens websocket handlers on a server thread while the test thread
-# polls `_event_channels` directly to wait for subscriber registration. The
-# lock only guards brief dict mutations / snapshots, so the only blocking
-# window is a tiny critical section and the registry stays usable from both
-# contexts without binding it to a single event loop.
-_event_lock = threading.Lock()
+_event_lock = asyncio.Lock()
 
 
 def _resolve_chat_argv(
@@ -3297,25 +3289,16 @@ def _build_sidecar_url(channel: str) -> Optional[str]:
 
 async def _broadcast_event(channel: str, payload: str) -> None:
     """Fan out one publisher frame to every subscriber on `channel`."""
-    with _event_lock:
+    async with _event_lock:
         subs = list(_event_channels.get(channel, ()))
 
-    # Send outside the lock over the snapshot copy so websocket I/O never
-    # blocks registry access. Delivery is best-effort: each send is scheduled
-    # independently so a slow subscriber can't stall the publisher.
-    async def _send(sub: WebSocket) -> None:
+    for sub in subs:
         try:
             await sub.send_text(payload)
-        except Exception as exc:
-            logger.debug("subscriber send failed on channel %s: %s", channel, exc)
+        except Exception:
             # Subscriber went away mid-send; the /api/events finally clause
             # will remove it from the registry on its next iteration.
             pass
-
-    for sub in subs:
-        task = asyncio.create_task(_send(sub))
-        _broadcast_tasks.add(task)
-        task.add_done_callback(_broadcast_tasks.discard)
 
 
 def _channel_or_close_code(ws: WebSocket) -> Optional[str]:
@@ -3528,7 +3511,7 @@ async def events_ws(ws: WebSocket) -> None:
 
     await ws.accept()
 
-    with _event_lock:
+    async with _event_lock:
         _event_channels.setdefault(channel, set()).add(ws)
 
     try:
@@ -3540,7 +3523,7 @@ async def events_ws(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        with _event_lock:
+        async with _event_lock:
             subs = _event_channels.get(channel)
 
             if subs is not None:

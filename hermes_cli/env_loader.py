@@ -10,36 +10,11 @@ from dotenv import load_dotenv
 from utils import atomic_replace
 
 
-# Env var name suffixes that indicate outbound credential values known to be
-# sent as HTTP Authorization headers. Do not include generic inbound auth
-# secrets such as *_SECRET or *_KEY: webhook HMAC keys and API-server bearer
-# tokens must be preserved exactly, not lossy-normalized.
-_SANITIZED_CREDENTIAL_SUFFIXES = ("_API_KEY", "_TOKEN")
-
-# Environment variables that affect host-side process routing must only come
-# from the inherited process environment. In Nix container mode, HERMES_HOME/.env
-# is writable by the containerized Hermes user, so letting dotenv set these would
-# allow container-controlled files to influence host execution.
-_PROTECTED_DOTENV_KEYS = frozenset({
-    "HERMES_CONTAINER_MODE_FILE",
-    "HERMES_DEV",
-    "HERMES_MANAGED",
-    "HERMES_HOME",
-})
-
-
-def _restore_protected_dotenv_keys(original_values: dict[str, str | None]) -> None:
-    """Undo dotenv changes to host-control environment variables."""
-    for key, original_value in original_values.items():
-        if original_value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = original_value
-
-
-def should_sanitize_non_ascii_credential(key: str) -> bool:
-    """Return True for outbound credentials that are safe to ASCII-strip."""
-    return any(key.endswith(suffix) for suffix in _SANITIZED_CREDENTIAL_SUFFIXES)
+# Env var name suffixes that indicate credential values.  These are the
+# only env vars whose values we sanitize on load — we must not silently
+# alter arbitrary user env vars, but credentials are known to require
+# pure ASCII (they become HTTP header values).
+_CREDENTIAL_SUFFIXES = ("_API_KEY", "_TOKEN", "_SECRET", "_KEY")
 
 # Names we've already warned about during this process, so repeated
 # load_hermes_dotenv() calls (user env + project env, gateway hot-reload,
@@ -66,8 +41,8 @@ def _sanitize_loaded_credentials() -> None:
     """Strip non-ASCII characters from credential env vars in os.environ.
 
     Called after dotenv loads so the rest of the codebase never sees
-    non-ASCII outbound API keys/tokens.  Inbound auth secrets are left
-    untouched so configured bearer/HMAC secrets are not weakened.
+    non-ASCII API keys.  Only touches env vars whose names end with
+    known credential suffixes (``_API_KEY``, ``_TOKEN``, etc.).
 
     Emits a one-line warning to stderr when characters are stripped.
     Silent stripping would mask copy-paste corruption (Unicode lookalike
@@ -75,7 +50,7 @@ def _sanitize_loaded_credentials() -> None:
     provider-side "invalid API key" errors (see #6843).
     """
     for key, value in list(os.environ.items()):
-        if not should_sanitize_non_ascii_credential(key):
+        if not any(key.endswith(suffix) for suffix in _CREDENTIAL_SUFFIXES):
             continue
         try:
             value.encode("ascii")
@@ -107,14 +82,10 @@ def _sanitize_loaded_credentials() -> None:
 
 
 def _load_dotenv_with_fallback(path: Path, *, override: bool) -> None:
-    protected_values = {key: os.environ.get(key) for key in _PROTECTED_DOTENV_KEYS}
     try:
-        try:
-            load_dotenv(dotenv_path=path, override=override, encoding="utf-8")
-        except UnicodeDecodeError:
-            load_dotenv(dotenv_path=path, override=override, encoding="latin-1")
-    finally:
-        _restore_protected_dotenv_keys(protected_values)
+        load_dotenv(dotenv_path=path, override=override, encoding="utf-8")
+    except UnicodeDecodeError:
+        load_dotenv(dotenv_path=path, override=override, encoding="latin-1")
     # Strip non-ASCII characters from credential env vars that were just
     # loaded.  API keys must be pure ASCII since they're sent as HTTP
     # header values (httpx encodes headers as ASCII).  Non-ASCII chars

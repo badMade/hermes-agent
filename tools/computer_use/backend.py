@@ -84,10 +84,6 @@ class ComputerUseBackend(ABC):
         Used by check_fn gating and by the post-setup wizard.
         """
 
-    @abstractmethod
-    def requires_approval(self, action: str) -> bool:
-        """Return True when a mutating action should trigger approval."""
-
     # ── Capture ─────────────────────────────────────────────────────
     @abstractmethod
     def capture(self, mode: str = "som", app: Optional[str] = None) -> CaptureResult: ...

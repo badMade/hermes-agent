@@ -72,9 +72,6 @@ def set_approval_callback(cb) -> None:
 _SAFE_ACTIONS = frozenset({"capture", "wait", "list_apps"})
 
 # Actions that mutate user-visible state. Go through approval.
-#
-# The noop backend used in tests bypasses approval entirely so the routing
-# tests can exercise click/type/key paths without an interactive callback.
 _DESTRUCTIVE_ACTIONS = frozenset({
     "click", "double_click", "right_click", "middle_click",
     "drag", "scroll", "type", "key", "set_value", "focus_app",
@@ -169,9 +166,6 @@ class _NoopBackend(ComputerUseBackend):  # pragma: no cover
     def start(self) -> None: self._started = True
     def stop(self) -> None: self._started = False
     def is_available(self) -> bool: return True
-    def requires_approval(self, action: str) -> bool:
-        """The noop backend is a test stub and never asks for approval."""
-        return False
 
     def capture(self, mode: str = "som", app: Optional[str] = None) -> CaptureResult:
         self.calls.append(("capture", {"mode": mode, "app": app}))
@@ -241,6 +235,12 @@ def handle_computer_use(args: Dict[str, Any], **kwargs) -> Any:
                     "hint": "Destructive system shortcuts are hard-blocked.",
                 })
 
+    # Approval gate (destructive actions only).
+    if action in _DESTRUCTIVE_ACTIONS:
+        err = _request_approval(action, args)
+        if err is not None:
+            return err
+
     # Dispatch to backend.
     try:
         backend = _get_backend()
@@ -249,12 +249,6 @@ def handle_computer_use(args: Dict[str, Any], **kwargs) -> Any:
             "error": f"computer_use backend unavailable: {e}",
             "hint": "Run `hermes tools` and enable Computer Use to install cua-driver.",
         })
-
-    # The noop backend is a test stub; it should never require live approval.
-    if action in _DESTRUCTIVE_ACTIONS and backend.requires_approval(action):
-        err = _request_approval(action, args)
-        if err is not None:
-            return err
 
     try:
         return _dispatch(backend, action, args)
@@ -272,16 +266,9 @@ def _request_approval(action: str, args: Dict[str, Any]) -> Optional[str]:
         return None
     cb = _approval_callback
     if cb is None:
-        return json.dumps({
-            "error": "approval required but no approval callback is registered",
-            "action": action,
-            "hint": (
-                "Destructive computer_use actions require an interactive approval "
-                "callback. Use the interactive CLI or configure an approval-capable "
-                "runtime before retrying."
-            ),
-        })
-
+        # No CLI approval wired — default allow. Gateway approval is handled
+        # one layer out via the normal tool-approval infra.
+        return None
     summary = _summarize_action(action, args)
     try:
         verdict = cb(action, args, summary)
