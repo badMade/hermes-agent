@@ -13645,7 +13645,8 @@ class GatewayRunner:
     @staticmethod
     def _refresh_agent_source_context(agent: Any, source: SessionSource, session_key: str) -> None:
         """Refresh source-scoped identity on a cached agent for this gateway turn."""
-        agent.platform = source.platform
+        platform = getattr(source.platform, "value", source.platform)
+        agent.platform = platform if platform is None or isinstance(platform, str) else str(platform)
         agent._user_id = source.user_id
         agent._user_name = source.user_name
         agent._chat_id = source.chat_id

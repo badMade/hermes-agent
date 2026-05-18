@@ -444,6 +444,7 @@ class TestAgentCacheLifecycle:
 
     def test_cached_agent_source_context_refreshes_each_turn(self):
         """Cached agents must expose the current sender to per-user plugin ACLs."""
+        from gateway.config import Platform
         from gateway.run import GatewayRunner
 
         agent = SimpleNamespace(
@@ -457,7 +458,7 @@ class TestAgentCacheLifecycle:
             _gateway_session_key="agent:main:discord:group:chat-1:thread-42",
         )
         source = SimpleNamespace(
-            platform="discord",
+            platform=Platform.DISCORD,
             user_id="bob",
             user_name="Bob",
             chat_id="chat-1",
@@ -472,6 +473,7 @@ class TestAgentCacheLifecycle:
 
         assert agent._user_id == "bob"
         assert agent._user_name == "Bob"
+        assert agent.platform == "discord"
         assert agent._chat_id == "chat-1"
         assert agent._thread_id == "thread-42"
         assert agent._gateway_session_key == "agent:main:discord:group:chat-1:thread-42"
