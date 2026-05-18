@@ -3223,9 +3223,10 @@ def _ws_client_is_allowed(ws: "WebSocket") -> bool:
 # drops AND the publisher has disconnected.
 _event_channels: dict[str, set] = {}
 # TestClient opens websocket handlers on a server thread while the test thread
-# polls `_event_channels` directly to wait for subscriber registration. A
-# thread lock keeps those brief dict mutations safe across that boundary
-# without binding the registry to a specific event loop.
+# polls `_event_channels` directly to wait for subscriber registration. The
+# lock only guards brief dict mutations / snapshots, so the only blocking
+# window is a tiny critical section and the registry stays usable from both
+# contexts without binding it to a single event loop.
 _event_lock = threading.Lock()
 
 

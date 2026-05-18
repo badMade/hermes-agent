@@ -169,6 +169,7 @@ class _NoopBackend(ComputerUseBackend):  # pragma: no cover
     def start(self) -> None: self._started = True
     def stop(self) -> None: self._started = False
     def is_available(self) -> bool: return True
+    def requires_approval(self, action: str) -> bool: return False
 
     def capture(self, mode: str = "som", app: Optional[str] = None) -> CaptureResult:
         self.calls.append(("capture", {"mode": mode, "app": app}))
@@ -248,7 +249,7 @@ def handle_computer_use(args: Dict[str, Any], **kwargs) -> Any:
         })
 
     # The noop backend is a test stub; it should never require live approval.
-    if action in _DESTRUCTIVE_ACTIONS and not isinstance(backend, _NoopBackend):
+    if action in _DESTRUCTIVE_ACTIONS and backend.requires_approval(action):
         err = _request_approval(action, args)
         if err is not None:
             return err
