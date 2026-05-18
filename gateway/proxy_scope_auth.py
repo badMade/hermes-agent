@@ -18,6 +18,11 @@ PROXY_SCOPE_MAX_CLOCK_SKEW_SECONDS = 300
 
 def get_proxy_scope_key() -> str:
     """Return the shared secret used to authenticate proxy scope metadata."""
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def get_proxy_scope_key() -> str:
+    """Return the shared secret used to authenticate proxy scope metadata."""
     return os.getenv(PROXY_SCOPE_KEY_ENV, "").strip()
 
 
