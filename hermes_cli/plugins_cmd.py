@@ -681,12 +681,11 @@ def cmd_disable(name: str) -> None:
     )
 
 
-def _plugin_config_key(root: Path, plugin_dir: Path) -> Optional[str]:
-    """Return the path-derived plugin key used in config allow/block lists."""
-    try:
-        return plugin_dir.relative_to(root).as_posix()
-    except ValueError:
-        return None
+        # Example of how to update the configuration persistence in cmd_install
+        # Replace the existing manifest name usage with the helper:
+        config_key = _plugin_config_key(user_dir, plugin_dir)
+        if config_key:
+            enabled_plugins.append(config_key)
 
 
 def _resolve_plugin_config_name(name: str) -> Optional[str]:
