@@ -419,7 +419,7 @@ def _reset_module_state():
     except Exception:
         pass
 
-    # --- gateway.session_context — 9 ContextVars that represent
+    # --- gateway.session_context — all ContextVars that represent
     #     the active gateway session. If set in one test and not reset,
     #     the next test's get_session_env() reads stale values.
     try:
@@ -432,6 +432,8 @@ def _reset_module_state():
             _sc_mod._SESSION_USER_ID,
             _sc_mod._SESSION_USER_NAME,
             _sc_mod._SESSION_KEY,
+            _sc_mod._SESSION_ID,
+            _sc_mod._CRON_SESSION,
             _sc_mod._CRON_AUTO_DELIVER_PLATFORM,
             _sc_mod._CRON_AUTO_DELIVER_CHAT_ID,
             _sc_mod._CRON_AUTO_DELIVER_THREAD_ID,
