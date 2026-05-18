@@ -1938,7 +1938,6 @@ def delegate_task(
             "delegate_task: ignoring caller-supplied ACP transport override; "
             "ACP child transports must come from trusted configuration"
         )
-
     if parent_agent is None:
         return tool_error("delegate_task requires a parent agent context.")
 

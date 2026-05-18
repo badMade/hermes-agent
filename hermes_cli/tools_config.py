@@ -147,8 +147,6 @@ def _implicit_default_off_toolsets(platform: str) -> Set[str]:
     default_off = set(_DEFAULT_OFF_TOOLSETS)
     if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
         default_off.remove(platform)
-    if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
-        default_off.remove("homeassistant")
     return default_off
 
 
@@ -989,8 +987,6 @@ def _parse_enabled_flag(value, default: bool = True) -> bool:
 _LEGACY_PLATFORM_TOOLSET_ALIASES = {
     "qqbot": ("qq",),
 }
-
-
 def _get_platform_tools(
     config: dict,
     platform: str,
