@@ -10,6 +10,59 @@ import pytest
 from gateway.config import Platform, PlatformConfig
 
 
+class _FakeChatbotMessage(SimpleNamespace):
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            message_id=data.get("msgId") or data.get("messageId") or data.get("message_id"),
+            conversation_id=data.get("conversationId") or data.get("conversation_id"),
+            conversation_type=data.get("conversationType") or data.get("conversation_type"),
+            sender_id=data.get("senderId") or data.get("sender_id"),
+            sender_staff_id=data.get("senderStaffId") or data.get("sender_staff_id"),
+            text=data.get("text"),
+            rich_text=data.get("richText") or data.get("rich_text"),
+            rich_text_content=data.get("richTextContent") or data.get("rich_text_content"),
+            session_webhook=data.get("sessionWebhook"),
+            is_in_at_list=bool(data.get("isInAtList")),
+        )
+
+
+def _fake_dingtalk_model_class(name):
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    return type(name, (), {"__init__": __init__})
+
+
+@pytest.fixture
+def fake_dingtalk_sdk_models(monkeypatch):
+    monkeypatch.setattr(
+        "gateway.platforms.dingtalk.ChatbotMessage",
+        _FakeChatbotMessage,
+    )
+    monkeypatch.setattr(
+        "gateway.platforms.dingtalk.tea_util_models",
+        SimpleNamespace(RuntimeOptions=_fake_dingtalk_model_class("RuntimeOptions")),
+    )
+    monkeypatch.setattr(
+        "gateway.platforms.dingtalk.dingtalk_card_models",
+        SimpleNamespace(
+            CreateCardRequest=_fake_dingtalk_model_class("CreateCardRequest"),
+            CreateCardRequestCardData=_fake_dingtalk_model_class("CreateCardRequestCardData"),
+            CreateCardRequestImGroupOpenSpaceModel=_fake_dingtalk_model_class("CreateCardRequestImGroupOpenSpaceModel"),
+            CreateCardRequestImRobotOpenSpaceModel=_fake_dingtalk_model_class("CreateCardRequestImRobotOpenSpaceModel"),
+            CreateCardHeaders=_fake_dingtalk_model_class("CreateCardHeaders"),
+            DeliverCardRequest=_fake_dingtalk_model_class("DeliverCardRequest"),
+            DeliverCardRequestImGroupOpenDeliverModel=_fake_dingtalk_model_class("DeliverCardRequestImGroupOpenDeliverModel"),
+            DeliverCardRequestImRobotOpenDeliverModel=_fake_dingtalk_model_class("DeliverCardRequestImRobotOpenDeliverModel"),
+            DeliverCardHeaders=_fake_dingtalk_model_class("DeliverCardHeaders"),
+            StreamingUpdateRequest=_fake_dingtalk_model_class("StreamingUpdateRequest"),
+            StreamingUpdateHeaders=_fake_dingtalk_model_class("StreamingUpdateHeaders"),
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Requirements check
 # ---------------------------------------------------------------------------
@@ -632,7 +685,7 @@ class TestIncomingHandlerProcess:
     so the SDK ACK is returned immediately."""
 
     @pytest.mark.asyncio
-    async def test_process_extracts_session_webhook(self):
+    async def test_process_extracts_session_webhook(self, fake_dingtalk_sdk_models):
         """session_webhook must be populated from callback data."""
         from gateway.platforms.dingtalk import _IncomingHandler, DingTalkAdapter
 
@@ -663,7 +716,7 @@ class TestIncomingHandlerProcess:
         assert chatbot_msg.session_webhook == "https://oapi.dingtalk.com/robot/sendBySession?session=abc"
 
     @pytest.mark.asyncio
-    async def test_process_fallback_session_webhook_when_from_dict_misses_it(self):
+    async def test_process_fallback_session_webhook_when_from_dict_misses_it(self, fake_dingtalk_sdk_models):
         """If ChatbotMessage.from_dict does not map sessionWebhook (e.g. SDK
         version mismatch), the handler should fall back to extracting it
         directly from the raw data dict."""
@@ -692,7 +745,7 @@ class TestIncomingHandlerProcess:
         assert chatbot_msg.session_webhook == "https://oapi.dingtalk.com/robot/sendBySession?session=def"
 
     @pytest.mark.asyncio
-    async def test_process_returns_ack_immediately(self):
+    async def test_process_returns_ack_immediately(self, fake_dingtalk_sdk_models):
         """process() must not block on _on_message — it should return
         the ACK tuple before the message is fully processed."""
         from gateway.platforms.dingtalk import _IncomingHandler, DingTalkAdapter
@@ -796,7 +849,7 @@ class TestMessageContextIsolation:
 class TestCardLifecycle:
 
     @pytest.fixture
-    def adapter_with_card(self):
+    def adapter_with_card(self, fake_dingtalk_sdk_models):
         from gateway.platforms.dingtalk import DingTalkAdapter
         a = DingTalkAdapter(PlatformConfig(
             enabled=True,
@@ -987,7 +1040,7 @@ class TestDingTalkAdapterAICards:
         return msg
 
     @pytest.mark.asyncio
-    async def test_send_uses_ai_card_if_configured(self, config, mock_stream_client, mock_http_client, mock_message):
+    async def test_send_uses_ai_card_if_configured(self, config, mock_stream_client, mock_http_client, mock_message, fake_dingtalk_sdk_models):
         from gateway.platforms.dingtalk import DingTalkAdapter
 
         adapter = DingTalkAdapter(config)
