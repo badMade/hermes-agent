@@ -98,19 +98,20 @@ def _configured_kanban_assignees(profile: str) -> set[str]:
 
 
 def _kanban_create_assignee_error(assignee: str) -> Optional[str]:
-    """Reject unauthorized cross-profile dispatch.
+    """Reject unauthorized cross-profile dispatch from profile-global tools.
 
-    The check applies to both profile-global orchestrators and dispatcher-
-    spawned workers. ``HERMES_KANBAN_TASK`` scopes a worker to one assigned
-    task, but it is not an authorization grant for arbitrary cross-profile
-    fan-out because task bodies are model-controlled prompt content.
+    Dispatcher-spawned workers keep their historical fan-out behavior because
+    they already run inside an assigned Kanban task. Profile-global sessions
+    are broader entry points (including gateways/webhooks), so cross-profile
+    spawning must be explicitly allowed in config.
     """
+    if os.environ.get("HERMES_KANBAN_TASK"):
+        return None
     caller = _current_profile_name()
-    assignee_key = assignee.lower()
-    if assignee_key == caller.lower():
+    if assignee == caller:
         return None
     allowed = _configured_kanban_assignees(caller)
-    if "*" in allowed or assignee_key in allowed:
+    if "*" in allowed or assignee in allowed:
         return None
     return tool_error(
         f"kanban_create: profile '{caller}' is not authorized to assign "
