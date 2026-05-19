@@ -68,7 +68,7 @@ docker run -d \
   --restart unless-stopped \
   -v ~/.hermes:/opt/data \
   -p 8642:8642 \
-  -p 9119:9119 \
+  -p 127.0.0.1:9119:9119 \
   -e HERMES_DASHBOARD=1 \
   nousresearch/hermes-agent gateway run
 ```
@@ -209,7 +209,7 @@ services:
     command: gateway run
     ports:
       - "8642:8642"   # gateway API
-      - "9119:9119"   # dashboard (only reached when HERMES_DASHBOARD=1)
+      - "127.0.0.1:9119:9119"   # dashboard (only reached when HERMES_DASHBOARD=1)
     volumes:
       - ~/.hermes:/opt/data
     environment:

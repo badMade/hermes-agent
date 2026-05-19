@@ -73,7 +73,16 @@ def get_safe_write_root() -> Optional[str]:
         return None
 
 
-def is_write_denied(path: str) -> bool:
+def _is_outside_root(candidate: str, root: str) -> bool:
+    """Return True when candidate is outside root (or incomparable)."""
+    try:
+        return os.path.commonpath([candidate, root]) != root
+    except ValueError:
+        # Mixed drives / invalid roots are always treated as outside.
+        return True
+
+
+def is_write_denied(path: str, base_dir: str | None = None) -> bool:
     """Return True if path is blocked by the write denylist or safe root."""
     home = os.path.realpath(os.path.expanduser("~"))
     resolved = os.path.realpath(os.path.expanduser(str(path)))
@@ -84,8 +93,13 @@ def is_write_denied(path: str) -> bool:
         if resolved.startswith(prefix):
             return True
 
+    if base_dir:
+        base_root = os.path.realpath(os.path.expanduser(str(base_dir)))
+        if _is_outside_root(resolved, base_root):
+            return True
+
     safe_root = get_safe_write_root()
-    if safe_root and not (resolved == safe_root or resolved.startswith(safe_root + os.sep)):
+    if safe_root and _is_outside_root(resolved, safe_root):
         return True
 
     return False
