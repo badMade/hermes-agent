@@ -1105,8 +1105,9 @@ class APIServerAdapter(BasePlatformAdapter):
                     ),
                     status=403,
                 )
-            # Sanitize: reject control characters that could enable header injection.
-            if re.search(r'[\r\n\x00]', provided_session_id):
+            # Accept only server-generated session IDs (api-<16 hex chars>).
+            # Rejects path traversal, control characters, and any non-server value.
+            if not re.fullmatch(r'api-[0-9a-f]{16}', provided_session_id):
                 return web.json_response(
                     {"error": {"message": "Invalid session ID", "type": "invalid_request_error"}},
                     status=400,
@@ -1115,6 +1116,12 @@ class APIServerAdapter(BasePlatformAdapter):
             try:
                 db = self._ensure_session_db()
                 if db is not None:
+                    session_record = db.get_session(session_id)
+                    if session_record is not None and session_record.get("source") != "api_server":
+                        return web.json_response(
+                            {"error": {"message": "Session not found", "type": "invalid_request_error"}},
+                            status=404,
+                        )
                     history = db.get_messages_as_conversation(session_id)
             except Exception as e:
                 logger.warning("Failed to load session history for %s: %s", session_id, e)
