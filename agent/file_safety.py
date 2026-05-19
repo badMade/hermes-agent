@@ -83,7 +83,13 @@ def _is_outside_root(candidate: str, root: str) -> bool:
 
 
 def is_write_denied(path: str, base_dir: str | None = None) -> bool:
-    """Return True if path is blocked by the write denylist or safe root."""
+    """Return True if path is blocked by denylist or root constraints.
+
+    Enforcement order is additive (most restrictive wins):
+    1) static denylist/prefixes
+    2) optional call-site ``base_dir`` sandbox
+    3) optional ``HERMES_WRITE_SAFE_ROOT`` sandbox
+    """
     home = os.path.realpath(os.path.expanduser("~"))
     resolved = os.path.realpath(os.path.expanduser(str(path)))
 
