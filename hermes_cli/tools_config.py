@@ -106,6 +106,27 @@ def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
     return allowed is None or platform in allowed
 
 
+def _implicit_default_off_toolsets(platform: str) -> Set[str]:
+    """Default-off toolsets that should be suppressed for ``platform``.
+
+    This only applies to configurable toolsets that are valid on the target
+    platform.
+    """
+    configurable_keys = {ts_key for ts_key, _, _ in CONFIGURABLE_TOOLSETS}
+    # Dedicated Home Assistant sessions should keep the homeassistant toolset
+    # enabled by default on that platform.
+    platform_defaults = {"homeassistant"} if platform == "homeassistant" else set()
+    return {
+        ts_key
+        for ts_key in _DEFAULT_OFF_TOOLSETS
+        if (
+            ts_key in configurable_keys
+            and _toolset_allowed_for_platform(ts_key, platform)
+            and ts_key not in platform_defaults
+        )
+    }
+
+
 def _get_effective_configurable_toolsets():
     """Return CONFIGURABLE_TOOLSETS + any plugin-provided toolsets.
 
