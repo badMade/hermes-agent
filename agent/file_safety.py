@@ -73,10 +73,13 @@ def get_safe_write_root() -> Optional[str]:
         return None
 
 
-def is_write_denied(path: str) -> bool:
+def is_write_denied(path: str, base_dir: str | None = None) -> bool:
     """Return True if path is blocked by the write denylist or safe root."""
     home = os.path.realpath(os.path.expanduser("~"))
-    resolved = os.path.realpath(os.path.expanduser(str(path)))
+    expanded = os.path.expanduser(str(path))
+    if base_dir and not os.path.isabs(expanded):
+        expanded = os.path.join(base_dir, expanded)
+    resolved = os.path.realpath(expanded)
 
     if resolved in build_write_denied_paths(home):
         return True
