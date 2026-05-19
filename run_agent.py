@@ -83,6 +83,16 @@ def _load_openai_cls() -> type:
     return _OPENAI_CLS_CACHE
 
 
+
+def _safe_session_path_component(session_id: str) -> str:
+    """Return a filesystem-safe component for session-scoped log filenames."""
+    raw = str(session_id or "")
+    if re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", raw):
+        return raw
+    digest = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"unsafe-{digest}"
+
+
 class _OpenAIProxy:
     """Module-level proxy that looks like ``openai.OpenAI`` but imports lazily."""
 
@@ -1855,7 +1865,7 @@ class AIAgent:
         hermes_home = get_hermes_home()
         self.logs_dir = hermes_home / "sessions"
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
+        self.session_log_file = self.logs_dir / f"session_{_safe_session_path_component(self.session_id)}.json"
         
         # Track conversation messages for session logging
         self._session_messages: List[Dict[str, Any]] = []
@@ -2002,7 +2012,7 @@ class AIAgent:
         # through get_tool_definitions()).  Duplicate function names cause
         # 400 errors on providers that enforce unique names (e.g. Xiaomi
         # MiMo via Nous Portal).
-        if self._memory_manager and self.tools is not None:
+        if self._memory_provider_tools_allowed() and self.tools is not None:
             _existing_tool_names = {
                 t.get("function", {}).get("name")
                 for t in self.tools
@@ -5080,7 +5090,7 @@ class AIAgent:
                 dump_payload["error"] = error_info
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            dump_file = self.logs_dir / f"request_dump_{self.session_id}_{timestamp}.json"
+            dump_file = self.logs_dir / f"request_dump_{_safe_session_path_component(self.session_id)}_{timestamp}.json"
             dump_file.write_text(
                 json.dumps(dump_payload, ensure_ascii=False, indent=2, default=str),
                 encoding="utf-8",
@@ -10268,7 +10278,7 @@ class AIAgent:
                 except Exception:
                     pass
                 # Update session_log_file to point to the new session's JSON file
-                self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
+                self.session_log_file = self.logs_dir / f"session_{_safe_session_path_component(self.session_id)}.json"
                 self._session_db_created = False
                 self._session_db.create_session(
                     session_id=self.session_id,
@@ -10424,6 +10434,18 @@ class AIAgent:
         finally:
             self._executing_tools = False
 
+    def _memory_provider_tools_allowed(self) -> bool:
+        """Return True when provider-backed memory tools are in this agent's toolset."""
+        return bool(self._memory_manager and "memory" in self.valid_tool_names)
+
+    def _is_allowed_memory_provider_tool(self, function_name: str) -> bool:
+        """Return True only for provider memory tools exposed to this agent."""
+        return bool(
+            self._memory_manager
+            and function_name in self.valid_tool_names
+            and self._memory_manager.has_tool(function_name)
+        )
+
     def _dispatch_delegate_task(self, function_args: dict) -> str:
         """Single call site for delegate_task dispatch.
 
@@ -10437,8 +10459,6 @@ class AIAgent:
             toolsets=function_args.get("toolsets"),
             tasks=function_args.get("tasks"),
             max_iterations=function_args.get("max_iterations"),
-            acp_command=function_args.get("acp_command"),
-            acp_args=function_args.get("acp_args"),
             role=function_args.get("role"),
             parent_agent=self,
         )
@@ -10510,7 +10530,7 @@ class AIAgent:
                 except Exception:
                     pass
             return result
-        elif self._memory_manager and self._memory_manager.has_tool(function_name):
+        elif self._is_allowed_memory_provider_tool(function_name):
             return self._memory_manager.handle_tool_call(function_name, function_args)
         elif function_name == "clarify":
             from tools.clarify_tool import clarify_tool as _clarify_tool
@@ -11200,7 +11220,7 @@ class AIAgent:
                         spinner.stop(cute_msg)
                     elif self._should_emit_quiet_tool_messages():
                         self._vprint(f"  {cute_msg}")
-            elif self._memory_manager and self._memory_manager.has_tool(function_name):
+            elif self._is_allowed_memory_provider_tool(function_name):
                 # Memory provider tools (hindsight_retain, honcho_search, etc.)
                 # These are not in the tool registry — route through MemoryManager.
                 spinner = None
@@ -11685,9 +11705,8 @@ class AIAgent:
         self._stream_callback = stream_callback
         self._persist_user_message_idx = None
         self._persist_user_message_override = persist_user_message
-        # Use an explicit caller task_id for session-scoped tool isolation.
-        # CLI callers that do not pass one share the default sandbox across turns.
-        effective_task_id = task_id or "default"
+        # Generate unique task_id if not provided to isolate VMs between concurrent tasks
+        effective_task_id = task_id or str(uuid.uuid4())
         # Expose the active task_id so tools running mid-turn (e.g. delegate_task
         # in delegate_tool.py) can identify this agent for the cross-agent file
         # state registry.  Set BEFORE any tool dispatch so snapshots taken at
@@ -13879,6 +13898,9 @@ class AIAgent:
                             self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
                             restart_with_compressed_messages = True
+                            # Fix: reset retry counters after compression so the model
+                            # gets a fresh budget on the compressed context.
+                            retry_count = 0
                             break
                         else:
                             self._vprint(f"{self.log_prefix}❌ Payload too large and cannot compress further.", force=True)
@@ -13918,7 +13940,7 @@ class AIAgent:
                         # Note: max_tokens = output token cap (one response).
                         #       context_length = total window (input + output combined).
                         available_out = parse_available_output_tokens_from_error(error_msg)
-                        if available_out is not None:
+                        if available_out is not None and available_out >= 512:
                             # Error is purely about the output cap being too large.
                             # Cap output to the available space and retry without
                             # touching context_length or triggering compression.
@@ -14037,6 +14059,9 @@ class AIAgent:
                                 self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
                             restart_with_compressed_messages = True
+                            # Fix: reset retry counters after compression so the model
+                            # gets a fresh budget on the compressed context.
+                            retry_count = 0
                             break
                         else:
                             # Can't compress further and already at minimum tier
