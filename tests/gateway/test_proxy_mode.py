@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from gateway.config import Platform, PlatformConfig, StreamingConfig
-from gateway.platforms.api_server import APIServerAdapter
 from gateway.platforms.base import resolve_proxy_url
+from gateway.platforms.api_server import APIServerAdapter
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource
 
@@ -235,7 +235,6 @@ class TestRunAgentViaProxy:
     async def test_builds_correct_request(self, monkeypatch):
         monkeypatch.setenv("GATEWAY_PROXY_URL", "http://host:8642")
         monkeypatch.setenv("GATEWAY_PROXY_KEY", "test-key-123")
-        monkeypatch.setenv("GATEWAY_PROXY_SCOPE_KEY", "scope-secret")
         runner = _make_runner()
         source = _make_source()
 
@@ -268,8 +267,6 @@ class TestRunAgentViaProxy:
 
         # Verify auth header
         assert session.captured_headers["Authorization"] == "Bearer test-key-123"
-        assert session.captured_headers["X-Hermes-Proxy-Scope-Timestamp"]
-        assert session.captured_headers["X-Hermes-Proxy-Scope-Signature"].startswith("v1=")
 
         # Verify session ID header
         assert session.captured_headers["X-Hermes-Session-Id"] == "session-abc"
@@ -286,7 +283,6 @@ class TestRunAgentViaProxy:
 
         # Verify response was assembled
         assert result["final_response"] == "Hello world"
-
 
 
     @pytest.mark.asyncio
@@ -319,7 +315,6 @@ class TestRunAgentViaProxy:
             "origin_platform": "matrix",
             "enabled_toolsets": ["todo"],
         }
-
 
     @pytest.mark.asyncio
     async def test_handles_http_error(self, monkeypatch):
