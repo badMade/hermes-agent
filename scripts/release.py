@@ -42,11 +42,10 @@ AUTHOR_MAP = {
     # teknium (multiple emails)
     "teknium1@gmail.com": "teknium1",
     "geoffplymale@gmail.com": "badMade",
+    "geoffplymale@users.noreply.github.com": "badMade",
     "0x.badfriend@gmail.com": "discodirector",
-<<<<<<< HEAD
     "geoffplymale@gmail.com": "badMade",
-=======
->>>>>>> fff93d5380c0ca5c30f611c1a8a151015ad5aff2
+    "geoffplymale@users.noreply.github.com": "badMade",
     "altriatree@gmail.com": "TruaShamu",
     "m@mobrienv.dev": "mikeyobrien",
     "qiyin.zuo@pcitc.com": "qiyin-code",
@@ -124,6 +123,7 @@ AUTHOR_MAP = {
     "androidhtml@yandex.com": "hllqkb",
     "25840394+Bongulielmi@users.noreply.github.com": "Bongulielmi",
     "geoffplymale@gmail.com": "badMade",
+    "geoffplymale@users.noreply.github.com": "badMade",
     "jonathan.troyer@overmatch.com": "JTroyerOvermatch",
     "harryykyle1@gmail.com": "hharry11",
     "wysie@users.noreply.github.com": "wysie",
@@ -989,7 +989,8 @@ AUTHOR_MAP = {
     "openclaw@agent.local": "29206394",  # PR #22194 salvage (sudo -S brute-force guard, #9590)
     "freedemon@gmail.com": "fr33d3m0n",  # PR #21128 salvage (sudo stdin/askpass DANGEROUS, #17873 cat 4)
     "zhaowh3613@outlook.com": "VinceZcrikl",  # PR #23647 salvage (npm UTF-8 decode on GBK Windows)
-    "geoffplymale@gmail.com": "badMade",  # PRs #69, #70, #81 (sudo stdin guard, ddgs import security, OpenAI TTS hardening)
+    "geoffplymale@gmail.com": "badMade",
+    "geoffplymale@users.noreply.github.com": "badMade",  # PRs #69, #70, #81 (sudo stdin guard, ddgs import security, OpenAI TTS hardening)
 }
 
 
