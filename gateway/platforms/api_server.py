@@ -25,6 +25,7 @@ Requires:
 """
 
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
