@@ -1,1 +1,38 @@
-IiIiCk9wZW5BSS1jb21wYXRpYmxlIEFQSSBzZXJ2ZXIgcGxhdGZvcm0gYWRhcHRlci4KCkV4cG9zZXMgYW4gSFRUUCBzZXJ2ZXIgd2l0aCBlbmRwb2ludHM6Ci0gUE9TVCAvdjEvY2hhdC9jb21wbGV0aW9ucyAgICAgICAg4oCUIE9wZW5BSSBDaGF0IENvbXBsZXRpb25zIGZvcm1hdCAoc3RhdGVsZXNzOyBvcHQtaW4gc2Vzc2lvbiBjb250aW51aXR5IHZpYSBYLUhlcm1lcy1TZXNzaW9uLUlkIGhlYWRlcjsgb3B0LWluIGxvbmctdGVybSBtZW1vcnkgc2NvcGluZyB2aWEgWC1IZXJtZXMtU2Vzc2lvbi1LZXkgaGVhZGVyKQotIFBPU1QgL3YxL3Jlc3BvbnNlcyAgICAgICAgICAgICAgIOKAlCBPcGVuQUkgUmVzcG9uc2VzIEFQSSBmb3JtYXQgKHN0YXRlZnVsIHZpYSBwcmV2aW91c19yZXNwb25zZV9pZDsgWC1IZXJtZXMtU2Vzc2lvbi1LZXkgc3VwcG9ydGVkKQotIEdFVCAgL3YxL3Jlc3BvbnNlcy97cmVzcG9uc2VfaWR9IOKAlCBSZXRyaWV2ZSBhIHN0b3JlZCByZXNwb25zZQotIERFTEVURSAvdjEvcmVzcG9uc2VzL3tyZXNwb25zZV9pZH0g4oCUIERlbGV0ZSBhIHN0b3JlZCByZXNwb25zZQotIEdFVCAgL3YxL21vZGVscyAgICAgICAgICAgICAgICAgIOKAlCBsaXN0cyBoZXJtZXMtYWdlbnQgYXMgYW4gYXZhaWxhYmxlIG1vZGVsCi0gR0VUICAvdjEvY2FwYWJpbGl0aWVzICAgICAgICAgICAg4oCUIG1hY2hpbmUtcmVhZGFibGUgQVBJIGNhcGFiaWxpdGllcyBmb3IgZXh0ZXJuYWwgVUlzCi0gUE9TVCAvdjEvcnVucyAgICAgICAgICAgICAgICAgICAg4oCUIHN0YXJ0IGEgcnVuLCByZXR1cm5zIHJ1bl9pZCBpbW1lZGlhdGVseSAoMjAyKQotIEdFVCAgL3YxL3J1bnMve3J1bl9pZH0gICAgICAgICAgIOKAlCByZXRyaWV2ZSBjdXJyZW50IHJ1biBzdGF0dXMKLSBHRVQgIC92MS9ydW5zL3tydW5faWR9L2V2ZW50cyAgICDigJQgU1NFIHN0cmVhbSBvZiBzdHJ1Y3R1cmVkIGxpZmVjeWNsZSBldmVudHMKLSBQT1NUIC92MS9ydW5zL3tydW5faWR9L2FwcHJvdmFsIOKAlCByZXNvbHZlIGEgcGVuZGluZyBydW4gYXBwcm92YWwKLSBQT1NUIC92MS9ydW5zL3tydW5faWR9L3N0b3AgICAgICAg4oCUIGludGVycnVwdCBhIHJ1bm5pbmcgYWdlbnQKLSBHRVQgIC9oZWFsdGggICAgICAgICAgICAgICAgICAgICDigJQgaGVhbHRoIGNoZWNrCi0gR0VUICAvaGVhbHRoL2RldGFpbGVkICAgICAgICAgICAg4oCUIHJpY2ggc3RhdHVzIGZvciBjcm9zcy1jb250YWluZXIgZGFzaGJvYXJkIHByb2JpbmcKCkFueSBPcGVuQUktY29tcGF0aWJsZSBmcm9udGVuZCAoT3BlbiBXZWJVSSwgTG9iZUNoYXQsIExpYnJlQ2hhdCwKQW55dGhpbmdMTE0sIE5leHRDaGF0LCBDaGF0Qm94LCBldGMuKSBjYW4gY29ubmVjdCB0byBoZXJtZXMtYWdlbnQKdGhyb3VnaCB0aGlzIGFkYXB0ZXIgYnkgcG9pbnRpbmcgYXQgaHR0cDovL2xvY2FsaG9zdDo4NjQyL3YxLgoKUmVxdWlyZXM6Ci0gYWlvaHR0cCAoYWxyZWFkeSBhdmFpbGFibGUgaW4gdGhlIGdhdGV3YXkpCiIiIgoKaW1wb3J0IGFzeW5jaW8KaW1wb3J0IGhhc2hsaWIKaW1wb3J0IGhtYWMKaW1wb3J0IGpzb24KaW1wb3J0IGxvZ2dpbmcKaW1wb3J0IG9zCmltcG9ydCBzb2NrZXQgYXMgX3NvY2tldAppbXBvcnQgcmUKaW1wb3J0IHNxbGl0ZTMKZ W1wb3J0IHRpbWUKaW1wb3J0IHV1aWQKZnJvbSB0eXBpbmcgaW1wb3J0IEFueSwgRGljdCwgTGlzdCwgT3B0aW9uYWwK
+"""
+OpenAI-compatible API server platform adapter.
+
+Exposes an HTTP server with endpoints:
+- POST /v1/chat/completions        — OpenAI Chat Completions format (stateless; opt-in session continuity via X-Hermes-Session-Id header; opt-in long-term memory scoping via X-Hermes-Session-Key header)
+- POST /v1/responses               — OpenAI Responses API format (stateful via previous_response_id; X-Hermes-Session-Key supported)
+- GET  /v1/responses/{response_id} — Retrieve a stored response
+- DELETE /v1/responses/{response_id} — Delete a stored response
+- GET  /v1/models                  — lists hermes-agent as an available model
+- GET  /v1/capabilities            — machine-readable API capabilities for external UIs
+- POST /v1/runs                    — start a run, returns run_id immediately (202)
+- GET  /v1/runs/{run_id}           — retrieve current run status
+- GET  /v1/runs/{run_id}/events    — SSE stream of structured lifecycle events
+- POST /v1/runs/{run_id}/approval — resolve a pending run approval
+- POST /v1/runs/{run_id}/stop       — interrupt a running agent
+- GET  /health                     — health check
+- GET  /health/detailed            — rich status for cross-container dashboard probing
+
+Any OpenAI-compatible frontend (Open WebUI, LobeChat, LibreChat,
+AnythingLLM, NextChat, ChatBox, etc.) can connect to hermes-agent
+through this adapter by pointing at http://localhost:8642/v1.
+
+Requires:
+- aiohttp (already available in the gateway)
+"""
+
+import asyncio
+import hashlib
+import hmac
+import json
+import logging
+import os
+import socket as _socket
+import re
+import sqlite3
+import time
+import uuid
+from typing import Any, Dict, List, Optional
