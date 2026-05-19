@@ -495,18 +495,13 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
             if prep_error:
                 return {"success": False, "transcript": "", "error": prep_error}
 
-            # Mitigate command injection by tokenizing the template first,
-            # then substituting variables without shlex.quote since we pass a list
-            tokens = shlex.split(command_template.replace('\n', ' ; ').replace('{', ' { ').replace('}', ' } '), posix=(os.name == 'posix'))
-            command_args = [
-                token.format(
-                    input_path=prepared_input,
-                    output_dir=output_dir,
-                    language=language,
-                    model=normalized_model,
-                )
-                for token in tokens
-            ]
+            command = command_template.format(
+                input_path=shlex.quote(prepared_input),
+                output_dir=shlex.quote(output_dir),
+                language=shlex.quote(language),
+                model=shlex.quote(normalized_model),
+            )
+            command_args = shlex.split(command)
             subprocess.run(command_args, check=True, capture_output=True, text=True)
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
