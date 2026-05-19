@@ -6231,14 +6231,12 @@ class GatewayRunner:
             GATEWAY_KNOWN_COMMANDS,
             is_gateway_known_command,
             resolve_command as _resolve_cmd,
-            resolve_gateway_command_name as _resolve_gateway_command_name,
         )
 
         # Resolve aliases to canonical name so dispatch and hook names
         # don't depend on the exact alias the user typed.
         _cmd_def = _resolve_cmd(command) if command else None
         canonical = _cmd_def.name if _cmd_def else command
-        canonical = _resolve_gateway_command_name(canonical) or canonical
 
         # Expand alias quick commands before built-in dispatch so targets like
         # /model openai/gpt-5.5 --provider openrouter reach the /model handler.
@@ -6261,7 +6259,6 @@ class GatewayRunner:
                         command = target_command.split()[0] if target_command else target_command
                         _cmd_def = _resolve_cmd(command) if command else None
                         canonical = _cmd_def.name if _cmd_def else command
-                        canonical = _resolve_gateway_command_name(canonical) or canonical
 
         # Per-platform slash command access control. Only kicks in when the
         # operator has set ``allow_admin_from`` for the source's scope (DM
@@ -6327,7 +6324,6 @@ class GatewayRunner:
                     command = event.get_command()
                     _cmd_def = _resolve_cmd(command) if command else None
                     canonical = _cmd_def.name if _cmd_def else command
-                    canonical = _resolve_gateway_command_name(canonical) or canonical
                     break
 
         if canonical == "new":
@@ -6540,7 +6536,7 @@ class GatewayRunner:
                 # autocomplete form matches plugin commands registered with
                 # hyphens. See hermes_cli/commands.py:_build_telegram_menu.
                 plugin_command = (
-                    _resolve_gateway_command_name(command) or command.replace("_", "-")
+                    command.replace("_", "-")
                 )
                 plugin_handler = get_plugin_command_handler(plugin_command)
                 if plugin_handler:
@@ -8312,71 +8308,14 @@ class GatewayRunner:
         )
 
 
-    @staticmethod
-    def _gateway_kanban_action_args(tokens: list[str], action: str) -> list[str]:
-        """Return argv after a parsed Kanban action token."""
-        try:
-            return tokens[tokens.index(action) + 1:]
-        except ValueError:
-            return []
-
-    @staticmethod
-    def _gateway_kanban_is_unassign(profile: str | None) -> bool:
-        """Return whether a profile argument means "remove assignee"."""
-        return (profile or "").lower() in {"", "none", "-", "null"}
-
-    @classmethod
-    def _gateway_kanban_spawn_denial(
-        cls, tokens: list[str], action: str | None
-    ) -> str | None:
-        """Deny gateway Kanban requests that can launch or relaunch profiles."""
-        if not action:
-            return None
-
-        if action in {"dispatch", "unblock"}:
-            return (
-                "kanban: this subcommand can start work under another Hermes "
-                "profile and is only available from the local CLI"
-            )
-
-        action_args = cls._gateway_kanban_action_args(tokens, action)
-        if action in {"assign", "reassign"}:
-            profile = action_args[1] if len(action_args) > 1 else None
-            if not cls._gateway_kanban_is_unassign(profile):
-                return (
-                    "kanban: assigning tasks from the gateway is disabled; "
-                    "assign worker profiles from the local CLI"
-                )
-            return None
-
-        if action != "create":
-            return None
-
-        for idx, tok in enumerate(action_args):
-            if tok.startswith("--assignee=") and tok.split("=", 1)[1].strip():
-                return (
-                    "kanban: creating assigned tasks from the gateway is disabled; "
-                    "create the task unassigned and assign it from the local CLI"
-                )
-            if tok == "--assignee":
-                value = ""
-                if idx + 1 < len(action_args):
-                    value = action_args[idx + 1].strip()
-                if value:
-                    return (
-                        "kanban: creating assigned tasks from the gateway is disabled; "
-                        "create the task unassigned and assign it from the local CLI"
-                    )
-        return None
-
-
     async def _handle_kanban_command(self, event: MessageEvent) -> str:
         """Handle /kanban — delegate to the shared kanban CLI.
 
         Run the potentially-blocking DB work in a thread pool so the
-        gateway event loop stays responsive.  Commands that can assign or
-        relaunch worker profiles are blocked at the gateway boundary; local
-        CLI operators must perform those actions.
+        gateway event loop stays responsive.  Read operations (list,
+        show, context, tail) are permitted while an agent is running;
+        mutations are allowed too because the board is profile-agnostic
+        and does not touch the running agent's state.
 
         For ``/kanban create`` invocations we also auto-subscribe the
         originating gateway source (platform + chat + thread) to the new
@@ -8395,11 +8334,7 @@ class GatewayRunner:
         if text.startswith("kanban"):
             text = text[len("kanban"):].lstrip()
 
-        try:
-            tokens = shlex.split(text) if text else []
-        except ValueError as exc:
-            return f"kanban: invalid arguments: {exc}"
-
+        tokens = shlex.split(text) if text else []
         requested_board = None
         action = None
         i = 0
@@ -8417,10 +8352,6 @@ class GatewayRunner:
                 continue
             action = tok
             break
-
-        denial = self._gateway_kanban_spawn_denial(tokens, action)
-        if denial:
-            return denial
 
         is_create = action == "create"
 
@@ -12947,9 +12878,6 @@ class GatewayRunner:
             user_id=str(context.source.user_id) if context.source.user_id else "",
             user_name=str(context.source.user_name) if context.source.user_name else "",
             session_key=context.session_key,
-            guild_id=str(context.source.guild_id) if context.source.guild_id else "",
-            parent_chat_id=str(context.source.parent_chat_id) if context.source.parent_chat_id else "",
-            message_id=str(context.source.message_id) if context.source.message_id else "",
         )
 
     def _clear_session_env(self, tokens: list) -> None:
