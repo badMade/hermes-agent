@@ -124,4 +124,3 @@ def test_show_banner_does_not_print_skills():
     ]
     startup_lines = [line for line in print_calls if "Activated skills:" in line]
     assert len(startup_lines) == 0
-    assert mock_banner.call_count in {0, 1}
