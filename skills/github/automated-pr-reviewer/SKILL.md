@@ -55,6 +55,7 @@ echo "Scanning $REPO for '@jules' comments..."
 # Search for open PRs and output their numbers
 gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \"@jules\" -label:reviewed" \
   --jq '.items[].number'
+```
 
 ## Agent Instructions
 
