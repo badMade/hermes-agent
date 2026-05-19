@@ -24,7 +24,6 @@ except ImportError:
 from pathlib import Path
 from typing import Callable
 
-from agent.file_safety import is_write_denied
 from hermes_constants import get_hermes_home
 from tools.environments.base import _file_mtime_key
 
@@ -107,13 +106,24 @@ _SYNC_BACK_MAX_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB — refuse to extract lar
 _SYNC_BACK_INFER_REMOTE_ROOTS = ("skills", "external_skills", "cache")
 
 
-def _is_safe_sync_back_infer_path(remote_path: str) -> bool:
-    """Return True for remote files under directories that may create host files."""
-    parts = Path(remote_path).parts
-    if ".hermes" not in parts:
+def _is_safe_sync_back_infer_path(remote_path: str, mapped_remote_path: str) -> bool:
+    """Return True if a candidate inference path is under an allow-listed subtree.
+
+    The inferred path must share the same ``<remote-home>/.hermes`` root as an
+    existing mapped file and then be rooted in an allow-listed sync subtree.
+    """
+    candidate_parts = Path(remote_path).parts
+    mapped_parts = Path(mapped_remote_path).parts
+    if ".hermes" not in candidate_parts or ".hermes" not in mapped_parts:
         return False
-    idx = parts.index(".hermes")
-    return idx + 1 < len(parts) and parts[idx + 1] in _SYNC_BACK_INFER_REMOTE_ROOTS
+    candidate_idx = candidate_parts.index(".hermes")
+    mapped_idx = mapped_parts.index(".hermes")
+    if candidate_parts[:candidate_idx + 1] != mapped_parts[:mapped_idx + 1]:
+        return False
+    return (
+        candidate_idx + 1 < len(candidate_parts)
+        and candidate_parts[candidate_idx + 1] in _SYNC_BACK_INFER_REMOTE_ROOTS
+    )
 
 
 class FileSyncManager:
@@ -354,8 +364,10 @@ class FileSyncManager:
 
                         # Resolve host path from cached mapping
                         host_path = self._resolve_host_path(remote_path, file_mapping)
+                        inferred = False
                         if host_path is None:
                             host_path = self._infer_host_path(remote_path, file_mapping)
+                            inferred = host_path is not None
                             if host_path is None:
                                 logger.debug(
                                     "sync_back: skipping %s (no host mapping)",
@@ -364,7 +376,7 @@ class FileSyncManager:
                                 continue
 
                         if os.path.exists(host_path):
-                            if pushed_hash is None:
+                            if pushed_hash is None and inferred:
                                 logger.warning(
                                     "sync_back: skipping new remote file %s because "
                                     "the inferred host path already exists: %s",
@@ -372,14 +384,15 @@ class FileSyncManager:
                                     host_path,
                                 )
                                 continue
-                            host_hash = _sha256_file(host_path)
-                            if host_hash != pushed_hash:
-                                logger.warning(
-                                    "sync_back: conflict on %s — host modified "
-                                    "since push, remote also changed. Applying "
-                                    "remote version (last-write-wins).",
-                                    remote_path,
-                                )
+                            if pushed_hash is not None:
+                                host_hash = _sha256_file(host_path)
+                                if host_hash != pushed_hash:
+                                    logger.warning(
+                                        "sync_back: conflict on %s — host modified "
+                                        "since push, remote also changed. Applying "
+                                        "remote version (last-write-wins).",
+                                        remote_path,
+                                    )
 
                         os.makedirs(os.path.dirname(host_path), exist_ok=True)
                         shutil.copy2(staged_file, host_path)
@@ -404,30 +417,22 @@ class FileSyncManager:
         """Infer a host path for a new remote file by matching path prefixes.
 
         Uses the existing file mapping to find a remote->host directory
-        pair, then applies the same prefix substitution to the new file.
+        pair, then applies the same prefix substitution to the new file
+        (for example, ``.../.hermes/skills/a.md`` → ``.../skills/a.md``
+        allows inferring ``.../.hermes/skills/b.md`` → ``.../skills/b.md``).
         Inference is limited to sync-owned subtrees that intentionally
-        accept new files (skills, external_skills, and cache). Individual
-        credential-file mappings must not broaden to all of ``.hermes``.
+        accept new files (skills, external_skills, and cache), and must
+        stay under the mapped remote ``.hermes`` root.
         """
-        if not _is_safe_sync_back_infer_path(remote_path):
-            return None
-
         mapping = file_mapping if file_mapping is not None else []
         for host, remote in sorted(
             mapping, key=lambda item: len(str(Path(item[1]).parent)), reverse=True
         ):
+            if not _is_safe_sync_back_infer_path(remote_path, remote):
+                continue
             remote_dir = str(Path(remote).parent)
             if remote_path.startswith(remote_dir + "/"):
                 host_dir = Path(host).parent
-                try:
-                    if host_dir.resolve() == hermes_home:
-                        logger.warning(
-                            "sync_back: skipping inferred top-level HERMES_HOME path %s",
-                            remote_path,
-                        )
-                        continue
-                except OSError:
-                    pass
                 suffix = remote_path[len(remote_dir):]
                 return str(host_dir) + suffix
         return None
