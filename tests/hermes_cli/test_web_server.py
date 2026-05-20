@@ -1840,8 +1840,46 @@ class TestPluginAPIAuth:
         import hermes_state
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+        from hermes_cli.plugins import get_bundled_plugins_dir
+        import hermes_cli.web_server as _ws
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
+
+        # Determine whether the hermes-achievements plugin is available in this
+        # environment (file-system check — deterministic, not based on HTTP).
+        plugin_api_file = (
+            get_bundled_plugins_dir() / "hermes-achievements" / "dashboard" / "plugin_api.py"
+        )
+        self._achievements_available = plugin_api_file.exists()
+
+        if self._achievements_available:
+            # Write config.yaml with plugins.enabled so the plugin passes the
+            # opt-in gate in _dashboard_plugin_is_enabled().
+            import yaml as _yaml
+            config_path = get_hermes_home() / "config.yaml"
+            config_path.write_text(
+                _yaml.dump({"plugins": {"enabled": ["hermes-achievements"]}})
+            )
+            # Reset the discovery cache and explicitly mount the plugin routes
+            # so this test can assert a real 200 instead of relying on whatever
+            # happened to be mounted at module-import time.
+            monkeypatch.setattr(_ws, "_dashboard_plugins_cache", None)
+            _ws._mount_plugin_api_routes()
+            # The initial _mount_plugin_api_routes() runs at module-import time,
+            # before this fixture writes config.yaml. Routes added by the
+            # re-mount above are appended after the SPA catch-all
+            # (/{full_path:path}), so Starlette would match the catch-all first.
+            # Reorder app.router.routes to move any newly added plugin routes
+            # in front of the SPA catch-all so they are reachable.
+            _routes = _ws.app.router.routes
+            spa_idx = next(
+                (i for i, r in enumerate(_routes) if getattr(r, "path", "") == "/{full_path:path}"),
+                None,
+            )
+            if spa_idx is not None and spa_idx < len(_routes) - 1:
+                plugin_routes = _routes[spa_idx + 1 :]
+                del _routes[spa_idx + 1 :]
+                _routes[spa_idx:spa_idx] = plugin_routes
 
         self.client = TestClient(app)
         self.auth_client = TestClient(app)
@@ -1863,21 +1901,21 @@ class TestPluginAPIAuth:
 
         The hermes-achievements plugin is opt-in (bundled plugins are not
         grandfathered into ``plugins.enabled`` — see the v20→v21 migration
-        in ``hermes_cli/config.py``), so the route is not mounted in the
-        hermetic test home. The auth-gating regression this class covers is
-        independent of any single plugin being loaded, so skip the positive
-        assertion when the route isn't mounted in this environment.
+        in ``hermes_cli/config.py``). The fixture writes ``config.yaml`` with
+        ``plugins.enabled: [hermes-achievements]`` and explicitly re-mounts the
+        plugin routes so this test is deterministic. If the plugin files are
+        absent from the repository checkout, the test is skipped via an explicit
+        precondition check — not by inspecting the HTTP response.
         """
+        if not self._achievements_available:
+            pytest.skip("hermes-achievements plugin not available in this environment")
+
         # Without auth: middleware blocks before reaching the handler.
         resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 401
 
-        # With auth: handler runs if the plugin is mounted in this env.
+        # With auth: handler runs — plugin is explicitly mounted in the fixture.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
-        if resp.status_code == 404:
-            pytest.skip(
-                "hermes-achievements plugin route not mounted in this environment"
-            )
         assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
