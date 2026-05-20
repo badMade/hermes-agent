@@ -1865,6 +1865,21 @@ class TestPluginAPIAuth:
         resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 401
 
+        # Check if the route is actually mounted, since isolation disables plugin discovery.
+        # If it's missing, add a dummy one directly to test the auth middleware.
+        from hermes_cli.web_server import app
+        route_exists = any(getattr(r, "path", "") == "/api/plugins/hermes-achievements/scan-status" for r in app.routes)
+        if not route_exists:
+            from fastapi.routing import APIRoute
+            # Insert at the beginning so it's matched before the SPA catch-all
+            app.routes.insert(0, APIRoute("/api/plugins/hermes-achievements/scan-status", lambda: {"ok": True}, methods=["GET"]))
+
+            # Recreate test clients to pick up new routes since TestClient creates a local copy of the app sometimes or router state changes
+            from starlette.testclient import TestClient
+            from hermes_cli.web_server import _SESSION_HEADER_NAME, _SESSION_TOKEN
+            self.auth_client = TestClient(app)
+            self.auth_client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
+
         # With auth: handler runs.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 200
