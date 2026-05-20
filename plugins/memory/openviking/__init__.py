@@ -29,6 +29,10 @@ import json
 import logging
 import mimetypes
 import os
+import threading
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 import tempfile
 import threading
 import uuid
@@ -295,14 +299,17 @@ REMEMBER_SCHEMA = {
 ADD_RESOURCE_SCHEMA = {
     "name": "viking_add_resource",
     "description": (
+        "Add a remote URL to the OpenViking knowledge base. "
+        "Resources must be reachable by OpenViking without reading local host files. "
         "Add a remote URL or local file/directory to the OpenViking knowledge base. "
         "Remote resources must be public http(s), git, or ssh URLs. "
-        "Local files are automatically uploaded to OpenViking before indexing. "
+        "Local files are uploaded first using OpenViking temp_upload. "
         "The system automatically parses, indexes, and generates summaries."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "url": {"type": "string", "description": "Remote URL to add."},
             "url": {"type": "string", "description": "Remote URL or local file/directory path to add."},
             "reason": {
                 "type": "string",
@@ -377,6 +384,7 @@ def _path_from_file_uri(uri: str) -> Path | str:
     if parsed.netloc not in ("", "localhost"):
         return f"Unsupported non-local file URI: {uri}"
     return Path(url2pathname(parsed.path)).expanduser()
+
 
 # ---------------------------------------------------------------------------
 # MemoryProvider implementation

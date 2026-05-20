@@ -6239,7 +6239,6 @@ class GatewayRunner:
         # don't depend on the exact alias the user typed.
         _cmd_def = _resolve_cmd(command) if command else None
         canonical = _cmd_def.name if _cmd_def else command
-        canonical = _resolve_gateway_command_name(canonical) or canonical
         if (
             command
             and _cmd_def
