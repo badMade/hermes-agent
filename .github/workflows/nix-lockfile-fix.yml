@@ -14,6 +14,8 @@ on:
         description: 'PR number to fix (leave empty to run on the selected branch)'
         required: false
         type: string
+  issue_comment:
+    types: [edited]
 
 permissions:
   contents: write
@@ -49,7 +51,7 @@ jobs:
     steps:
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3  # v3
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -59,12 +61,9 @@ jobs:
           ref: main
           token: ${{ steps.app-token.outputs.token }}
 
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: cachix/cachix-action@1eb2ef646ac0255473d23a5907ad7b04ce94065c # v17
+      - uses: ./.github/actions/nix-setup
         with:
-          name: hermes-agent
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        continue-on-error: true
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Apply lockfile hashes
         id: apply
@@ -122,9 +121,16 @@ jobs:
           echo "::error::Failed to push after 3 rebase attempts"
           exit 1
 
-  # ── PR fix (manual dispatch) ───────────────────────────────────────
+  # ── PR fix (manual / checkbox) ─────────────────────────────────────
+  # Existing behavior: run on manual dispatch OR when a task-list
+  # checkbox in the sticky lockfile-check comment flips from [ ] to [x].
   fix:
-    if: github.event_name == 'workflow_dispatch'
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment'
+       && github.event.issue.pull_request != null
+       && contains(github.event.comment.body, '[x] **Apply lockfile fix**')
+       && !contains(github.event.changes.body.from, '[x] **Apply lockfile fix**'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -133,7 +139,8 @@ jobs:
         uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71  # v9
         with:
           script: |
-            // 1. Verify the actor has write access.
+            // 1. Verify the actor has write access — applies to both checkbox
+            //    clicks and manual dispatch.
             const { data: perm } =
               await github.rest.repos.getCollaboratorPermissionLevel({
                 owner: context.repo.owner,
@@ -149,7 +156,9 @@ jobs:
 
             // 2. Resolve which ref to check out.
             let prNumber = '';
-            if (context.eventName === 'workflow_dispatch') {
+            if (context.eventName === 'issue_comment') {
+              prNumber = String(context.payload.issue.number);
+            } else if (context.eventName === 'workflow_dispatch') {
               prNumber = context.payload.inputs.pr_number || '';
             }
 
@@ -185,19 +194,16 @@ jobs:
 
             Triggered by @${{ github.actor }} — [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
 
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - uses: cachix/cachix-action@1eb2ef646ac0255473d23a5907ad7b04ce94065c # v17
-        with:
-          name: hermes-agent
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        continue-on-error: true
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
         with:
           repository: ${{ steps.resolve.outputs.owner }}/${{ steps.resolve.outputs.repo }}
           ref: ${{ steps.resolve.outputs.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+
+      - uses: ./.github/actions/nix-setup
+        with:
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Apply lockfile hashes
         id: apply
