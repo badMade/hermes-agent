@@ -561,8 +561,7 @@ def find_profile_gateway_processes(
 
 def _gateway_run_args_for_profile(profile: str) -> list[str]:
     args = [get_python_path(), "-m", "hermes_cli.main"]
-    if profile != "default":
-        args.extend(["--profile", profile])
+    args.extend(["--profile", profile])
     args.extend(["gateway", "run", "--replace"])
     return args
 
@@ -596,7 +595,6 @@ def _profile_gateway_restart_env(profile: str) -> dict[str, str]:
     }
     env["HERMES_HOME"] = str(get_profile_dir(profile))
     return env
-
 
 
 def launch_detached_profile_gateway_restart(profile: str, old_pid: int) -> bool:
@@ -657,7 +655,7 @@ def launch_detached_profile_gateway_restart(profile: str, old_pid: int) -> bool:
             )
         else:
             _popen_kwargs["start_new_session"] = True
-        subprocess.Popen(cmd, **_popen_kwargs)
+        subprocess.Popen(cmd, env=os.environ.copy(), **_popen_kwargs)
         """
     ).strip()
 
