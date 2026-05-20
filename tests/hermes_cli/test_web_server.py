@@ -106,12 +106,11 @@ class TestWebServerEndpoints:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            raise
+            pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
-
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
@@ -427,9 +426,8 @@ class TestConfigRoundTrip:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            raise
+            pytest.skip("fastapi/starlette not installed")
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
-
         self.client = TestClient(app)
         self.client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
 
@@ -561,12 +559,11 @@ class TestNewEndpoints:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            raise
+            pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
-
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
@@ -1203,7 +1200,7 @@ class TestModelInfoEndpoint:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            raise
+            pytest.skip("fastapi/starlette not installed")
         from hermes_cli.web_server import app
         self.client = TestClient(app)
 
@@ -1432,10 +1429,9 @@ class TestStatusRemoteGateway:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            raise
+            pytest.skip("fastapi/starlette not installed")
 
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
-
         self.client = TestClient(app)
         self.client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
 
@@ -1839,12 +1835,11 @@ class TestPluginAPIAuth:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            raise
+            pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
-
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
@@ -1861,7 +1856,7 @@ class TestPluginAPIAuth:
     def test_plugin_route_requires_auth(self):
         """Plugin API routes should return 401 without a valid session token."""
         # Use a known plugin route (kanban board)
-        resp = self.client.get("/api/plugins/test-plugin/dummy-route")
+        resp = self.client.get("/api/plugins/kanban/board")
         assert resp.status_code == 401
 
     def test_plugin_route_allows_auth(self):
