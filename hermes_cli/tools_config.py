@@ -106,6 +106,18 @@ def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
     return allowed is None or platform in allowed
 
 
+def _implicit_default_off_toolsets(platform: str) -> Set[str]:
+    """Toolsets treated as opt-in when inferring enabled sets.
+
+    ``homeassistant`` is the only default-off toolset that remains on by
+    default for its own dedicated platform.
+    """
+    default_off = set(_DEFAULT_OFF_TOOLSETS)
+    if platform == "homeassistant":
+        default_off.discard("homeassistant")
+    return default_off
+
+
 def _get_effective_configurable_toolsets():
     """Return CONFIGURABLE_TOOLSETS + any plugin-provided toolsets.
 
@@ -140,6 +152,15 @@ def _get_plugin_toolset_keys() -> set:
         return {ts_key for ts_key, _, _ in get_plugin_toolsets()}
     except Exception:
         return set()
+
+
+def _implicit_default_off_toolsets(platform: str) -> Set[str]:
+    """Return the default-off toolsets that remain implicitly disabled."""
+    default_off = set(_DEFAULT_OFF_TOOLSETS)
+    if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
+        default_off.remove(platform)
+    return default_off
+
 
 # Platform display config — derived from the canonical registry so every
 # module shares the same data.  Kept as dict-of-dicts for backward
@@ -975,6 +996,9 @@ def _parse_enabled_flag(value, default: bool = True) -> bool:
     return default
 
 
+_LEGACY_PLATFORM_TOOLSET_ALIASES = {
+    "qqbot": ("qq",),
+}
 def _get_platform_tools(
     config: dict,
     platform: str,
@@ -986,8 +1010,16 @@ def _get_platform_tools(
 
     platform_toolsets = config.get("platform_toolsets") or {}
     toolset_names = platform_toolsets.get(platform)
+    if toolset_names is None:
+        legacy_platforms = _LEGACY_PLATFORM_TOOLSET_ALIASES.get(platform, ())
+        for legacy_platform in legacy_platforms:
+            legacy_toolset_names = platform_toolsets.get(legacy_platform)
+            if isinstance(legacy_toolset_names, list):
+                toolset_names = legacy_toolset_names
+                break
 
-    if toolset_names is None or not isinstance(toolset_names, list):
+    has_explicit_platform_toolsets = isinstance(toolset_names, list)
+    if not has_explicit_platform_toolsets:
         plat_info = PLATFORMS.get(platform)
         if plat_info:
             default_ts = plat_info["default_toolset"]
@@ -1040,11 +1072,7 @@ def _get_platform_tools(
                 if ts_tools and ts_tools.issubset(composite_tools):
                     expanded.add(ts_key)
 
-            default_off = set(_DEFAULT_OFF_TOOLSETS)
-            if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
-                default_off.remove(platform)
-            if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
-                default_off.remove("homeassistant")
+            default_off = _implicit_default_off_toolsets(platform)
             expanded -= default_off
 
             enabled_toolsets |= expanded
@@ -1063,23 +1091,7 @@ def _get_platform_tools(
             if ts_tools and ts_tools.issubset(all_tool_names):
                 enabled_toolsets.add(ts_key)
 
-        default_off = set(_DEFAULT_OFF_TOOLSETS)
-        # Legacy safety: if the platform's own name matches a default-off
-        # toolset (e.g. `homeassistant` platform + `homeassistant` toolset),
-        # keep that toolset enabled on first install.  Skip this dodge for
-        # platform-restricted toolsets — those are always opt-in even on
-        # their own platform (e.g. `discord` + `discord` should stay OFF).
-        if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
-            default_off.remove(platform)
-        # Home Assistant is already runtime-gated by its check_fn (requires
-        # HASS_TOKEN to register any tools). When a user has configured
-        # HASS_TOKEN, they've explicitly opted in — don't also strip it via
-        # _DEFAULT_OFF_TOOLSETS, which would silently drop HA from platforms
-        # (e.g. cron) that run through _get_platform_tools without an
-        # explicit saved toolset list. Without this, Norbert's HA cron jobs
-        # regressed after #14798 made cron honor per-platform tool config.
-        if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
-            default_off.remove("homeassistant")
+        default_off = _implicit_default_off_toolsets(platform)
         enabled_toolsets -= default_off
 
     # Recover non-configurable platform toolsets (e.g. discord, feishu_doc,
@@ -1146,9 +1158,9 @@ def _get_platform_tools(
         and ts not in platform_default_keys
     }
 
-    # MCP servers are expected to be available on all platforms by default.
-    # If the platform explicitly lists one or more MCP server names, treat that
-    # as an allowlist. Otherwise include every globally enabled MCP server.
+    # MCP servers are available by default only for platforms using their
+    # implicit default toolset. Once platform_toolsets explicitly lists tools,
+    # that list becomes the platform allowlist; MCP servers must be named there.
     # Special sentinel: "no_mcp" in the toolset list disables all MCP servers.
     mcp_servers = config.get("mcp_servers") or {}
     enabled_mcp_servers = {
@@ -1167,7 +1179,7 @@ def _get_platform_tools(
     if include_default_mcp_servers:
         if explicit_mcp_servers or "no_mcp" in toolset_names:
             enabled_toolsets.update(explicit_mcp_servers)
-        else:
+        elif not has_explicit_platform_toolsets:
             enabled_toolsets.update(enabled_mcp_servers)
     else:
         enabled_toolsets.update(explicit_mcp_servers)
