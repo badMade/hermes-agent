@@ -1846,11 +1846,11 @@ class TestPluginAPIAuth:
 
         # Create a minimal test plugin router
         test_router = APIRouter()
-        
+
         @test_router.get("/test")
         async def test_route():
             return {"ok": True}
-        
+
         # Remove the SPA catch-all route (it's the last one added)
         spa_route = None
         if app.routes and hasattr(app.routes[-1], 'path'):
@@ -1858,10 +1858,10 @@ class TestPluginAPIAuth:
             last_route = app.routes[-1]
             if '{' in getattr(last_route, 'path', ''):
                 spa_route = app.routes.pop()
-        
+
         # Mount the test router
         app.include_router(test_router, prefix="/api/plugins/auth-test")
-        
+
         # Re-add the SPA catch-all at the end
         if spa_route:
             app.routes.append(spa_route)
