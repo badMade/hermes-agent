@@ -1,0 +1,4 @@
+1. Edit run_agent.py around line 1241 to replace except Exception: with except Exception as e: and log the error using logger.debug().
+2. Run the full test suite using run_in_bash_session and pytest to verify the changes.
+3. Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
+4. Use run_in_bash_session to commit the changes directly with the requested PR title and description as the commit message.

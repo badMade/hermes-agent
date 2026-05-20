@@ -1248,8 +1248,8 @@ class AIAgent:
         # not mid-conversation.  Also validates the api_mode is registered.
         try:
             self._get_transport()
-        except Exception:
-            pass  # Non-fatal — transport may not exist for all modes yet
+        except Exception as e:
+            logger.debug("Could not warm transport cache (Non-fatal): %s", e)
 
         try:
             from hermes_cli.model_normalize import (
