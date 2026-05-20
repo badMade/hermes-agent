@@ -2372,7 +2372,12 @@ class TestPtyWebSocket:
 
             with self.client.websocket_connect(pub_path) as pub:
                 pub.send_text('{"type":"tool.start","payload":{"tool_id":"t1"}}')
-                received = sub.receive_text()
+
+            # Wait until the publisher socket has closed before blocking on
+            # the subscriber read.  Under Starlette's TestClient, keeping both
+            # websocket contexts active on the same thread can intermittently
+            # stall the fanout and make this test time out in CI.
+            received = sub.receive_text()
 
         assert "tool.start" in received
         assert '"tool_id":"t1"' in received
