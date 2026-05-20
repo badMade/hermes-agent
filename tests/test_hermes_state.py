@@ -979,6 +979,16 @@ class TestCJKSearchFallback:
         assert "s2" in session_ids, "漓江/旅游 terms not matched"
         assert "s3" not in session_ids, "unrelated message must not match"
 
+    def test_cjk_repeated_short_token_or_query_does_not_raise(self, db):
+        """Repeated short-token OR queries stay within SQLite limits."""
+        db.create_session(session_id="s1", source="cli")
+        db.append_message("s1", role="user", content="广西旅游攻略")
+
+        query = " OR ".join(["广西"] * 1000)
+        results = db.search_messages(query)
+
+        assert {r["session_id"] for r in results} == {"s1"}
+
     def test_cjk_short_token_or_query_preserves_filters(self, db):
         """Source filter applies correctly in the short-token LIKE path (#20494)."""
         db.create_session(session_id="s1", source="cli")
