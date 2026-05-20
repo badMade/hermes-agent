@@ -135,6 +135,8 @@ def _resolve_team_id(key_or_name: str) -> str | None:
 
 def _resolve_user_id(name_or_email: str) -> str | None:
     """Map a user name, displayName, or email to UUID."""
+    if len(name_or_email) == 36 and name_or_email.count("-") == 4:
+        return name_or_email
     q = "query { users(first: 100) { nodes { id name displayName email } } }"
     users = gql(q).get("users", {}).get("nodes", [])
     nl = name_or_email.lower()
@@ -144,7 +146,7 @@ def _resolve_user_id(name_or_email: str) -> str | None:
             or (u.get("displayName") and u["displayName"].lower() == nl)
             or (u.get("email") and u["email"].lower() == nl)
         ):
-            return str(u["id"])
+            return u["id"]
     return None
 
 
