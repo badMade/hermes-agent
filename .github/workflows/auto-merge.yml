@@ -25,7 +25,6 @@ on:
       - "OSV-Scanner"
       - "Docs Site Checks"
       - "uv.lock check"
-      - "Docker Build and Publish"
     types: [completed]
 
 # One evaluation per PR at a time; cancel any in-flight run when a
