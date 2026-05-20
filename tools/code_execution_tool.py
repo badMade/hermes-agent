@@ -1239,6 +1239,8 @@ def execute_code(
             stdin=subprocess.DEVNULL,
             preexec_fn=None if _IS_WINDOWS else os.setsid,
         )
+        if not _IS_WINDOWS:
+            proc._hermes_pgid = os.getpgid(proc.pid)
 
         # --- Poll loop: watch for exit, timeout, and interrupt ---
         deadline = time.monotonic() + timeout
@@ -1450,7 +1452,36 @@ def execute_code(
 
 
 def _kill_process_group(proc, escalate: bool = False):
-    """Kill the child and its entire process tree (cross-platform via psutil)."""
+    """Kill the child and any descendants that remain in its execution group."""
+    if not _IS_WINDOWS:
+        pgid = getattr(proc, "_hermes_pgid", None)
+        try:
+            if pgid is None:
+                pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signal.SIGTERM)  # windows-footgun: ok — guarded by _IS_WINDOWS above
+        except (ProcessLookupError, PermissionError, OSError) as e:
+            logger.debug("Could not terminate process group: %s", e, exc_info=True)
+            try:
+                proc.terminate()
+            except Exception as e2:
+                logger.debug("Could not terminate process: %s", e2, exc_info=True)
+
+        if escalate:
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    if pgid is None:
+                        raise ProcessLookupError(proc.pid)
+                    os.killpg(pgid, signal.SIGKILL)  # windows-footgun: ok — guarded by _IS_WINDOWS above
+                except (ProcessLookupError, PermissionError, OSError) as e:
+                    logger.debug("Could not kill process group: %s", e, exc_info=True)
+                    try:
+                        proc.kill()
+                    except Exception as e2:
+                        logger.debug("Could not kill process: %s", e2, exc_info=True)
+        return
+
     import psutil
     try:
         parent = psutil.Process(proc.pid)

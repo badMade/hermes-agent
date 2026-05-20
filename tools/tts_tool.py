@@ -541,18 +541,12 @@ def _terminate_command_tts_process_tree(proc: subprocess.Popen) -> None:
             proc.kill()
         return
 
-    import psutil
+    pgid = getattr(proc, "_hermes_pgid", None)
     try:
-        parent = psutil.Process(proc.pid)
-        for child in parent.children(recursive=True):
-            try:
-                child.terminate()
-            except psutil.NoSuchProcess:
-                pass
-        parent.terminate()
-    except psutil.NoSuchProcess:
-        return
-    except Exception:
+        if pgid is None:
+            pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, signal.SIGTERM)  # windows-footgun: ok — guarded by os.name above
+    except (ProcessLookupError, PermissionError, OSError):
         proc.terminate()
 
     try:
@@ -562,17 +556,12 @@ def _terminate_command_tts_process_tree(proc: subprocess.Popen) -> None:
         pass
 
     try:
-        parent = psutil.Process(proc.pid)
-        for child in parent.children(recursive=True):
-            try:
-                child.kill()
-            except psutil.NoSuchProcess:
-                pass
-        parent.kill()
-    except psutil.NoSuchProcess:
-        return
-    except Exception:
+        if pgid is None:
+            raise ProcessLookupError(proc.pid)
+        os.killpg(pgid, signal.SIGKILL)  # windows-footgun: ok — guarded by os.name above
+    except (ProcessLookupError, PermissionError, OSError):
         proc.kill()
+    return
 
 
 def _run_command_tts(command: str, timeout: float) -> subprocess.CompletedProcess:
@@ -589,6 +578,8 @@ def _run_command_tts(command: str, timeout: float) -> subprocess.CompletedProces
         popen_kwargs["start_new_session"] = True
 
     proc = subprocess.Popen(command, **popen_kwargs)
+    if os.name != "nt":
+        proc._hermes_pgid = os.getpgid(proc.pid)
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
