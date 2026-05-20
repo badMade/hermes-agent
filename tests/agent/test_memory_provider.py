@@ -89,6 +89,15 @@ class MetadataMemoryProvider(FakeMemoryProvider):
 # ---------------------------------------------------------------------------
 
 
+
+class MinimalMemoryProvider(MemoryProvider):
+    """Barebones provider that doesn't override optional hooks."""
+    @property
+    def name(self): return "minimal"
+    def is_available(self): return True
+    def initialize(self, session_id, **kwargs): pass
+    def get_tool_schemas(self): return []
+
 class TestMemoryProviderABC:
     def test_cannot_instantiate_abstract(self):
         """ABC cannot be instantiated directly."""
@@ -100,6 +109,14 @@ class TestMemoryProviderABC:
         p = FakeMemoryProvider()
         assert p.name == "fake"
         assert p.is_available()
+
+
+    def test_on_turn_start_base_class(self):
+        """Base class on_turn_start accepts kwargs without error."""
+        p = MinimalMemoryProvider()
+        # Should not raise
+        p.on_turn_start(1, "hello")
+        p.on_turn_start(2, "hello", remaining_tokens=1000, foo="bar")
 
     def test_default_optional_hooks_are_noop(self):
         """Optional hooks have default no-op implementations."""
