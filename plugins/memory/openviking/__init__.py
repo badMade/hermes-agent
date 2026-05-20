@@ -36,6 +36,13 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+import tempfile
+import threading
+import uuid
+import zipfile
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 from urllib.request import url2pathname
 
 from agent.memory_provider import MemoryProvider
@@ -304,6 +311,7 @@ ADD_RESOURCE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "url": {"type": "string", "description": "Remote URL to add."},
             "url": {"type": "string", "description": "Remote URL or local file/directory path to add."},
             "reason": {
                 "type": "string",
