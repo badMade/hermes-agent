@@ -14,8 +14,6 @@ on:
         description: 'PR number to fix (leave empty to run on the selected branch)'
         required: false
         type: string
-  issue_comment:
-    types: [edited]
 
 permissions:
   contents: write
@@ -124,16 +122,9 @@ jobs:
           echo "::error::Failed to push after 3 rebase attempts"
           exit 1
 
-  # ── PR fix (manual / checkbox) ─────────────────────────────────────
-  # Existing behavior: run on manual dispatch OR when a task-list
-  # checkbox in the sticky lockfile-check comment flips from [ ] to [x].
+  # ── PR fix (manual dispatch) ───────────────────────────────────────
   fix:
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issue_comment'
-       && github.event.issue.pull_request != null
-       && contains(github.event.comment.body, '[x] **Apply lockfile fix**')
-       && !contains(github.event.changes.body.from, '[x] **Apply lockfile fix**'))
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -142,8 +133,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           script: |
-            // 1. Verify the actor has write access — applies to both checkbox
-            //    clicks and manual dispatch.
+            // 1. Verify the actor has write access.
             const { data: perm } =
               await github.rest.repos.getCollaboratorPermissionLevel({
                 owner: context.repo.owner,
@@ -159,9 +149,7 @@ jobs:
 
             // 2. Resolve which ref to check out.
             let prNumber = '';
-            if (context.eventName === 'issue_comment') {
-              prNumber = String(context.payload.issue.number);
-            } else if (context.eventName === 'workflow_dispatch') {
+            if (context.eventName === 'workflow_dispatch') {
               prNumber = context.payload.inputs.pr_number || '';
             }
 
