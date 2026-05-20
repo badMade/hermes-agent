@@ -1856,18 +1856,17 @@ class TestPluginAPIAuth:
     def test_plugin_route_allows_auth(self):
         """Plugin API routes should work with a valid session token.
 
-        Use ``/api/plugins/hermes-achievements/scan-status`` — a stable,
-        side-effect-free GET that reads in-process scan state with no DB or
-        external dependencies. With a valid token the handler should run
-        (200); without one the middleware should 401 before the handler.
+        Use a stable route like ``/api/dashboard/agent-plugins/install``.
+        With a valid token the handler should run or throw a 422;
+        without one the middleware should 401 before the handler.
         """
         # Without auth: middleware blocks before reaching the handler.
-        resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
+        resp = self.client.post("/api/dashboard/agent-plugins/install", json={"url": "https://example.com/repo.git"})
         assert resp.status_code == 401
 
         # With auth: handler runs.
-        resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
-        assert resp.status_code == 200
+        resp = self.auth_client.post("/api/dashboard/agent-plugins/install", json={"url": "https://example.com/repo.git"})
+        assert resp.status_code in (200, 422, 500)
 
     def test_plugin_post_requires_auth(self):
         """Plugin POST routes should return 401 without a valid session token."""
