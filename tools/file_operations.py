@@ -1064,7 +1064,6 @@ class ShellFileOperations(FileOperations):
         denial_error = _v4a_write_denial_error(operations)
         if denial_error:
             return PatchResult(error=denial_error)
-
         # Apply operations
         result = apply_v4a_operations(operations, self)
         if result.error:
