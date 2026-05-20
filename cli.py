@@ -8808,6 +8808,22 @@ class HermesCLI:
         if new_mcp == self._config_mcp_servers:
             return  # mcp_servers unchanged (some other section was edited)
 
+        def _is_stdio_server(cfg: object) -> bool:
+            return isinstance(cfg, dict) and (
+                cfg.get("transport") == "stdio" or ("command" in cfg and "url" not in cfg)
+            )
+
+        changed_servers = {
+            name
+            for name in set(self._config_mcp_servers) | set(new_mcp)
+            if self._config_mcp_servers.get(name) != new_mcp.get(name)
+        }
+        if any(
+            _is_stdio_server(self._config_mcp_servers.get(name)) or _is_stdio_server(new_mcp.get(name))
+            for name in changed_servers
+        ):
+            return  # stdio MCP diffs require explicit /reload-mcp approval
+
         self._config_mcp_servers = new_mcp
         # Notify user and reload.  Run in a separate thread with a hard
         # timeout so a hung MCP server cannot block the process_loop
