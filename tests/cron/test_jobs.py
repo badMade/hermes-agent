@@ -229,8 +229,36 @@ class TestJobCRUD:
 
     def test_remove_job(self, tmp_cron_dir):
         job = create_job(prompt="Temp job", schedule="30m")
+        output_dir = tmp_cron_dir / "cron" / "output" / job["id"]
+        output_dir.mkdir(parents=True)
+        (output_dir / "run.md").write_text("ok")
+
         assert remove_job(job["id"]) is True
+
         assert get_job(job["id"]) is None
+        assert not output_dir.exists()
+
+    def test_remove_job_skips_traversal_output_cleanup(self, tmp_cron_dir):
+        cron_dir = tmp_cron_dir / "cron"
+        sentinel = cron_dir / "KEEP_ME.txt"
+        save_jobs([{"id": "..", "prompt": "bad", "schedule": {"kind": "once"}, "enabled": True}])
+        (cron_dir / "output").mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("must stay")
+
+        assert remove_job("..") is True
+
+        assert sentinel.read_text() == "must stay"
+        assert (cron_dir / "jobs.json").exists()
+
+    def test_remove_job_skips_absolute_output_cleanup(self, tmp_cron_dir):
+        victim = tmp_cron_dir / "victim"
+        victim.mkdir()
+        (victim / "KEEP_ME.txt").write_text("must stay")
+        save_jobs([{"id": str(victim), "prompt": "bad", "schedule": {"kind": "once"}, "enabled": True}])
+
+        assert remove_job(str(victim)) is True
+
+        assert (victim / "KEEP_ME.txt").read_text() == "must stay"
 
     def test_remove_nonexistent_returns_false(self, tmp_cron_dir):
         assert remove_job("nonexistent") is False
@@ -270,6 +298,17 @@ class TestUpdateJob:
         # Verify persisted to disk
         fetched = get_job(job["id"])
         assert fetched["name"] == "New Name"
+
+    def test_update_ignores_id_mutation(self, tmp_cron_dir):
+        job = create_job(prompt="Keep id", schedule="every 1h", name="Old Name")
+
+        updated = update_job(job["id"], {"id": "..", "name": "New Name"})
+
+        assert updated is not None
+        assert updated["id"] == job["id"]
+        assert updated["name"] == "New Name"
+        assert get_job(job["id"])["id"] == job["id"]
+        assert get_job("..") is None
 
     def test_update_schedule(self, tmp_cron_dir):
         job = create_job(prompt="Daily report", schedule="every 1h")
