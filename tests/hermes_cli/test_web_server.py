@@ -1862,11 +1862,11 @@ class TestPluginAPIAuth:
         (200); without one the middleware should 401 before the handler.
         """
         # Without auth: middleware blocks before reaching the handler.
-        resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
+        resp = self.client.get("/api/plugins/kanban/board")
         assert resp.status_code == 401
 
         # With auth: handler runs.
-        resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
+        resp = self.auth_client.get("/api/plugins/kanban/board")
         assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
