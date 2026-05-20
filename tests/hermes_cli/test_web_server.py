@@ -1841,6 +1841,12 @@ class TestPluginAPIAuth:
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
+        # Mock a plugin route
+        @app.get("/api/plugins/test-plugin/scan-status")
+        def mock_scan_status():
+            return {"status": "ok"}
+        app.router.routes.insert(0, app.router.routes.pop())
+
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
         self.client = TestClient(app)
@@ -1849,24 +1855,17 @@ class TestPluginAPIAuth:
 
     def test_plugin_route_requires_auth(self):
         """Plugin API routes should return 401 without a valid session token."""
-        # Use a known plugin route (kanban board)
-        resp = self.client.get("/api/plugins/kanban/board")
+        resp = self.client.get("/api/plugins/test-plugin/scan-status")
         assert resp.status_code == 401
 
     def test_plugin_route_allows_auth(self):
-        """Plugin API routes should work with a valid session token.
-
-        Use ``/api/plugins/hermes-achievements/scan-status`` — a stable,
-        side-effect-free GET that reads in-process scan state with no DB or
-        external dependencies. With a valid token the handler should run
-        (200); without one the middleware should 401 before the handler.
-        """
+        """Plugin API routes should work with a valid session token."""
         # Without auth: middleware blocks before reaching the handler.
-        resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
+        resp = self.client.get("/api/plugins/test-plugin/scan-status")
         assert resp.status_code == 401
 
         # With auth: handler runs.
-        resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
+        resp = self.auth_client.get("/api/plugins/test-plugin/scan-status")
         assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
