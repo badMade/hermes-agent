@@ -2082,6 +2082,12 @@ class TestDashboardPluginManifestExtensions:
         from hermes_cli import web_server
         web_server._dashboard_plugins_cache = None
 
+        from fastapi import FastAPI
+        import hermes_cli.web_server
+        old_app = hermes_cli.web_server.app
+        hermes_cli.web_server.app = FastAPI()
+        web_server._mount_plugin_api_routes()
+        hermes_cli.web_server.app = old_app
         assert marker.read_text() == "executed"
 
     def test_override_and_hidden_carried_through(self, tmp_path, monkeypatch):
