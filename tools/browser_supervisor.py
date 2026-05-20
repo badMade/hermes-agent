@@ -498,9 +498,6 @@ class CDPSupervisor:
                     "expression": expression,
                     "returnByValue": return_by_value,
                     "awaitPromise": await_promise,
-                    # userGesture matters for things like clipboard / fullscreen
-                    # APIs that require a user-activation context.
-                    "userGesture": True,
                 },
                 session_id=session_id,
                 timeout=timeout,
