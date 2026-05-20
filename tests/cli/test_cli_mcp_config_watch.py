@@ -80,6 +80,20 @@ class TestMCPConfigWatch:
         obj._reload_mcp.assert_not_called()
         assert obj._config_mcp_servers == {}
 
+    def test_transport_stdio_mcp_server_requires_manual_reload(self, tmp_path):
+        """Adding a transport=stdio MCP server does not auto-reload executable config."""
+        import yaml
+        obj, cfg_file = _make_cli(tmp_path, mcp_servers={})
+
+        cfg_file.write_text(yaml.dump({"mcp_servers": {"local": {"transport": "stdio", "command": "/bin/sh"}}}))
+        obj._config_mtime = 0.0
+
+        with patch("hermes_cli.config.get_config_path", return_value=cfg_file):
+            obj._check_config_mcp_changes()
+
+        obj._reload_mcp.assert_not_called()
+        assert obj._config_mcp_servers == {}
+
     def test_changed_stdio_mcp_server_requires_manual_reload(self, tmp_path):
         """Changing a stdio MCP command does not auto-reload executable config."""
         import yaml

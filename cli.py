@@ -8805,24 +8805,26 @@ class HermesCLI:
             return
 
         new_mcp = new_cfg.get("mcp_servers") or {}
-        if new_mcp == self._config_mcp_servers:
+        current_mcp = self._config_mcp_servers
+        if new_mcp == current_mcp:
             return  # mcp_servers unchanged (some other section was edited)
 
-        def _is_stdio_server(cfg: object) -> bool:
-            return isinstance(cfg, dict) and (
-                cfg.get("transport") == "stdio" or ("command" in cfg and "url" not in cfg)
+        def _is_stdio_server(server_cfg: object) -> bool:
+            return isinstance(server_cfg, dict) and (
+                server_cfg.get("transport") == "stdio"
+                or ("command" in server_cfg and "url" not in server_cfg)
             )
 
-        changed_servers = {
-            name
-            for name in set(self._config_mcp_servers) | set(new_mcp)
-            if self._config_mcp_servers.get(name) != new_mcp.get(name)
-        }
-        if any(
-            _is_stdio_server(self._config_mcp_servers.get(name)) or _is_stdio_server(new_mcp.get(name))
-            for name in changed_servers
-        ):
-            return  # stdio MCP diffs require explicit /reload-mcp approval
+        changed_server_names = set(current_mcp) | set(new_mcp)
+        for server_name in changed_server_names:
+            old_server = current_mcp.get(server_name)
+            new_server = new_mcp.get(server_name)
+            if old_server == new_server:
+                continue
+            if _is_stdio_server(old_server) or _is_stdio_server(new_server):
+                print()
+                print("⚠️  MCP stdio server config changed — run /reload-mcp to apply executable changes.")
+                return
 
         self._config_mcp_servers = new_mcp
         # Notify user and reload.  Run in a separate thread with a hard
