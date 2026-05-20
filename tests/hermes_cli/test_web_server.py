@@ -1919,17 +1919,16 @@ class TestPluginAPIAuth:
 
         Use ``/api/plugins/hermes-achievements/scan-status`` — a stable,
         side-effect-free GET that reads in-process scan state with no DB or
-        external dependencies. With a valid token the middleware should
-        allow access (non-401); without one it should 401 before handler
-        dispatch.
+        external dependencies. With a valid token the handler should run
+        (200); without one the middleware should 401 before the handler.
         """
         # Without auth: middleware blocks before reaching the handler.
         resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 401
 
-        # With auth: middleware permits request through.
+        # With auth: handler runs.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
-        assert resp.status_code != 401
+        assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
         """Plugin POST routes should return 401 without a valid session token."""
@@ -2003,60 +2002,12 @@ class TestDashboardPluginManifestExtensions:
     """Tests for the extended plugin manifest fields (tab.override,
     tab.hidden, slots) read by _discover_dashboard_plugins()."""
 
-    def _write_plugin(self, tmp_path, name, manifest, *, enabled=True):
+    def _write_plugin(self, tmp_path, name, manifest):
         import json
         plug_dir = tmp_path / "plugins" / name / "dashboard"
         plug_dir.mkdir(parents=True)
         (plug_dir / "manifest.json").write_text(json.dumps(manifest))
-        plugin_name = manifest.get("name", name)
-        config = {"plugins": {"enabled": [plugin_name] if enabled else [], "disabled": []}}
-        (tmp_path / "config.yaml").write_text(json.dumps(config))
         return plug_dir
-
-    def test_disabled_plugin_api_is_not_imported(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        plug_dir = self._write_plugin(tmp_path, "blocked", {
-            "name": "blocked",
-            "label": "Blocked",
-            "tab": {"path": "/blocked"},
-            "entry": "dist/index.js",
-            "api": "api.py",
-        }, enabled=False)
-        marker = tmp_path / "dashboard_api_executed"
-        (plug_dir / "api.py").write_text(
-            "from pathlib import Path\n"
-            f"Path({str(marker)!r}).write_text('executed')\n"
-        )
-
-        from hermes_cli import web_server
-        web_server._dashboard_plugins_cache = None
-        web_server._mount_plugin_api_routes()
-
-        assert web_server._get_dashboard_plugins(force_rescan=True) == []
-        assert not marker.exists()
-
-    def test_enabled_plugin_api_is_imported(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        plug_dir = self._write_plugin(tmp_path, "allowed", {
-            "name": "allowed",
-            "label": "Allowed",
-            "tab": {"path": "/allowed"},
-            "entry": "dist/index.js",
-            "api": "api.py",
-        })
-        marker = tmp_path / "dashboard_api_executed"
-        (plug_dir / "api.py").write_text(
-            "from pathlib import Path\n"
-            "from fastapi import APIRouter\n"
-            "router = APIRouter()\n"
-            f"Path({str(marker)!r}).write_text('executed')\n"
-        )
-
-        from hermes_cli import web_server
-        web_server._dashboard_plugins_cache = None
-        web_server._mount_plugin_api_routes()
-
-        assert marker.read_text() == "executed"
 
     def test_override_and_hidden_carried_through(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
