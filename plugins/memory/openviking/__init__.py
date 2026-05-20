@@ -30,11 +30,7 @@ import logging
 import mimetypes
 import os
 import threading
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
 import tempfile
-import threading
 import uuid
 import zipfile
 from pathlib import Path
@@ -299,8 +295,6 @@ REMEMBER_SCHEMA = {
 ADD_RESOURCE_SCHEMA = {
     "name": "viking_add_resource",
     "description": (
-        "Add a remote URL to the OpenViking knowledge base. "
-        "Resources must be reachable by OpenViking without reading local host files. "
         "Add a remote URL or local file/directory to the OpenViking knowledge base. "
         "Remote resources must be public http(s), git, or ssh URLs. "
         "Local files are uploaded first using OpenViking temp_upload. "
