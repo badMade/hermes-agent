@@ -1583,8 +1583,8 @@ class AIAgent:
                         self._bedrock_guardrail_config["streamProcessingMode"] = _gr["stream_processing_mode"]
                     if _gr.get("trace"):
                         self._bedrock_guardrail_config["trace"] = _gr["trace"]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to load AWS Bedrock guardrail configuration: %s", e)
             self.client = None
             self._client_kwargs = {}
             if not self.quiet_mode:
