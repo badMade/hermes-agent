@@ -39,6 +39,7 @@ env:
   IMAGE_NAME: nousresearch/hermes-agent
 
 jobs:
+
   # Release publishes are allowed only when the release tag resolves to a
   # commit already reachable from main. This prevents release/tag creation
   # privileges from bypassing main branch review for official Docker images.
@@ -72,7 +73,6 @@ jobs:
             echo "release_allowed=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-
   # ---------------------------------------------------------------------------
   # Build amd64 natively.  This job also runs the smoke tests (basic --help
   # and the dashboard subcommand regression guard from #9153), because amd64

@@ -175,23 +175,15 @@ jobs:
               repo: context.repo.repo,
               pull_number: Number(prNumber),
             });
-            core.setOutput('pr', String(pr.number));
-
-            // Never execute fork-controlled workflow, action, or Nix code in
-            // this write-token workflow. Fork PRs must update lockfiles from
-            // an unprivileged check or by pushing a contributor-owned commit.
             const headRepo = pr.head.repo;
-            const baseRepo = `${context.repo.owner}/${context.repo.repo}`;
-            if (!headRepo || headRepo.full_name !== baseRepo) {
-              core.setFailed(
-                'Refusing to run lockfile fix on a fork PR because it would execute untrusted PR code with repository secrets.'
-              );
+            if (!headRepo || headRepo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.setFailed('Refusing to run lockfile fix on a fork PR.');
               return;
             }
-
             core.setOutput('ref', pr.head.ref);
             core.setOutput('repo', context.repo.repo);
             core.setOutput('owner', context.repo.owner);
+            core.setOutput('pr', String(pr.number));
 
       # Wipe the sticky lockfile-check comment to a "running" state as soon
       # as the job is authorized, so the user sees their click was picked up
