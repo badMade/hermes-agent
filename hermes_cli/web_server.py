@@ -3773,6 +3773,11 @@ def _dashboard_plugin_is_enabled(name: str, directory_name: str) -> bool:
         enabled = _get_enabled_plugins()
         return enabled is not None and (name in enabled or directory_name in enabled)
     except Exception:
+        _log.exception(
+            "Failed to evaluate dashboard plugin allowlist for %s (%s)",
+            name,
+            directory_name,
+        )
         return False
 
 
