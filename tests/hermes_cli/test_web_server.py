@@ -1839,9 +1839,14 @@ class TestPluginAPIAuth:
 
         import hermes_state
         from hermes_constants import get_hermes_home
+        from hermes_cli import web_server
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
+
+        # Ensure plugin routes are mounted for tests since _mount_plugin_api_routes uses _dashboard_plugins_cache
+        web_server._dashboard_plugins_cache = None
+        web_server._mount_plugin_api_routes()
 
         self.client = TestClient(app)
         self.auth_client = TestClient(app)
@@ -1856,17 +1861,16 @@ class TestPluginAPIAuth:
     def test_plugin_route_allows_auth(self):
         """Plugin API routes should work with a valid session token.
 
-        Use ``/api/plugins/hermes-achievements/scan-status`` — a stable,
-        side-effect-free GET that reads in-process scan state with no DB or
-        external dependencies. With a valid token the handler should run
+        Use ``/api/plugins/kanban/diagnostics`` — a stable GET route.
+        With a valid token the handler should run
         (200); without one the middleware should 401 before the handler.
         """
         # Without auth: middleware blocks before reaching the handler.
-        resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
+        resp = self.client.get("/api/plugins/kanban/diagnostics")
         assert resp.status_code == 401
 
         # With auth: handler runs.
-        resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
+        resp = self.auth_client.get("/api/plugins/kanban/diagnostics")
         assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
