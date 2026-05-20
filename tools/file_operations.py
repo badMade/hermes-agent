@@ -87,6 +87,8 @@ def _get_safe_write_root() -> Optional[str]:
 
 def _is_write_denied(path: str) -> bool:
     """Return True if path is on the write deny list."""
+    # base_dir is retained for backward compatibility with older callers/tests;
+    # the shared policy helper now resolves paths solely from the target path.
     return _shared_is_write_denied(path)
 
 
@@ -1045,7 +1047,7 @@ class ShellFileOperations(FileOperations):
         operations, parse_error = parse_v4a_patch(patch_content)
         if parse_error:
             return PatchResult(error=f"Failed to parse patch: {parse_error}")
-        
+
         # Apply operations
         result = apply_v4a_operations(operations, self)
         return result

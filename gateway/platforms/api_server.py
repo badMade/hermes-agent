@@ -527,9 +527,15 @@ class _IdempotencyCache:
 _idem_cache = _IdempotencyCache()
 
 
-def _make_request_fingerprint(body: Dict[str, Any], keys: List[str]) -> str:
+def _make_request_fingerprint(
+    body: Dict[str, Any],
+    keys: List[str],
+    extra: Optional[Dict[str, Any]] = None,
+) -> str:
     from hashlib import sha256
     subset = {k: body.get(k) for k in keys}
+    if extra:
+        subset["__headers__"] = extra
     return sha256(repr(subset).encode("utf-8")).hexdigest()
 
 
@@ -611,9 +617,9 @@ class APIServerAdapter(BasePlatformAdapter):
         self._active_run_tasks: Dict[str, "asyncio.Task"] = {}
         # Pollable run status for dashboards and external control-plane UIs.
         self._run_statuses: Dict[str, Dict[str, Any]] = {}
-        # Active approval session key for each run_id.  The approval core
-        # resolves requests by session key, while API clients address the
-        # in-flight run by run_id.
+        # Active approval session key for each run_id.  API runs use a
+        # per-run approval key so concurrent runs sharing conversation
+        # continuity cannot resolve each other's approval prompts.
         self._run_approval_sessions: Dict[str, str] = {}
         self._session_db: Optional[Any] = None  # Lazy-init SessionDB for session continuity
 
@@ -720,6 +726,66 @@ class APIServerAdapter(BasePlatformAdapter):
     # (e.g. ``agent:main:webui:dm:user-42``) while staying small enough
     # that the sanitized form is safe to pass into Honcho / state.db.
     _MAX_SESSION_HEADER_LEN = 256
+    _API_SESSION_KEY_PREFIX = "api-server"
+
+    def _api_session_scope_key(self, raw: str) -> str:
+        """Return a deterministic API-server-only memory scope key."""
+        scope_digest = hmac.new(
+            self._api_key.encode("utf-8"),
+            raw.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{self._API_SESSION_KEY_PREFIX}-{scope_digest}"
+
+
+    _API_SESSION_ID_RE = re.compile(r"^(?:api-[0-9a-f]{16}|[0-9]{8}_[0-9]{6}_[0-9a-f]{6})$")
+
+    def _load_api_session_history(
+        self, provided_session_id: str
+    ) -> tuple[Optional[str], List[Dict[str, Any]], Optional["web.Response"]]:
+        """Validate an API session header and load only API-owned history."""
+        if not self._api_key:
+            logger.warning(
+                "Session continuation via X-Hermes-Session-Id rejected: "
+                "no API key configured. Set API_SERVER_KEY to enable session continuity."
+            )
+            return None, [], web.json_response(
+                _openai_error(
+                    "Session continuation requires API key authentication. "
+                    "Configure API_SERVER_KEY to enable this feature."
+                ),
+                status=403,
+            )
+
+        if (
+            len(provided_session_id) > self._MAX_SESSION_HEADER_LEN
+            or not self._API_SESSION_ID_RE.fullmatch(provided_session_id)
+        ):
+            return None, [], web.json_response(
+                {"error": {"message": "Invalid session ID", "type": "invalid_request_error"}},
+                status=400,
+            )
+
+        try:
+            db = self._ensure_session_db()
+            if db is None:
+                return provided_session_id, [], None
+
+            session_row = db.get_session(provided_session_id)
+            if not session_row or session_row.get("source") != "api_server":
+                return None, [], web.json_response(
+                    {"error": {"message": "Unknown session ID", "type": "invalid_request_error"}},
+                    status=404,
+                )
+
+            return (
+                provided_session_id,
+                db.get_messages_as_conversation(provided_session_id, source="api_server"),
+                None,
+            )
+        except Exception as e:
+            logger.warning("Failed to load API session history for %s: %s", provided_session_id, e)
+            return provided_session_id, [], None
 
     def _parse_session_key_header(
         self, request: "web.Request"
@@ -736,9 +802,10 @@ class APIServerAdapter(BasePlatformAdapter):
         on validation failure.
 
         Security: like session continuation, accepting a caller-supplied
-        memory scope requires API-key authentication so that an
-        unauthenticated client on a local-only server can't inject itself
-        into another user's long-term memory scope by guessing a key.
+        memory scope requires API-key authentication.  The caller's key is
+        then converted to an API-server namespace bound to the configured
+        bearer key, so API clients cannot impersonate deterministic native
+        gateway session keys (for example Telegram/Slack memory scopes).
         """
         raw = request.headers.get("X-Hermes-Session-Key", "").strip()
         if not raw:
@@ -771,7 +838,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 status=400,
             )
 
-        return raw, None
+        return self._api_session_scope_key(raw), None
 
     # ------------------------------------------------------------------
     # Session DB helper
@@ -1061,42 +1128,15 @@ class APIServerAdapter(BasePlatformAdapter):
         if key_err is not None:
             return key_err
 
-        # Allow caller to continue an existing session by passing X-Hermes-Session-Id.
-        # When provided, history is loaded from state.db instead of from the request body.
-        #
-        # Security: session continuation exposes conversation history, so it is
-        # only allowed when the API key is configured and the request is
-        # authenticated.  Without this gate, any unauthenticated client could
-        # read arbitrary session history by guessing/enumerating session IDs.
+        # Allow callers to continue an API-server transcript only by echoing
+        # a server-issued X-Hermes-Session-Id. Never treat this header as a
+        # global SessionDB key: cross-platform sessions may contain private
+        # chats and tool output from CLI or messaging gateways.
         provided_session_id = request.headers.get("X-Hermes-Session-Id", "").strip()
         if provided_session_id:
-            if not self._api_key:
-                logger.warning(
-                    "Session continuation via X-Hermes-Session-Id rejected: "
-                    "no API key configured.  Set API_SERVER_KEY to enable "
-                    "session continuity."
-                )
-                return web.json_response(
-                    _openai_error(
-                        "Session continuation requires API key authentication. "
-                        "Configure API_SERVER_KEY to enable this feature."
-                    ),
-                    status=403,
-                )
-            # Sanitize: reject control characters that could enable header injection.
-            if re.search(r'[\r\n\x00]', provided_session_id):
-                return web.json_response(
-                    {"error": {"message": "Invalid session ID", "type": "invalid_request_error"}},
-                    status=400,
-                )
-            session_id = provided_session_id
-            try:
-                db = self._ensure_session_db()
-                if db is not None:
-                    history = db.get_messages_as_conversation(session_id)
-            except Exception as e:
-                logger.warning("Failed to load session history for %s: %s", session_id, e)
-                history = []
+            session_id, history, session_err = self._load_api_session_history(provided_session_id)
+            if session_err is not None:
+                return session_err
         else:
             # Derive a stable session ID from the conversation fingerprint so
             # that consecutive messages from the same Open WebUI (or similar)
@@ -1220,7 +1260,11 @@ class APIServerAdapter(BasePlatformAdapter):
 
         idempotency_key = request.headers.get("Idempotency-Key")
         if idempotency_key:
-            fp = _make_request_fingerprint(body, keys=["model", "messages", "tools", "tool_choice", "stream"])
+            fp = _make_request_fingerprint(
+                body,
+                keys=["model", "messages", "tools", "tool_choice", "stream"],
+                extra={"X-Hermes-Session-Id": session_id},
+            )
             try:
                 result, usage = await _idem_cache.get_or_set(idempotency_key, fp, _compute_completion)
             except Exception as e:
@@ -2917,7 +2961,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         run_id = f"run_{uuid.uuid4().hex}"
         session_id = body.get("session_id") or stored_session_id or run_id
-        approval_session_key = gateway_session_key or session_id or run_id
+        approval_session_key = f"api_run:{run_id}"
         ephemeral_system_prompt = instructions
         loop = asyncio.get_running_loop()
         q: "asyncio.Queue[Optional[Dict]]" = asyncio.Queue()
@@ -2984,19 +3028,23 @@ class APIServerAdapter(BasePlatformAdapter):
                     from gateway.session_context import clear_session_vars, set_session_vars
                     from tools.approval import (
                         register_gateway_notify,
+                        reset_current_run_id,
                         reset_current_session_key,
+                        set_current_run_id,
                         set_current_session_key,
                         unregister_gateway_notify,
                     )
 
                     effective_task_id = session_id or run_id
                     approval_token = None
+                    approval_run_token = None
                     session_tokens = []
                     try:
                         # Bind approval/session identity for this API run via
                         # contextvars so concurrent runs do not share process
                         # environment state.
                         approval_token = set_current_session_key(approval_session_key)
+                        approval_run_token = set_current_run_id(run_id)
                         session_tokens = set_session_vars(
                             platform="api_server",
                             session_key=approval_session_key,
@@ -3011,6 +3059,11 @@ class APIServerAdapter(BasePlatformAdapter):
                         try:
                             unregister_gateway_notify(approval_session_key)
                         finally:
+                            if approval_run_token is not None:
+                                try:
+                                    reset_current_run_id(approval_run_token)
+                                except Exception:
+                                    pass
                             if approval_token is not None:
                                 try:
                                     reset_current_session_key(approval_token)

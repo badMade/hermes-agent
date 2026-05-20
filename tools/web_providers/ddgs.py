@@ -27,6 +27,7 @@ See https://duckduckgo.com/?q=duckduckgo+tos for terms of use.
 
 from __future__ import annotations
 
+import functools
 import logging
 from importlib import metadata, util
 from pathlib import Path
@@ -46,6 +47,7 @@ def _path_within(child: Path, parent: Path) -> bool:
         return False
 
 
+@functools.lru_cache(maxsize=1)
 def ddgs_package_available() -> bool:
     """Return True when the installed ``ddgs`` distribution owns the import target.
 
