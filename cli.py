@@ -8811,7 +8811,7 @@ class HermesCLI:
         if new_mcp == current_mcp:
             return  # mcp_servers unchanged (some other section was edited)
 
-        old_mcp = self._config_mcp_servers
+        old_mcp = current_mcp
         def _is_stdio_server(server_cfg: object) -> bool:
             return isinstance(server_cfg, dict) and bool(server_cfg.get("command"))
 
