@@ -276,8 +276,8 @@ def _get_proxy_for_base_url(base_url: Optional[str]) -> Optional[str]:
     try:
         if urllib.request.proxy_bypass_environment(host):
             return None
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to check proxy bypass for %s: %s", host, e)
 
     return proxy
 
