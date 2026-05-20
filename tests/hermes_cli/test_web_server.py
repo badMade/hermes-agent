@@ -1853,21 +1853,44 @@ class TestPluginAPIAuth:
         resp = self.client.get("/api/plugins/kanban/board")
         assert resp.status_code == 401
 
+
+
+
+
+
+
     def test_plugin_route_allows_auth(self):
         """Plugin API routes should work with a valid session token.
 
-        Use ``/api/plugins/hermes-achievements/scan-status`` — a stable,
-        side-effect-free GET that reads in-process scan state with no DB or
-        external dependencies. With a valid token the handler should run
-        (200); without one the middleware should 401 before the handler.
+        Injects a dummy route into the app to ensure we can test the happy
+        path (200 OK) without relying on bundled plugins being present on disk
+        in the CI environment.
         """
-        # Without auth: middleware blocks before reaching the handler.
-        resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
-        assert resp.status_code == 401
+        from hermes_cli.web_server import app
 
-        # With auth: handler runs.
-        resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
-        assert resp.status_code == 200
+        from fastapi import APIRouter
+        router = APIRouter()
+        @router.get("/api/plugins/dummy/scan-status")
+        def dummy_scan_status():
+            return {"status": "ok"}
+
+        app.router.routes.insert(0, router.routes[0])
+
+        try:
+            from starlette.testclient import TestClient
+            from hermes_cli.web_server import _SESSION_HEADER_NAME, _SESSION_TOKEN
+
+            client = TestClient(app)
+            auth_client = TestClient(app)
+            auth_client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
+
+            resp = client.get("/api/plugins/dummy/scan-status")
+            assert resp.status_code == 401
+
+            resp = auth_client.get("/api/plugins/dummy/scan-status")
+            assert resp.status_code == 200
+        finally:
+            app.router.routes = [r for r in app.router.routes if getattr(r, "path", None) != "/api/plugins/dummy/scan-status"]
 
     def test_plugin_post_requires_auth(self):
         """Plugin POST routes should return 401 without a valid session token."""
