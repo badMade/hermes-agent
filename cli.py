@@ -8808,6 +8808,18 @@ class HermesCLI:
         if new_mcp == self._config_mcp_servers:
             return  # mcp_servers unchanged (some other section was edited)
 
+        # Skip auto-reload if any added or changed server is command/stdio-based.
+        # Automatically spawning new executables from a file-watcher is unsafe;
+        # those diffs require a manual /reload-mcp instead.
+        old_mcp = self._config_mcp_servers
+        has_stdio_change = any(
+            isinstance(new_mcp.get(name), dict) and new_mcp[name].get("command")
+            for name in set(old_mcp) | set(new_mcp)
+            if new_mcp.get(name) != old_mcp.get(name)
+        )
+        if has_stdio_change:
+            return  # Require manual /reload-mcp for command-based server changes
+
         self._config_mcp_servers = new_mcp
         # Notify user and reload.  Run in a separate thread with a hard
         # timeout so a hung MCP server cannot block the process_loop
