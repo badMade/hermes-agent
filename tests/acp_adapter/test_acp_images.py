@@ -137,6 +137,40 @@ def test_acp_resource_link_image_mime_inferred_from_suffix(tmp_path):
     assert image_parts[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
 
 
+def test_acp_resource_link_image_rejects_non_regular_files():
+    content = _content_blocks_to_openai_user_content([
+        ResourceContentBlock(
+            type="resource_link",
+            name="zero.png",
+            uri="file:///dev/null",
+            mimeType="image/png",
+        ),
+    ])
+
+    assert isinstance(content, str)
+    assert "[Could not read attached image:" in content
+    assert "not a regular file" in content
+    assert "data:image/png;base64" not in content
+
+
+def test_acp_resource_link_image_rejects_files_over_cap(tmp_path):
+    attached = tmp_path / "large.png"
+    attached.write_bytes(b"x" * (512 * 1024 + 1))
+
+    content = _content_blocks_to_openai_user_content([
+        ResourceContentBlock(
+            type="resource_link",
+            name="large.png",
+            uri=attached.as_uri(),
+            mimeType="image/png",
+        ),
+    ])
+
+    assert isinstance(content, str)
+    assert "[Image too large to inline:" in content
+    assert "data:image/png;base64" not in content
+
+
 def test_acp_embedded_blob_image_is_inlined_as_image_url():
     b64 = base64.b64encode(_ONE_PX_PNG).decode("ascii")
     content = _content_blocks_to_openai_user_content([

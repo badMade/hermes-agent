@@ -8,6 +8,7 @@ import contextvars
 import json
 import logging
 import os
+import stat
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -146,6 +147,34 @@ def _image_data_url(data: bytes, mime_type: str) -> str:
     return f"data:{mime_type};base64,{base64.b64encode(data).decode('ascii')}"
 
 
+def _read_regular_file_bytes(path: Path, byte_limit: int) -> tuple[bytes, int, bool]:
+    """Read capped bytes from a regular file without blocking on special files."""
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    fd = os.open(path, flags)
+    try:
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise OSError(f"not a regular file: {path}")
+
+        chunks: list[bytes] = []
+        remaining = byte_limit + 1
+        while remaining > 0:
+            chunk = os.read(fd, min(remaining, 64 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+
+        data = b"".join(chunks)
+        observed_size = len(data)
+        truncated = observed_size > byte_limit
+        if truncated:
+            data = data[:byte_limit]
+        return data, max(file_stat.st_size, observed_size), truncated
+    finally:
+        os.close(fd)
+
+
 def _path_from_file_uri(uri: str) -> Path | None:
     """Convert local file URIs/paths from ACP clients into a readable Path.
 
@@ -241,8 +270,8 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
     image_mime = mime_type if _is_image_resource(mime_type) else _guess_image_mime_from_path(path)
     if image_mime and _is_image_resource(image_mime):
         try:
-            size = path.stat().st_size
-            if size > _MAX_ACP_RESOURCE_BYTES:
+            data, size, truncated = _read_regular_file_bytes(path, _MAX_ACP_RESOURCE_BYTES)
+            if truncated or size > _MAX_ACP_RESOURCE_BYTES:
                 return [{
                     "type": "text",
                     "text": _format_resource_text(
@@ -252,8 +281,6 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
                         body=f"[Image too large to inline: {size} bytes, cap={_MAX_ACP_RESOURCE_BYTES}]",
                     ),
                 }]
-            with path.open("rb") as fh:
-                data = fh.read()
         except OSError as exc:
             logger.warning("ACP image resource read failed: %s", uri, exc_info=True)
             return [{
@@ -272,10 +299,7 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
         ]
 
     try:
-        size = path.stat().st_size
-        read_size = min(size, _MAX_ACP_RESOURCE_BYTES)
-        with path.open("rb") as fh:
-            data = fh.read(read_size)
+        data, size, truncated = _read_regular_file_bytes(path, _MAX_ACP_RESOURCE_BYTES)
         text = _decode_text_bytes(data, mime_type)
         if text is None:
             return [{
@@ -288,7 +312,7 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
                 ),
             }]
         note = None
-        if size > _MAX_ACP_RESOURCE_BYTES:
+        if truncated or size > _MAX_ACP_RESOURCE_BYTES:
             note = f"truncated to {_MAX_ACP_RESOURCE_BYTES} of {size} bytes"
         return [{
             "type": "text",
