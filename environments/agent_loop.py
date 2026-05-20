@@ -294,7 +294,7 @@ class HermesAgentLoop:
                             len(parsed_calls),
                         )
                 except Exception as e:
-                    logger.warning("Fallback parser failed: %s", e)
+                    logger.warning("Fallback parser failed", exc_info=True)
                     # Fall through to no tool calls
 
             if assistant_msg.tool_calls:
