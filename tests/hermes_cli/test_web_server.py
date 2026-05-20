@@ -1853,20 +1853,42 @@ class TestPluginAPIAuth:
         resp = self.client.get("/api/plugins/kanban/board")
         assert resp.status_code == 401
 
-    def test_plugin_route_allows_auth(self):
+    def test_plugin_route_allows_auth(self, tmp_path, monkeypatch):
         """Plugin API routes should work with a valid session token.
 
-        Use ``/api/plugins/hermes-achievements/scan-status`` — a stable,
-        side-effect-free GET that reads in-process scan state with no DB or
-        external dependencies. With a valid token the handler should run
-        (200); without one the middleware should 401 before the handler.
+        Mount a temporary plugin route so this assertion doesn't depend on
+        whether any bundled plugin API is present in the test environment.
         """
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        plugin_dir = tmp_path / "plugins" / "auth-test" / "dashboard"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "manifest.json").write_text(json.dumps({
+            "name": "auth-test",
+            "label": "Auth Test",
+            "tab": {"path": "/auth-test"},
+            "entry": "dist/index.js",
+            "api": "api.py",
+        }))
+        (tmp_path / "config.yaml").write_text(json.dumps({
+            "plugins": {"enabled": ["auth-test"], "disabled": []},
+        }))
+        (plugin_dir / "api.py").write_text(
+            "from fastapi import APIRouter\n"
+            "router = APIRouter()\n"
+            "@router.get('/scan-status')\n"
+            "def scan_status():\n"
+            "    return {'ok': True}\n"
+        )
+        from hermes_cli import web_server
+        web_server._dashboard_plugins_cache = None
+        web_server._mount_plugin_api_routes()
+
         # Without auth: middleware blocks before reaching the handler.
-        resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
+        resp = self.client.get("/api/plugins/auth-test/scan-status")
         assert resp.status_code == 401
 
         # With auth: handler runs.
-        resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
+        resp = self.auth_client.get("/api/plugins/auth-test/scan-status")
         assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
