@@ -1826,6 +1826,21 @@ class TestNormaliseThemeExtensions:
         assert r["componentStyles"]["card"] == {"opacity": "0.8", "zIndex": "5"}
 
 
+def test_kanban_plugin_security_note_warns_against_public_binds():
+    """Kanban plugin docs must not imply public dashboard binds are safe."""
+    note = (
+        Path(__file__).resolve().parents[2]
+        / "plugins"
+        / "kanban"
+        / "dashboard"
+        / "plugin_api.py"
+    ).read_text()
+
+    assert "is safe to run on a LAN" not in note
+    assert "Do not expose ``hermes dashboard`` on" in note
+    assert "session token is not robust protection" in note
+
+
 class TestPluginAPIAuth:
     """Tests that plugin API routes require the session token (issue #19533)."""
 

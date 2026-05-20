@@ -18,19 +18,19 @@ Plugin HTTP routes go through the dashboard's session-token auth middleware
 ``/api/plugins/...`` request must present the session bearer token (or the
 session cookie set when you load the dashboard HTML). The token is the
 random per-process ``_SESSION_TOKEN`` printed at startup; the dashboard's
-own pages inject it via ``window.__HERMES_SESSION_TOKEN__`` so logged-in
-browsers don't have to handle it manually.
+own pages also inject it via ``window.__HERMES_SESSION_TOKEN__`` so the SPA
+can call protected APIs.
+
+Because the dashboard HTML is served before API authentication and contains
+that token, the session token is not robust protection against other users
+who can reach the dashboard port. Do not expose ``hermes dashboard`` on
+untrusted or shared networks; non-local binds still require the explicit
+``--insecure`` override and should only be used in trusted environments.
 
 For the ``/events`` WebSocket we still require the session token as a
 ``?token=`` query parameter (browsers cannot set the ``Authorization``
 header on an upgrade request), matching the established pattern used by
 the in-browser PTY bridge in ``hermes_cli/web_server.py``.
-
-This means ``hermes dashboard --host 0.0.0.0`` is safe to run on a LAN:
-plugin routes are no longer an unauthenticated exception. The auth still
-isn't multi-user — anyone who can read the printed URL+token gets full
-dashboard access — but they can't ride along just because they can reach
-the port.
 """
 
 from __future__ import annotations
