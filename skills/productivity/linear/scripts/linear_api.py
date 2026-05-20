@@ -152,12 +152,14 @@ def _resolve_user_id(name_or_email: str) -> str | None:
 
 def _resolve_label_id(name: str) -> str | None:
     """Map a label name to UUID."""
+    if len(name) == 36 and name.count("-") == 4:
+        return name
     q = "query { issueLabels(first: 100) { nodes { id name } } }"
     labels = gql(q).get("issueLabels", {}).get("nodes", [])
     nl = name.lower()
     for l in labels:
         if l.get("name") and l["name"].lower() == nl:
-            return str(l["id"])
+            return l["id"]
     return None
 
 
