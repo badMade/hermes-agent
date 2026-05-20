@@ -2202,8 +2202,8 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     # browser_snapshot can return local files and internal service responses
     # in browser-only or reduced-tool configurations.  Hybrid routing may
     # still auto-spawn a local Chromium sidecar for ordinary private URLs
-    # (cloud provider configured + private URL +
-    # ``browser.auto_local_for_private_urls`` enabled) so the cloud provider
+    # (cloud provider configured + private URL + ``browser.auto_local_for_private_urls``
+    # enabled) so the cloud provider
     # never sees the URL.  Users can opt out globally via
     # ``browser.allow_private_urls`` in config.
     effective_task_id = task_id or "default"
@@ -2221,6 +2221,18 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
             "success": False,
             "error": "Blocked: URL targets a cloud metadata endpoint",
         })
+
+    if _is_camofox_mode():
+        if _is_always_blocked_url(url):
+            return json.dumps({
+                "success": False,
+                "error": "Blocked: URL targets a cloud metadata endpoint",
+            })
+        if not _is_safe_url(url):
+            return json.dumps({
+                "success": False,
+                "error": "Blocked: URL targets a private or internal address",
+            })
 
     if (
         not auto_local_this_nav
