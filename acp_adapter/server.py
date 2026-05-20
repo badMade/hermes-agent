@@ -8,6 +8,7 @@ import contextvars
 import json
 import logging
 import os
+import stat
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -73,6 +74,8 @@ from acp_adapter.events import (
 from acp_adapter.permissions import make_approval_callback
 from acp_adapter.session import SessionManager, SessionState, _expand_acp_enabled_toolsets
 from acp_adapter.tools import build_tool_complete, build_tool_start
+from agent.file_safety import get_read_block_error
+from agent.redact import redact_sensitive_text
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +184,36 @@ def _path_from_file_uri(uri: str) -> Path | None:
     return Path(path_text)
 
 
+def _resolve_acp_resource_path(uri: str, cwd: str | Path) -> Path:
+    """Resolve an ACP file resource path only when it stays inside session cwd."""
+    path = _path_from_file_uri(uri)
+    if path is None:
+        raise ValueError("non-file ACP resource URI")
+
+    root = Path(cwd).expanduser().resolve()
+    candidate = path.expanduser()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    resolved = candidate.resolve(strict=True)
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise PermissionError(f"Path '{resolved}' is outside the session cwd '{root}'.") from exc
+
+    block_error = get_read_block_error(str(resolved))
+    if block_error:
+        raise PermissionError(block_error)
+    return resolved
+
+
+def _safe_regular_file_stat(path: Path) -> os.stat_result:
+    """Return stat info only for regular files, avoiding blocking special files."""
+    file_stat = path.stat()
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise PermissionError(f"Access denied: '{path}' is not a regular file.")
+    return file_stat
+
+
 def _decode_text_bytes(data: bytes, mime_type: str | None) -> str | None:
     """Decode resource bytes if they are probably text; return None for binary."""
     if b"\x00" in data and not _is_text_resource(mime_type):
@@ -208,7 +241,9 @@ def _format_resource_text(
     return f"{header}\nURI: {uri}\n\n{body}"
 
 
-def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]:
+def _resource_link_to_parts(
+    block: ResourceContentBlock, *, cwd: str | Path
+) -> list[dict[str, Any]]:
     """Convert an ACP resource_link block to OpenAI content parts.
 
     Returns a list of {"type": "text", ...} and/or {"type": "image_url", ...}
@@ -223,9 +258,9 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
     name = str(getattr(block, "name", "") or "").strip() or None
     title = str(getattr(block, "title", "") or "").strip() or None
     mime_type = str(getattr(block, "mime_type", "") or "").strip() or None
-    path = _path_from_file_uri(uri)
-
-    if path is None:
+    try:
+        path = _resolve_acp_resource_path(uri, cwd)
+    except ValueError:
         return [{
             "type": "text",
             "text": _format_resource_text(
@@ -235,13 +270,24 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
                 body="[Resource link only; Hermes cannot read non-file ACP resource URIs directly.]",
             ),
         }]
+    except OSError as exc:
+        logger.warning("ACP resource rejected: %s", uri, exc_info=True)
+        return [{
+            "type": "text",
+            "text": _format_resource_text(
+                uri=uri,
+                name=name,
+                title=title,
+                body=f"[Could not read attached file: {exc}]",
+            ),
+        }]
 
     # Image files: emit a short text header + image_url data URL so vision
     # models can see the attachment instead of a "binary omitted" note.
     image_mime = mime_type if _is_image_resource(mime_type) else _guess_image_mime_from_path(path)
     if image_mime and _is_image_resource(image_mime):
         try:
-            size = path.stat().st_size
+            size = _safe_regular_file_stat(path).st_size
             if size > _MAX_ACP_RESOURCE_BYTES:
                 return [{
                     "type": "text",
@@ -272,11 +318,13 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
         ]
 
     try:
-        size = path.stat().st_size
+        size = _safe_regular_file_stat(path).st_size
         read_size = min(size, _MAX_ACP_RESOURCE_BYTES)
         with path.open("rb") as fh:
             data = fh.read(read_size)
         text = _decode_text_bytes(data, mime_type)
+        if text is not None:
+            text = redact_sensitive_text(text, force=True)
         if text is None:
             return [{
                 "type": "text",
@@ -399,6 +447,8 @@ def _content_blocks_to_openai_user_content(
         | ResourceContentBlock
         | EmbeddedResourceContentBlock
     ],
+    *,
+    cwd: str | Path = ".",
 ) -> str | list[dict[str, Any]]:
     """Convert ACP prompt blocks into a Hermes/OpenAI-compatible user content payload."""
     parts: list[dict[str, Any]] = []
@@ -416,7 +466,7 @@ def _content_blocks_to_openai_user_content(
                 parts.append(image_part)
             continue
         if isinstance(block, ResourceContentBlock):
-            resource_parts = _resource_link_to_parts(block)
+            resource_parts = _resource_link_to_parts(block, cwd=cwd)
             for part in resource_parts:
                 parts.append(part)
                 if part.get("type") == "text":
@@ -1087,7 +1137,7 @@ class HermesACPAgent(acp.Agent):
             return PromptResponse(stop_reason="refusal")
 
         user_text = _extract_text(prompt).strip()
-        user_content = _content_blocks_to_openai_user_content(prompt)
+        user_content = _content_blocks_to_openai_user_content(prompt, cwd=state.cwd)
         text_only_prompt = all(isinstance(block, TextContentBlock) for block in prompt)
         has_content = bool(user_text) or (
             isinstance(user_content, list) and bool(user_content)
