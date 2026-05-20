@@ -1843,11 +1843,11 @@ class TestPluginAPIAuth:
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
-        # Ensure the test route is only added once
-        if not any(route.path == "/api/plugins/test-plugin/dummy-route" for route in getattr(app, "routes", [])):
-            @app.get("/api/plugins/test-plugin/dummy-route")
-            def dummy_route():
-                return {"status": "ok"}
+        # Mock the dashboard route to return 200 so test passes even if plugin is missing
+        if not any(route.path == "/api/plugins/kanban/board" for route in getattr(app, "routes", [])):
+            @app.get("/api/plugins/kanban/board")
+            def dummy_board():
+                return {}
 
         self.client = TestClient(app)
         self.auth_client = TestClient(app)
@@ -1868,11 +1868,11 @@ class TestPluginAPIAuth:
         (200); without one the middleware should 401 before the handler.
         """
         # Without auth: middleware blocks before reaching the handler.
-        resp = self.client.get("/api/plugins/test-plugin/dummy-route")
+        resp = self.client.get("/api/plugins/kanban/board")
         assert resp.status_code == 401
 
         # With auth: handler runs.
-        resp = self.auth_client.get("/api/plugins/test-plugin/dummy-route")
+        resp = self.auth_client.get("/api/plugins/kanban/board")
         assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
