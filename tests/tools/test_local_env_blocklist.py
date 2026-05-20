@@ -130,6 +130,22 @@ class TestProviderEnvBlocklist:
         for var in extra_provider_vars:
             assert var not in result_env, f"{var} leaked into subprocess env"
 
+    def test_bootstrap_auth_json_var_is_stripped(self):
+        """Bootstrapped OAuth auth JSON must not leak into terminal subprocesses."""
+        from tools.environments.local import _make_run_env
+
+        with patch.dict(
+            os.environ,
+            {
+                "PATH": "/usr/bin:/bin",
+                "HERMES_AUTH_JSON_BOOTSTRAP": '{"refresh_token":"secret"}',
+            },
+            clear=True,
+        ):
+            result_env = _make_run_env({})
+
+        assert "HERMES_AUTH_JSON_BOOTSTRAP" not in result_env
+
     def test_tool_and_gateway_vars_are_stripped(self):
         """Tool and gateway secrets/config must not leak into subprocess env."""
         leaked_vars = {
@@ -237,9 +253,12 @@ class TestBlocklistCoverage:
                 )
 
     def test_extra_auth_vars_covered(self):
-        """Non-registry auth vars (ANTHROPIC_TOKEN, CLAUDE_CODE_OAUTH_TOKEN)
-        must also be in the blocklist."""
-        extras = {"ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+        """Non-registry auth vars must also be in the blocklist."""
+        extras = {
+            "ANTHROPIC_TOKEN",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "HERMES_AUTH_JSON_BOOTSTRAP",
+        }
         assert extras.issubset(_HERMES_PROVIDER_ENV_BLOCKLIST)
 
     def test_auxiliary_api_key_vars_are_in_blocklist(self):

@@ -83,6 +83,7 @@ def _build_provider_env_blocklist() -> frozenset:
         "ANTHROPIC_BASE_URL",
         "ANTHROPIC_TOKEN",
         "CLAUDE_CODE_OAUTH_TOKEN",
+        "HERMES_AUTH_JSON_BOOTSTRAP",
         "LLM_MODEL",
         "AUXILIARY_VISION_API_KEY",
         "AUXILIARY_WEB_EXTRACT_API_KEY",

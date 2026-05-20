@@ -38,3 +38,19 @@ def test_docker_dashboard_docs_use_loopback_published_port_and_explicit_opt_in()
     assert "Do not publish the dashboard on an internet-facing interface." in text
     assert '"9119:9119"' not in text
     assert "-p 9119:9119" not in text
+
+
+def test_auth_json_bootstrap_uses_private_tempfile_and_unsets_secret():
+    """Docker auth bootstrap must consume, not leak, the OAuth JSON env var."""
+    text = ENTRYPOINT.read_text()
+
+    assert 'if [ -n "${HERMES_AUTH_JSON_BOOTSTRAP:-}" ]; then' in text
+    assert 'auth_bootstrap_tmp="$(mktemp "$HERMES_HOME/auth.json.XXXXXX")"' in text
+    assert 'chmod 600 "$auth_bootstrap_tmp"' in text
+    assert "printf '%s' \"$HERMES_AUTH_JSON_BOOTSTRAP\" > \"$auth_bootstrap_tmp\"" in text
+    assert 'mv "$auth_bootstrap_tmp" "$HERMES_HOME/auth.json"' in text
+    assert 'unset HERMES_AUTH_JSON_BOOTSTRAP' in text
+
+    final_exec = text.index('# Final exec: two supported invocation patterns.')
+    assert text.index('unset HERMES_AUTH_JSON_BOOTSTRAP') < final_exec
+    assert '> "$HERMES_HOME/auth.json"' not in text

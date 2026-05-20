@@ -90,9 +90,14 @@ fi
 # boot.  The `[ ! -f ... ]` guard is critical: without it, a container
 # restart would clobber a rotated refresh token with the now-stale value
 # the orchestrator originally seeded.
-if [ ! -f "$HERMES_HOME/auth.json" ] && [ -n "$HERMES_AUTH_JSON_BOOTSTRAP" ]; then
-    printf '%s' "$HERMES_AUTH_JSON_BOOTSTRAP" > "$HERMES_HOME/auth.json"
-    chmod 600 "$HERMES_HOME/auth.json"
+if [ -n "${HERMES_AUTH_JSON_BOOTSTRAP:-}" ]; then
+    if [ ! -f "$HERMES_HOME/auth.json" ]; then
+        auth_bootstrap_tmp="$(mktemp "$HERMES_HOME/auth.json.XXXXXX")"
+        chmod 600 "$auth_bootstrap_tmp"
+        printf '%s' "$HERMES_AUTH_JSON_BOOTSTRAP" > "$auth_bootstrap_tmp"
+        mv "$auth_bootstrap_tmp" "$HERMES_HOME/auth.json"
+    fi
+    unset HERMES_AUTH_JSON_BOOTSTRAP
 fi
 
 # Sync bundled skills (manifest-based so user edits are preserved)
