@@ -3761,25 +3761,6 @@ async def set_dashboard_theme(body: ThemeSetBody):
 # ---------------------------------------------------------------------------
 
 
-def _dashboard_plugin_is_enabled(name: str, directory_name: str) -> bool:
-    """Return whether a dashboard plugin is allowed to load.
-
-    Dashboard extensions can execute Python through their ``api`` file, so
-    they must honor the same explicit opt-in gate as general plugins.
-    """
-    try:
-        from hermes_cli.plugins import _get_disabled_plugins, _get_enabled_plugins
-
-        disabled = _get_disabled_plugins()
-        if name in disabled or directory_name in disabled:
-            return False
-
-        enabled = _get_enabled_plugins()
-        return enabled is not None and (name in enabled or directory_name in enabled)
-    except Exception:
-        return False
-
-
 def _discover_dashboard_plugins() -> list:
     """Scan enabled plugins/*/dashboard/manifest.json for dashboard extensions.
 
@@ -3790,6 +3771,20 @@ def _discover_dashboard_plugins() -> list:
     """
     plugins = []
     seen_names: set = set()
+
+    # Dashboard extensions can execute Python through their ``api`` file.
+    # Treat user/project plugins as opt-in via ``plugins.enabled``. For
+    # bundled (repo-shipped) dashboard plugins, allow them when the opt-in
+    # allow-list isn't configured yet so the dashboard has a functional
+    # baseline in fresh installs and in tests that run with no config.yaml.
+    try:
+        from hermes_cli.plugins import _get_disabled_plugins, _get_enabled_plugins
+
+        disabled_plugins = _get_disabled_plugins()
+        enabled_plugins = _get_enabled_plugins()
+    except Exception:
+        disabled_plugins = set()
+        enabled_plugins = None
 
     from hermes_cli.plugins import get_bundled_plugins_dir
     bundled_root = get_bundled_plugins_dir()
@@ -3813,7 +3808,12 @@ def _discover_dashboard_plugins() -> list:
             try:
                 data = json.loads(manifest_file.read_text(encoding="utf-8"))
                 name = data.get("name", child.name)
-                if not _dashboard_plugin_is_enabled(str(name), child.name):
+                if name in disabled_plugins or child.name in disabled_plugins:
+                    continue
+                if enabled_plugins is None:
+                    if source != "bundled":
+                        continue
+                elif name not in enabled_plugins and child.name not in enabled_plugins:
                     continue
                 if name in seen_names:
                     continue
