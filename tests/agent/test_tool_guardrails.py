@@ -287,6 +287,7 @@ def test_tool_call_guardrail_controller_init():
     assert controller_default._exact_failure_counts == {}
     assert controller_default._same_tool_failure_counts == {}
     assert controller_default._no_progress == {}
+    assert controller_default._halt_decision is None
 
     # Test initialization with specific config
     custom_config = ToolCallGuardrailConfig(
