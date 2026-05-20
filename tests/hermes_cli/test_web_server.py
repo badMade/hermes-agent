@@ -1860,13 +1860,24 @@ class TestPluginAPIAuth:
         side-effect-free GET that reads in-process scan state with no DB or
         external dependencies. With a valid token the handler should run
         (200); without one the middleware should 401 before the handler.
+
+        The hermes-achievements plugin is opt-in (bundled plugins are not
+        grandfathered into ``plugins.enabled`` — see the v20→v21 migration
+        in ``hermes_cli/config.py``), so the route is not mounted in the
+        hermetic test home. The auth-gating regression this class covers is
+        independent of any single plugin being loaded, so skip the positive
+        assertion when the route isn't mounted in this environment.
         """
         # Without auth: middleware blocks before reaching the handler.
         resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 401
 
-        # With auth: handler runs.
+        # With auth: handler runs if the plugin is mounted in this env.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
+        if resp.status_code == 404:
+            pytest.skip(
+                "hermes-achievements plugin route not mounted in this environment"
+            )
         assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
