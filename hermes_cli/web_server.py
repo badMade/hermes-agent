@@ -231,6 +231,10 @@ async def auth_middleware(request: Request, call_next):
                 status_code=401,
                 content={"detail": "Unauthorized"},
             )
+
+    if path.startswith("/api/plugins/"):
+        _mount_plugin_api_routes()
+
     return await call_next(request)
 
 
@@ -3858,6 +3862,7 @@ def _discover_dashboard_plugins() -> list:
 
 # Cache discovered plugins per-process (refresh on explicit re-scan).
 _dashboard_plugins_cache: Optional[list] = None
+_plugin_api_routes_mounted = False
 
 
 def _get_dashboard_plugins(force_rescan: bool = False) -> list:
@@ -4189,14 +4194,19 @@ async def serve_plugin_asset(plugin_name: str, file_path: str):
     return FileResponse(target, media_type=media_type)
 
 
-def _mount_plugin_api_routes():
+def _mount_plugin_api_routes(force_rescan: bool = False):
     """Import and mount backend API routes from plugins that declare them.
 
     Each plugin's ``api`` field points to a Python file that must expose
     a ``router`` (FastAPI APIRouter).  Routes are mounted under
     ``/api/plugins/<name>/``.
     """
-    for plugin in _get_dashboard_plugins():
+    global _plugin_api_routes_mounted
+
+    if _plugin_api_routes_mounted and not force_rescan:
+        return
+
+    for plugin in _get_dashboard_plugins(force_rescan=force_rescan):
         api_file_name = plugin.get("_api_file")
         if not api_file_name:
             continue
@@ -4231,9 +4241,11 @@ def _mount_plugin_api_routes():
         except Exception as exc:
             _log.warning("Failed to load plugin %s API routes: %s", plugin["name"], exc)
 
+    _plugin_api_routes_mounted = True
+
 
 # Mount plugin API routes before the SPA catch-all.
-_mount_plugin_api_routes()
+_mount_plugin_api_routes(force_rescan=True)
 
 mount_spa(app)
 
