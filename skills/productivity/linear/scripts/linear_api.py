@@ -129,7 +129,7 @@ def _resolve_team_id(key_or_name: str) -> str | None:
     kl = key_or_name.lower()
     for t in teams:
         if t["key"].lower() == kl or t["name"].lower() == kl:
-            return str(t["id"])
+            return t["id"]
     return None
 
 
