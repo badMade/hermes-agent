@@ -1837,9 +1837,16 @@ class TestPluginAPIAuth:
         except ImportError:
             pytest.skip("fastapi/starlette not installed")
 
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: ["hermes-achievements"])
+
         import hermes_state
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+
+        from hermes_cli.web_server import _get_dashboard_plugins, _mount_plugin_api_routes
+        _get_dashboard_plugins(force_rescan=True)
+        _mount_plugin_api_routes()
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
