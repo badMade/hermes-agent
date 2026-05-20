@@ -1048,9 +1048,26 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             logger.error("Job '%s': %s", job_id, err)
             return False, "", "", err
 
-        # no_agent scripts already run as child processes via _run_job_script();
-        # never chdir the scheduler process for a per-job workdir.
-        ok, output = _run_job_script(script_path)
+        # Apply workdir if configured — lets scripts use predictable relative
+        # paths. For no_agent jobs this is just the subprocess cwd (not an
+        # agent TERMINAL_CWD bridge).
+        _job_workdir = (job.get("workdir") or "").strip() or None
+        _prior_cwd = None
+        if _job_workdir and Path(_job_workdir).is_dir():
+            _prior_cwd = os.getcwd()
+            try:
+                os.chdir(_job_workdir)
+            except OSError:
+                _prior_cwd = None
+
+        try:
+            ok, output = _run_job_script(script_path)
+        finally:
+            if _prior_cwd is not None:
+                try:
+                    os.chdir(_prior_cwd)
+                except OSError:
+                    pass
 
         now_iso = _hermes_now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1227,9 +1244,16 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
     for _var_name in _cron_delivery_vars:
         _VAR_MAP[_var_name].set("")
 
-    # Per-job working directory. Use a ContextVar-backed TERMINAL_CWD
-    # override so this cron job sees its project cwd without exposing that
-    # cwd to unrelated gateway/API sessions in the same process.
+    # Per-job working directory.  When set (and validated at create/update
+    # time), we point TERMINAL_CWD at it so:
+    #   - build_context_files_prompt() picks up AGENTS.md / CLAUDE.md /
+    #     .cursorrules from the job's project dir, AND
+    #   - the terminal, file, and code-exec tools run commands from there.
+    #
+    # tick() serializes workdir-jobs outside the parallel pool, so mutating
+    # os.environ["TERMINAL_CWD"] here is safe for those jobs.  For workdir-less
+    # jobs we leave TERMINAL_CWD untouched — preserves the original behaviour
+    # (skip_context_files=True, tools use whatever cwd the scheduler has).
     _job_workdir = (job.get("workdir") or "").strip() or None
     if _job_workdir and not Path(_job_workdir).is_dir():
         # Directory was removed between create-time validation and now.  Log
@@ -1239,10 +1263,9 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             job_id, _job_workdir,
         )
         _job_workdir = None
-    _terminal_cwd_token = None
+    _prior_terminal_cwd = os.environ.get("TERMINAL_CWD", "_UNSET_")
     if _job_workdir:
-        from gateway.session_context import set_terminal_cwd
-        _terminal_cwd_token = set_terminal_cwd(_job_workdir)
+        os.environ["TERMINAL_CWD"] = _job_workdir
         logger.info("Job '%s': using workdir %s", job_id, _job_workdir)
 
     try:
@@ -1594,11 +1617,14 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         return False, output, "", error_msg
 
     finally:
-        # Restore this job's session-scoped cwd override without mutating
-        # process-global os.environ.
-        if _terminal_cwd_token is not None:
-            from gateway.session_context import reset_terminal_cwd
-            reset_terminal_cwd(_terminal_cwd_token)
+        # Restore TERMINAL_CWD to whatever it was before this job ran.  We
+        # only ever mutate it when the job has a workdir; see the setup block
+        # at the top of run_job for the serialization guarantee.
+        if _job_workdir:
+            if _prior_terminal_cwd == "_UNSET_":
+                os.environ.pop("TERMINAL_CWD", None)
+            else:
+                os.environ["TERMINAL_CWD"] = _prior_terminal_cwd
         # Clean up ContextVar session/delivery state for this job.
         clear_session_vars(_ctx_tokens)
         for _var_name in _cron_delivery_vars:
@@ -1747,8 +1773,10 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                 mark_job_run(job["id"], False, str(e))
                 return False
 
-        # Partition due jobs to preserve the original scheduling behavior for
-        # workdir jobs. Their cwd is now session-scoped rather than process-global.
+        # Partition due jobs: those with a per-job workdir mutate
+        # os.environ["TERMINAL_CWD"] inside run_job, which is process-global —
+        # so they MUST run sequentially to avoid corrupting each other.  Jobs
+        # without a workdir leave env untouched and stay parallel-safe.
         workdir_jobs = [j for j in due_jobs if (j.get("workdir") or "").strip()]
         parallel_jobs = [j for j in due_jobs if not (j.get("workdir") or "").strip()]
 
