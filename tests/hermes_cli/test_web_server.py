@@ -106,11 +106,12 @@ class TestWebServerEndpoints:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            pytest.skip("fastapi/starlette not installed")
+            raise
 
         import hermes_state
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
@@ -426,8 +427,9 @@ class TestConfigRoundTrip:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            pytest.skip("fastapi/starlette not installed")
+            raise
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+
         self.client = TestClient(app)
         self.client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
 
@@ -559,11 +561,12 @@ class TestNewEndpoints:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            pytest.skip("fastapi/starlette not installed")
+            raise
 
         import hermes_state
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
@@ -1200,7 +1203,7 @@ class TestModelInfoEndpoint:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            pytest.skip("fastapi/starlette not installed")
+            raise
         from hermes_cli.web_server import app
         self.client = TestClient(app)
 
@@ -1429,9 +1432,10 @@ class TestStatusRemoteGateway:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            pytest.skip("fastapi/starlette not installed")
+            raise
 
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+
         self.client = TestClient(app)
         self.client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
 
@@ -1835,13 +1839,20 @@ class TestPluginAPIAuth:
         try:
             from starlette.testclient import TestClient
         except ImportError:
-            pytest.skip("fastapi/starlette not installed")
+            raise
 
         import hermes_state
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
+
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
+
+        # Ensure the test route is only added once
+        if not any(route.path == "/api/plugins/test-plugin/dummy-route" for route in getattr(app, "routes", [])):
+            @app.get("/api/plugins/test-plugin/dummy-route")
+            def dummy_route():
+                return {"status": "ok"}
 
         self.client = TestClient(app)
         self.auth_client = TestClient(app)
@@ -1850,7 +1861,7 @@ class TestPluginAPIAuth:
     def test_plugin_route_requires_auth(self):
         """Plugin API routes should return 401 without a valid session token."""
         # Use a known plugin route (kanban board)
-        resp = self.client.get("/api/plugins/kanban/board")
+        resp = self.client.get("/api/plugins/test-plugin/dummy-route")
         assert resp.status_code == 401
 
     def test_plugin_route_allows_auth(self):
@@ -1862,11 +1873,11 @@ class TestPluginAPIAuth:
         (200); without one the middleware should 401 before the handler.
         """
         # Without auth: middleware blocks before reaching the handler.
-        resp = self.client.get("/api/plugins/kanban/board")
+        resp = self.client.get("/api/plugins/test-plugin/dummy-route")
         assert resp.status_code == 401
 
         # With auth: handler runs.
-        resp = self.auth_client.get("/api/plugins/kanban/board")
+        resp = self.auth_client.get("/api/plugins/test-plugin/dummy-route")
         assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
