@@ -1162,11 +1162,10 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
         ("priority",           "reprioritized"),
         ("spawn_auto_blocked", "gave_up"),
     )
-    for old, new in _EVENT_RENAMES:
-        conn.execute(
-            "UPDATE task_events SET kind = ? WHERE kind = ?",
-            (new, old),
-        )
+    conn.executemany(
+        "UPDATE task_events SET kind = ? WHERE kind = ?",
+        [(new, old) for old, new in _EVENT_RENAMES],
+    )
 
 
 @contextlib.contextmanager
