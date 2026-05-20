@@ -301,3 +301,4 @@ def test_tool_call_guardrail_controller_init():
     assert controller_custom._exact_failure_counts == {}
     assert controller_custom._same_tool_failure_counts == {}
     assert controller_custom._no_progress == {}
+    assert controller_custom._halt_decision is None
