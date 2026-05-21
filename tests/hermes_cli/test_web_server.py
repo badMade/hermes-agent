@@ -1867,8 +1867,10 @@ class TestPluginAPIAuth:
 
         # With auth: handler runs.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
-        # 404 is valid when the plugin route is unavailable; 200 when available.
+        # Route availability depends on whether the plugin is loaded in this env:
+        # 200 when available, 404 when not. Either way, auth should pass (not 401).
         assert resp.status_code in (200, 404)
+        assert resp.status_code != 401
 
     def test_plugin_post_requires_auth(self):
         """Plugin POST routes should return 401 without a valid session token."""

@@ -145,7 +145,7 @@ def test_tool_add_resource_rejects_local_directory_before_upload(tmp_path):
     provider._client.post.assert_not_called()
 
 
-def test_tool_add_resource_rejects_missing_local_path(tmp_path):
+def test_tool_add_resource_rejects_missing_local_path_with_generic_local_path_error(tmp_path):
     missing = tmp_path / "missing.md"
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
