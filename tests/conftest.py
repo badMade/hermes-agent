@@ -162,7 +162,6 @@ def _looks_like_credential(name: str) -> bool:
 # unconditionally — individual tests that need them set do so explicitly.
 _HERMES_BEHAVIORAL_VARS = frozenset({
     "HERMES_YOLO_MODE",
-    "HERMES_ONESHOT_MODE",
     "HERMES_INTERACTIVE",
     "HERMES_QUIET",
     "HERMES_TOOL_PROGRESS",
@@ -174,8 +173,9 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     "HERMES_SESSION_THREAD_ID",
     "HERMES_SESSION_SOURCE",
     "HERMES_SESSION_KEY",
-    "HERMES_CRON_SESSION",
+    "HERMES_SESSION_ID",
     "HERMES_GATEWAY_SESSION",
+    "HERMES_CRON_SESSION",
     "HERMES_PLATFORM",
     "HERMES_MODEL",
     "HERMES_INFERENCE_MODEL",
@@ -421,7 +421,7 @@ def _reset_module_state():
     except Exception:
         pass
 
-    # --- gateway.session_context — 9 ContextVars that represent
+    # --- gateway.session_context — ContextVars that represent
     #     the active gateway session. If set in one test and not reset,
     #     the next test's get_session_env() reads stale values.
     try:
@@ -434,10 +434,12 @@ def _reset_module_state():
             _sc_mod._SESSION_USER_ID,
             _sc_mod._SESSION_USER_NAME,
             _sc_mod._SESSION_KEY,
+            _sc_mod._SESSION_ID,
             _sc_mod._CRON_SESSION,
             _sc_mod._CRON_AUTO_DELIVER_PLATFORM,
             _sc_mod._CRON_AUTO_DELIVER_CHAT_ID,
             _sc_mod._CRON_AUTO_DELIVER_THREAD_ID,
+            _sc_mod._TERMINAL_CWD,
         ):
             _cv.set(_sc_mod._UNSET)
     except Exception:

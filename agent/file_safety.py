@@ -26,6 +26,7 @@ def build_write_denied_paths(home: str) -> set[str]:
             os.path.join(home, ".ssh", "id_rsa"),
             os.path.join(home, ".ssh", "id_ed25519"),
             os.path.join(home, ".ssh", "config"),
+            os.path.join(home, ".hermes", ".env"),
             str(hermes_home / ".env"),
             str(hermes_home / "config.yaml"),
             os.path.join(home, ".bashrc"),
@@ -106,6 +107,7 @@ def is_write_denied(path: str, home: str | None = None) -> bool:
             over SSH or another remote backend, this must be the remote home
             rather than the local Hermes process home.
     """
+    home = os.path.realpath(os.path.expanduser(home or "~"))
     resolved = os.path.realpath(os.path.expanduser(str(path)))
 
     # Always protect the process home and subprocess home; also include any
