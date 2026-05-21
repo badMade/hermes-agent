@@ -127,6 +127,8 @@ def is_write_denied(
         if resolved.startswith(prefix):
             return True
 
+    # Absolute paths skip the relative-join check above, so enforce base_root
+    # containment for both absolute and relative inputs here.
     if base_root and _is_outside_root(resolved, base_root):
         return True
 
