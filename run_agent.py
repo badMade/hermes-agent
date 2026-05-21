@@ -53,9 +53,13 @@ import urllib.request
 import uuid
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse, parse_qs, urlunparse
-# OpenAI is imported during module initialization so later model-controlled
-# file writes cannot plant a shadow ``openai`` module before first use.
-# Keep the module-level ``OpenAI`` name for existing patch("run_agent.OpenAI", ...) tests.
+# NOTE: `from openai import OpenAI` is deliberately NOT at module top — the
+# SDK pulls ~240 ms of imports. We expose `OpenAI` as a thin proxy object
+# that imports the SDK on first call/isinstance check. This preserves:
+#   (a) the single in-module `OpenAI(**client_kwargs)` call site at
+#       _create_openai_client, and
+#   (b) `patch("run_agent.OpenAI", ...)` test patterns used by ~28 test files.
+#
 # NOTE: `fire` is ONLY used in the `__main__` block below (for running
 # run_agent.py directly as a CLI) — it is NOT needed for library usage.
 # It is imported there, not here, so that importing run_agent from a
@@ -65,17 +69,49 @@ from datetime import datetime
 from pathlib import Path
 
 from hermes_constants import get_hermes_home
-from openai import OpenAI
+
+
+_OPENAI_CLS_CACHE: Optional[type] = None
 
 
 def _load_openai_cls() -> type:
-    """Return the eagerly imported ``openai.OpenAI`` class."""
-    return OpenAI
+    """Import and cache ``openai.OpenAI``."""
+    global _OPENAI_CLS_CACHE
+    if _OPENAI_CLS_CACHE is None:
+        from openai import OpenAI as _cls
+        _OPENAI_CLS_CACHE = _cls
+    return _OPENAI_CLS_CACHE
 
+
+
+def _safe_session_path_component(session_id: str) -> str:
+    """Return a filesystem-safe component for session-scoped log filenames."""
+    raw = str(session_id or "")
+    if re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", raw):
+        return raw
+    digest = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"unsafe-{digest}"
+
+
+class _OpenAIProxy:
+    """Module-level proxy that looks like ``openai.OpenAI`` but imports lazily."""
+
+    __slots__ = ()
+
+    def __call__(self, *args, **kwargs):
+        return _load_openai_cls()(*args, **kwargs)
+
+    def __instancecheck__(self, obj):
+        return isinstance(obj, _load_openai_cls())
+
+    def __repr__(self):
+        return "<lazy openai.OpenAI proxy>"
+
+
+OpenAI = _OpenAIProxy()
 
 # Load .env from ~/.hermes/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
-from hermes_cli.config import apply_terminal_config_env_bridge
 from hermes_cli.env_loader import load_hermes_dotenv
 from hermes_cli.timeouts import (
     get_provider_request_timeout,
@@ -90,10 +126,6 @@ if _loaded_env_paths:
         logger.info("Loaded environment variables from %s", _env_path)
 else:
     logger.info("No .env file found. Using system environment variables.")
-
-# Keep terminal/code-execution backends aligned with config.yaml for non-CLI
-# entry points without importing the classic interactive CLI.
-apply_terminal_config_env_bridge()
 
 
 # Import our tool system
@@ -1833,7 +1865,7 @@ class AIAgent:
         hermes_home = get_hermes_home()
         self.logs_dir = hermes_home / "sessions"
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
+        self.session_log_file = self.logs_dir / f"session_{_safe_session_path_component(self.session_id)}.json"
         
         # Track conversation messages for session logging
         self._session_messages: List[Dict[str, Any]] = []
@@ -2303,8 +2335,9 @@ class AIAgent:
             except Exception as _ce_err:
                 logger.debug("Context engine on_session_start: %s", _ce_err)
 
+        from gateway.session_context import get_terminal_cwd
         self._subdirectory_hints = SubdirectoryHintTracker(
-            working_dir=os.getenv("TERMINAL_CWD") or None,
+            working_dir=get_terminal_cwd() or None,
         )
         self._user_turn_count = 0
 
@@ -5057,7 +5090,7 @@ class AIAgent:
                 dump_payload["error"] = error_info
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            dump_file = self.logs_dir / f"request_dump_{self.session_id}_{timestamp}.json"
+            dump_file = self.logs_dir / f"request_dump_{_safe_session_path_component(self.session_id)}_{timestamp}.json"
             dump_file.write_text(
                 json.dumps(dump_payload, ensure_ascii=False, indent=2, default=str),
                 encoding="utf-8",
@@ -5849,11 +5882,12 @@ class AIAgent:
             context_parts.append(system_message)
 
         if not self.skip_context_files:
-            # Use TERMINAL_CWD for context file discovery when set (gateway
-            # mode).  The gateway process runs from the hermes-agent install
-            # dir, so os.getcwd() would pick up the repo's AGENTS.md and
-            # other dev files — inflating token usage by ~10k for no benefit.
-            _context_cwd = os.getenv("TERMINAL_CWD") or None
+            # Use session-scoped TERMINAL_CWD for context file discovery when
+            # set (gateway/cron mode). Falling back to os.getcwd() in the
+            # gateway process would pick up the repo's AGENTS.md and other
+            # dev files — inflating token usage by ~10k for no benefit.
+            from gateway.session_context import get_terminal_cwd
+            _context_cwd = get_terminal_cwd() or None
             context_files_prompt = build_context_files_prompt(
                 cwd=_context_cwd, skip_soul=_soul_loaded)
             if context_files_prompt:
@@ -10244,7 +10278,7 @@ class AIAgent:
                 except Exception:
                     pass
                 # Update session_log_file to point to the new session's JSON file
-                self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
+                self.session_log_file = self.logs_dir / f"session_{_safe_session_path_component(self.session_id)}.json"
                 self._session_db_created = False
                 self._session_db.create_session(
                     session_id=self.session_id,
@@ -10593,9 +10627,10 @@ class AIAgent:
             # Checkpoint before destructive terminal commands
             if function_name == "terminal" and self._checkpoint_mgr.enabled:
                 try:
+                    from gateway.session_context import get_terminal_cwd
                     cmd = function_args.get("command", "")
                     if _is_destructive_command(cmd):
-                        cwd = function_args.get("workdir") or os.getenv("TERMINAL_CWD", os.getcwd())
+                        cwd = function_args.get("workdir") or get_terminal_cwd(os.getcwd())
                         self._checkpoint_mgr.ensure_checkpoint(
                             cwd, f"before terminal: {cmd[:60]}"
                         )
@@ -11052,9 +11087,10 @@ class AIAgent:
             # Checkpoint before destructive terminal commands
             if not _execution_blocked and function_name == "terminal" and self._checkpoint_mgr.enabled:
                 try:
+                    from gateway.session_context import get_terminal_cwd
                     cmd = function_args.get("command", "")
                     if _is_destructive_command(cmd):
-                        cwd = function_args.get("workdir") or os.getenv("TERMINAL_CWD", os.getcwd())
+                        cwd = function_args.get("workdir") or get_terminal_cwd(os.getcwd())
                         self._checkpoint_mgr.ensure_checkpoint(
                             cwd, f"before terminal: {cmd[:60]}"
                         )

