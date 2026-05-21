@@ -648,7 +648,7 @@ def _resolve_workspace_hint(parent_agent) -> Optional[str]:
     try:
         from gateway.session_context import get_terminal_cwd
         session_cwd = get_terminal_cwd()
-    except Exception:
+    except ImportError:
         session_cwd = os.getenv("TERMINAL_CWD")
 
     candidates = [
