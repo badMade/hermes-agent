@@ -687,14 +687,7 @@ def resolve_gateway_approval(session_key: str, choice: str,
         queue = _gateway_queues.get(session_key)
         if not queue:
             return 0
-        if run_id:
-            matches = [entry for entry in queue if entry.data.get("run_id") == run_id]
-            if not matches:
-                return 0
-            targets = matches if resolve_all else [matches[0]]
-            for entry in targets:
-                queue.remove(entry)
-        elif resolve_all:
+        if resolve_all:
             targets = list(queue)
             queue.clear()
         elif approval_id:
