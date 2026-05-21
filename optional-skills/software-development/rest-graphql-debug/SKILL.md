@@ -158,7 +158,7 @@ terminal('curl -s -o /dev/null -w "%{http_code}\\n" -H "Authorization: Bearer <T
 # Decode JWT exp claim offline from a sanitized sample token (never from local secret stores)
 execute_code('''
 import json, base64
-sample = "<JWT_TOKEN>"
+sample = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MzU2ODAwMDB9.signature"
 payload = sample.split(".")[1]
 payload += "=" * (-len(payload) % 4)
 print(json.dumps(json.loads(base64.urlsafe_b64decode(payload)), indent=2))
