@@ -12987,7 +12987,6 @@ class HermesCLI:
                                 _synth = _format_process_notification(evt)
                                 if _synth:
                                     _cprint(f"\n{_ACCENT}{_synth}{_RST}")
-                                    app.invalidate()
                         except Exception:
                             pass  # Non-fatal — don't break the main loop
 
