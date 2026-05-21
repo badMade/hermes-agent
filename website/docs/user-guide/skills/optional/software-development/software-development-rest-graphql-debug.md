@@ -1,12 +1,12 @@
 ---
-title: "Rest Graphql Debug — Debug REST/GraphQL APIs: status codes, auth, schemas, repro"
-sidebar_label: "Rest Graphql Debug"
+title: "REST GraphQL Debug — Debug REST/GraphQL APIs: status codes, auth, schemas, repro"
+sidebar_label: "REST GraphQL Debug"
 description: "Debug REST/GraphQL APIs: status codes, auth, schemas, repro"
 ---
 
 {/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
 
-# Rest Graphql Debug
+# REST GraphQL Debug
 
 Debug REST/GraphQL APIs: status codes, auth, schemas, repro.
 
