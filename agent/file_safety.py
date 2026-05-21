@@ -101,11 +101,15 @@ def is_write_denied(
     ``home`` selects which user-home denylist paths are evaluated.
     """
     home = os.path.realpath(os.path.expanduser(home or "~"))
+    base_root = (
+        os.path.realpath(os.path.expanduser(str(base_dir)))
+        if base_dir
+        else None
+    )
     path_str = os.path.expanduser(str(path))
     if os.path.isabs(path_str):
         resolved = os.path.realpath(path_str)
-    elif base_dir:
-        base_root = os.path.realpath(os.path.expanduser(str(base_dir)))
+    elif base_root:
         resolved = os.path.realpath(os.path.join(base_root, path_str))
         if _is_outside_root(resolved, base_root):
             logger.debug(
@@ -123,10 +127,8 @@ def is_write_denied(
         if resolved.startswith(prefix):
             return True
 
-    if base_dir:
-        base_root = os.path.realpath(os.path.expanduser(str(base_dir)))
-        if _is_outside_root(resolved, base_root):
-            return True
+    if base_root and _is_outside_root(resolved, base_root):
+        return True
 
     safe_root = get_safe_write_root()
     if safe_root and _is_outside_root(resolved, safe_root):
