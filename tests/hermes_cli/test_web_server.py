@@ -1867,6 +1867,7 @@ class TestPluginAPIAuth:
 
         # With auth: handler runs.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
+        # 404 is valid when the plugin route is unavailable; 200 when available.
         assert resp.status_code in (200, 404)
 
     def test_plugin_post_requires_auth(self):
