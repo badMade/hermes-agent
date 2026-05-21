@@ -474,6 +474,7 @@ class TestShellFileOpsWriteDenied:
         assert result.error is not None
         assert "denied" in result.error.lower()
 
+
     @pytest.mark.parametrize(
         "path",
         [
@@ -496,7 +497,6 @@ class TestShellFileOpsWriteDenied:
         assert "denied" in result.error.lower()
         executed_commands = [call.args[0] for call in mock_env.execute.call_args_list]
         assert not any(command.startswith("cat >") for command in executed_commands)
-
 
     def test_patch_replace_denied_path(self, file_ops):
         result = file_ops.patch_replace("~/.ssh/authorized_keys", "old", "new")
