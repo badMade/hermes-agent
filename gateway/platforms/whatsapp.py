@@ -23,7 +23,9 @@ import platform
 import re
 import shutil
 import signal
+import stat
 import subprocess
+import tempfile
 
 _IS_WINDOWS = platform.system() == "Windows"
 from pathlib import Path
@@ -89,44 +91,204 @@ def _kill_port_process(port: int) -> None:
         pass
 
 
-def _kill_stale_bridge_by_pidfile(session_path: Path) -> None:
-    """Kill a bridge process recorded in a PID file from a previous run.
+def _bridge_pidfile_path(session_path: Path) -> Path:
+    """Return the WhatsApp bridge PID metadata path."""
+    return session_path / "bridge.pid"
 
-    The bridge writes ``bridge.pid`` into the session directory when it
-    starts.  If the gateway crashed without a clean shutdown the old bridge
-    process becomes orphaned — this helper finds and kills it.
-    """
-    pid_file = session_path / "bridge.pid"
-    if not pid_file.exists():
-        return
+
+def _read_bridge_pidfile(session_path: Path) -> Optional[dict[str, Any]]:
+    """Read bridge PID metadata without following symlinks."""
+    pid_file = _bridge_pidfile_path(session_path)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
     try:
-        pid = int(pid_file.read_text().strip())
-    except (ValueError, OSError, TypeError):
+        fd = os.open(pid_file, flags)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return None
+        with os.fdopen(fd, "r", encoding="utf-8") as fh:
+            raw = fh.read(8192).strip()
+            fd = -1
+    except OSError:
+        return None
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+    if not raw:
+        return None
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Backward-compatible support for old bare-PID files. These can only
+        # be used if the live process independently proves it is the bridge.
         try:
-            pid_file.unlink()
+            return {"pid": int(raw), "legacy": True}
+        except ValueError:
+            return None
+
+    if isinstance(data, dict):
+        return data
+    return None
+
+
+def _process_matches_bridge_metadata(
+    process: Any,
+    metadata: dict[str, Any],
+    session_path: Path,
+) -> bool:
+    """Return True only for the Hermes WhatsApp bridge for this session."""
+    try:
+        pid = int(metadata.get("pid"))
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+
+    try:
+        if int(process.pid) != pid:
+            return False
+        cmdline = [str(part) for part in (process.cmdline() or [])]
+        create_time = float(process.create_time())
+    except Exception:
+        return False
+
+    expected_session = str(session_path.resolve())
+    cmdline_paths = {str(Path(arg).resolve()) if arg else "" for arg in cmdline}
+    if expected_session not in cmdline_paths:
+        return False
+    if "--session" not in cmdline:
+        return False
+
+    stored_session = metadata.get("session_path")
+    if stored_session:
+        try:
+            if Path(str(stored_session)).resolve() != session_path.resolve():
+                return False
+        except OSError:
+            return False
+
+    stored_create_time = metadata.get("create_time")
+    if stored_create_time is not None:
+        try:
+            if abs(create_time - float(stored_create_time)) > 0.01:
+                return False
+        except (TypeError, ValueError):
+            return False
+
+    stored_cmdline = metadata.get("cmdline")
+    if stored_cmdline is not None:
+        if not isinstance(stored_cmdline, list):
+            return False
+        if [str(part) for part in stored_cmdline] != cmdline:
+            return False
+
+    return True
+
+
+def _kill_stale_bridge_by_pidfile(session_path: Path) -> None:
+    """Kill a previous WhatsApp bridge only after validating its identity."""
+    pid_file = _bridge_pidfile_path(session_path)
+    metadata = _read_bridge_pidfile(session_path)
+    if not metadata:
+        try:
+            pid_file.unlink(missing_ok=True)
         except OSError:
             pass
         return
-    # ``os.kill(pid, 0)`` is NOT a no-op on Windows (bpo-14484) — use the
-    # cross-platform existence check before sending a real signal.
-    from gateway.status import _pid_exists
-    if _pid_exists(pid):
-        try:
-            os.kill(pid, signal.SIGTERM)
-            logger.info("[whatsapp] Killed stale bridge PID %d from pidfile", pid)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+
     try:
-        pid_file.unlink()
+        pid = int(metadata.get("pid"))
+    except (TypeError, ValueError):
+        pid = -1
+    if pid <= 0:
+        logger.warning(
+            "[whatsapp] Ignoring invalid bridge PID %r from pidfile",
+            metadata.get("pid"),
+        )
+        try:
+            pid_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return
+
+    try:
+        import psutil
+        process = psutil.Process(pid)
+    except Exception:
+        try:
+            pid_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return
+
+    if _process_matches_bridge_metadata(process, metadata, session_path):
+        try:
+            process.terminate()
+            logger.info("[whatsapp] Killed stale bridge PID %d from pidfile", pid)
+        except Exception:
+            pass
+    else:
+        logger.warning(
+            "[whatsapp] Refusing to kill unverified bridge PID %d from pidfile",
+            pid,
+        )
+
+    try:
+        pid_file.unlink(missing_ok=True)
     except OSError:
         pass
 
 
 def _write_bridge_pidfile(session_path: Path, pid: int) -> None:
-    """Write the bridge PID to a file for later cleanup."""
+    """Write bridge PID metadata atomically for later cleanup."""
+    if pid <= 0:
+        return
+    pid_file = _bridge_pidfile_path(session_path)
     try:
-        (session_path / "bridge.pid").write_text(str(pid))
-    except OSError:
+        import psutil
+        process = psutil.Process(pid)
+        metadata = {
+            "version": 1,
+            "pid": pid,
+            "create_time": process.create_time(),
+            "cmdline": process.cmdline(),
+            "session_path": str(session_path.resolve()),
+        }
+        session_path.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{pid_file.name}.",
+            suffix=".tmp",
+            dir=str(session_path),
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(metadata, fh, separators=(",", ":"))
+                fh.write("\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.chmod(tmp_name, 0o600)
+            os.replace(tmp_name, pid_file)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+    except Exception:
         pass
 
 
