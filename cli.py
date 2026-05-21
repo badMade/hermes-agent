@@ -12874,7 +12874,8 @@ class HermesCLI:
                                     else:
                                         _synth = _format_process_notification(evt)
                                         if _synth:
-                                            self._pending_input.put(_synth)
+                                            _cprint(f"\n{_ACCENT}{_synth}{_RST}")
+                                            app.invalidate()
                             except Exception:
                                 pass
                         continue
@@ -12986,7 +12987,8 @@ class HermesCLI:
                                     continue  # already delivered via tool result
                                 _synth = _format_process_notification(evt)
                                 if _synth:
-                                    self._pending_input.put(_synth)
+                                    _cprint(f"\n{_ACCENT}{_synth}{_RST}")
+                                    app.invalidate()
                         except Exception:
                             pass  # Non-fatal — don't break the main loop
 
