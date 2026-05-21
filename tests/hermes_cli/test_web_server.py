@@ -1865,7 +1865,7 @@ class TestPluginAPIAuth:
         resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 401
 
-        # With auth: middleware permits request through auth gate.
+        # With auth: middleware allows routing; plugin endpoint may be absent.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code in (200, 404)
 
