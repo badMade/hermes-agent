@@ -916,7 +916,7 @@ class DingTalkAdapter(BasePlatformAdapter):
                 status_code = status_code_raw
             else:
                 status_code = 500
-            if resp.status_code < 300 if isinstance(resp.status_code, int) else False:
+            if status_code < 300:
                 # Webhook path: fire Done only for final replies, same as
                 # the card path.
                 if is_final_reply:
