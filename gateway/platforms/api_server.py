@@ -1825,18 +1825,24 @@ class APIServerAdapter(BasePlatformAdapter):
             _batch_buf: List[str] = []
             _batch_timer: Optional[asyncio.Task] = None
             _batch_lock = asyncio.Lock()
+            _batch_error: Optional[BaseException] = None
+            _batch_error_sentinel = object()
 
             async def _batch_flush_after(delay: float) -> None:
                 """Wait delay seconds, then flush accumulated text deltas."""
+                nonlocal _batch_error, _batch_timer
                 try:
                     await asyncio.sleep(delay)
+                    # Clear timer reference BEFORE flush so new deltas
+                    # can start a fresh timer while we emit
+                    _batch_timer = None
+                    await _flush_batch()
                 except asyncio.CancelledError:
                     return
-                # Clear timer reference BEFORE flush so new deltas
-                # can start a fresh timer while we emit
-                nonlocal _batch_buf, _batch_timer
-                _batch_timer = None
-                await _flush_batch()
+                except Exception as exc:
+                    _batch_timer = None
+                    _batch_error = exc
+                    stream_q.put(_batch_error_sentinel)
 
             async def _flush_batch() -> None:
                 """Emit a single SSE delta for all accumulated text."""
@@ -1857,6 +1863,10 @@ class APIServerAdapter(BasePlatformAdapter):
                         while True:
                             try:
                                 item = stream_q.get_nowait()
+                                if item is _batch_error_sentinel:
+                                    if _batch_error is not None:
+                                        raise _batch_error
+                                    break
                                 if item is None:
                                     break
                                 await _dispatch(item)
@@ -1868,6 +1878,11 @@ class APIServerAdapter(BasePlatformAdapter):
                         await response.write(b": keepalive\n\n")
                         last_activity = time.monotonic()
                     continue
+
+                if item is _batch_error_sentinel:
+                    if _batch_error is not None:
+                        raise _batch_error
+                    break
 
                 if item is None:  # EOS sentinel
                     # Cancel pending timer and flush remaining batched text
