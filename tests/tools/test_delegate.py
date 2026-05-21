@@ -75,6 +75,17 @@ class TestDelegateRequirements(unittest.TestCase):
         self.assertNotIn("max_iterations", props)
         self.assertNotIn("maxItems", props["tasks"])  # removed — limit is now runtime-configurable
 
+    def test_resolve_workspace_hint_falls_back_to_parent_hint(self):
+        from tools.delegate_tool import _resolve_workspace_hint
+
+        with patch.dict(os.environ, {"TERMINAL_CWD": ""}, clear=False):
+            with patch("os.path.isdir", return_value=True):
+                parent = _make_mock_parent()
+                parent.terminal_cwd = "/parent/workdir"
+                resolved = _resolve_workspace_hint(parent)
+
+        self.assertEqual(resolved, "/parent/workdir")
+
     def test_schema_description_advertises_runtime_limits(self):
         """The model must see the user's actual concurrency / spawn-depth caps,
         not the framework defaults. Without this, models that read 'default 3'
