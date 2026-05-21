@@ -1635,6 +1635,7 @@ class TelegramAdapter(BasePlatformAdapter):
         content: str,
         *,
         finalize: bool = False,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
         """Edit a previously sent Telegram message.
 
@@ -1653,7 +1654,7 @@ class TelegramAdapter(BasePlatformAdapter):
         # without round-tripping a doomed edit.
         if utf16_len(content) > self.MAX_MESSAGE_LENGTH:
             return await self._edit_overflow_split(
-                chat_id, message_id, content, finalize=finalize,
+                chat_id, message_id, content, finalize=finalize, metadata=metadata,
             )
 
         try:
@@ -1698,7 +1699,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     self.name, utf16_len(content), self.MAX_MESSAGE_LENGTH,
                 )
                 return await self._edit_overflow_split(
-                    chat_id, message_id, content, finalize=finalize,
+                    chat_id, message_id, content, finalize=finalize, metadata=metadata,
                 )
             # Flood control / RetryAfter — short waits are retried inline,
             # long waits return a failure immediately so streaming can fall back
@@ -1742,6 +1743,7 @@ class TelegramAdapter(BasePlatformAdapter):
         content: str,
         *,
         finalize: bool,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
         """Split an oversized edit across the existing message + continuations.
 
@@ -1813,25 +1815,41 @@ class TelegramAdapter(BasePlatformAdapter):
         # fallback, mirroring send().
         continuation_ids: list[str] = []
         prev_id = message_id
+        thread_id = self._metadata_thread_id(metadata)
         for chunk in chunks[1:]:
             sent_msg = None
             for use_markdown in (True, False) if finalize else (False,):
                 try:
                     text = self.format_message(chunk) if use_markdown else chunk
+                    reply_to_id = int(prev_id) if prev_id else None
+                    thread_kwargs = self._thread_kwargs_for_send(
+                        chat_id,
+                        thread_id,
+                        metadata,
+                        reply_to_message_id=reply_to_id,
+                    )
                     sent_msg = await self._bot.send_message(
                         chat_id=int(chat_id),
                         text=text,
                         parse_mode=ParseMode.MARKDOWN_V2 if use_markdown else None,
-                        reply_to_message_id=int(prev_id) if prev_id else None,
+                        reply_to_message_id=reply_to_id,
+                        **thread_kwargs,
                     )
                     break
                 except Exception as send_err:
                     if "reply message not found" in str(send_err).lower():
                         # Drop the reply anchor and try again.
                         try:
+                            no_reply_kwargs = self._thread_kwargs_for_send(
+                                chat_id,
+                                thread_id,
+                                metadata,
+                                reply_to_message_id=None,
+                            )
                             sent_msg = await self._bot.send_message(
                                 chat_id=int(chat_id),
                                 text=chunk,
+                                **no_reply_kwargs,
                             )
                             break
                         except Exception as _retry_err:
