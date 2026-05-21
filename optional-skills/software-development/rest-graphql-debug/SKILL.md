@@ -74,7 +74,7 @@ terminal("""curl -X POST https://api.example.com/graphql \\
 
 ```python
 execute_code('''
-import os, requests
+import requests
 resp = requests.post(
     "https://api.example.com/graphql",
     json={"query": "{ user(id: 1) { name email } }"},
@@ -360,10 +360,10 @@ Repro:       curl -X POST … (auth: <REDACTED>)
 Drop this into `tests/` and run via `terminal('pytest tests/test_api_smoke.py -v')`:
 
 ```python
-import os, requests, pytest
+import requests, pytest
 
-BASE_URL = os.environ.get("API_BASE_URL", "https://api.example.com")
-TOKEN    = os.environ.get("API_TOKEN", "")
+BASE_URL = "https://api.example.com"  # set to your endpoint
+TOKEN    = "<TOKEN>"  # provide explicitly for the run
 HEADERS  = {"Authorization": f"Bearer {TOKEN}"}
 
 class TestAPISmoke:
