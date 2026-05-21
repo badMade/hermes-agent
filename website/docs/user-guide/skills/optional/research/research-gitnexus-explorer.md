@@ -119,9 +119,11 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const API_PORT = parseInt(process.env.API_PORT || '4747');
+const API_PORT = parseInt(process.env.API_PORT || '4747', 10);
+if (isNaN(API_PORT)) { console.error('Error: API_PORT must be a valid number'); process.exit(1); }
 const DIST_DIR = process.argv[2] || './dist';
-const PORT = parseInt(process.argv[3] || '8888');
+const PORT = parseInt(process.argv[3] || '8888', 10);
+if (isNaN(PORT)) { console.error('Error: PORT argument must be a valid number'); process.exit(1); }
 
 const MIME = {
   '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
