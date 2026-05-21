@@ -3340,9 +3340,8 @@ def _normalise_prefix(raw: Optional[str]) -> str:
     """Normalise an X-Forwarded-Prefix header value.
 
     Returns a string like ``"/hermes"`` (no trailing slash) or ``""`` when
-    no prefix is set / the header is malformed. We deliberately reject
-    anything containing ``..`` or non-printable bytes so a hostile proxy
-    can't inject HTML via the prefix.
+    no prefix is set / the header is malformed. The value is injected into
+    HTML and JavaScript, so keep it to a relative URL path prefix only.
     """
     if not raw:
         return ""
@@ -3352,9 +3351,12 @@ def _normalise_prefix(raw: Optional[str]) -> str:
     if not p.startswith("/"):
         p = "/" + p
     p = p.rstrip("/")
-    if "//" in p or ".." in p or any(c in p for c in ('"', "'", "<", ">", " ", "\n", "\r", "\t")):
+    if not p:
         return ""
     if len(p) > 64:
+        return ""
+    allowed = frozenset("/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~-")
+    if "//" in p or ".." in p or any(c not in allowed for c in p):
         return ""
     return p
 
