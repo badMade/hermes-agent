@@ -1117,6 +1117,58 @@ class TestUpdateModeAppendCapability:
         item = kw["items"][0]
         assert item["update_mode"] == "append"
 
+    def test_modern_api_appends_only_new_turns(self, provider, monkeypatch):
+        """Append mode must retain deltas, not the cumulative transcript."""
+        self._clear_capability_cache()
+        monkeypatch.setattr(
+            "plugins.memory.hindsight._fetch_hindsight_api_version",
+            lambda *a, **kw: "0.5.6",
+        )
+
+        provider.sync_turn("turn1-user", "turn1-asst")
+        provider._retain_queue.join()
+        provider._client.aretain_batch.reset_mock()
+
+        provider.sync_turn("turn2-user", "turn2-asst")
+        provider._retain_queue.join()
+
+        item = provider._client.aretain_batch.call_args.kwargs["items"][0]
+        content = item["content"]
+        assert item["update_mode"] == "append"
+        assert "turn2-user" in content
+        assert "turn1-user" not in content
+        assert item["metadata"]["message_count"] == "2"
+
+    def test_session_switch_append_flushes_only_unretained_turns(
+        self, provider_with_config, monkeypatch
+    ):
+        """Flush-on-switch must not append turns already retained earlier."""
+        self._clear_capability_cache()
+        monkeypatch.setattr(
+            "plugins.memory.hindsight._fetch_hindsight_api_version",
+            lambda *a, **kw: "0.5.6",
+        )
+        p = provider_with_config(retain_every_n_turns=2, retain_async=False)
+
+        p.sync_turn("turn1-user", "turn1-asst")
+        p.sync_turn("turn2-user", "turn2-asst")
+        p._retain_queue.join()
+        p._client.aretain_batch.reset_mock()
+
+        p.sync_turn("turn3-user", "turn3-asst")
+        p.on_session_switch("new-sid", parent_session_id="test-session", reset=True)
+        p._retain_queue.join()
+
+        kw = p._client.aretain_batch.call_args.kwargs
+        assert kw["document_id"] == "test-session"
+        item = kw["items"][0]
+        assert item["update_mode"] == "append"
+        content = item["content"]
+        assert "turn3-user" in content
+        assert "turn1-user" not in content
+        assert "turn2-user" not in content
+        assert item["metadata"]["message_count"] == "2"
+
     def test_capability_cached_per_url(self, provider, monkeypatch):
         """The /version probe must run at most once per (process, api_url)."""
         self._clear_capability_cache()
