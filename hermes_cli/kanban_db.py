@@ -78,6 +78,7 @@ import secrets
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -2930,6 +2931,15 @@ class DispatchResult:
 _RECENT_WORKER_EXIT_TTL_SECONDS = 600
 _RECENT_WORKER_EXITS_MAX = 4096
 _recent_worker_exits: "dict[int, tuple[int, float]]" = {}
+_known_worker_child_pids: "set[int]" = set()
+_known_worker_child_pids_lock = threading.Lock()
+
+
+def _track_worker_child(pid: Optional[int]) -> None:
+    """Remember a kanban worker PID spawned by this process."""
+    if pid and int(pid) > 0:
+        with _known_worker_child_pids_lock:
+            _known_worker_child_pids.add(int(pid))
 
 
 def _record_worker_exit(pid: int, raw_status: int) -> None:
@@ -3595,6 +3605,7 @@ def _set_worker_pid(conn: sqlite3.Connection, task_id: str, pid: int) -> None:
     tail`` can correlate log lines with OS-level traces without opening
     the drawer.
     """
+    _track_worker_child(pid)
     with write_txn(conn):
         conn.execute(
             "UPDATE tasks SET worker_pid = ? WHERE id = ?",
@@ -3663,6 +3674,38 @@ def has_spawnable_ready(conn: sqlite3.Connection) -> bool:
     return False
 
 
+def _reap_known_worker_children() -> None:
+    """Reap only kanban worker children, never arbitrary subprocesses.
+
+    The gateway process owns many non-kanban children whose callers rely on
+    their own ``Popen.wait()`` / ``subprocess.run()`` exit status. Therefore
+    this must never use ``waitpid(-1)``. It waits only on PIDs recorded when
+    this process persisted a spawned kanban worker with ``_set_worker_pid``.
+    """
+    if os.name == "nt" or not hasattr(os, "WNOHANG"):
+        return
+
+    with _known_worker_child_pids_lock:
+        pids = sorted(_known_worker_child_pids)
+
+    for pid in pids:
+        try:
+            reaped_pid, status = os.waitpid(int(pid), os.WNOHANG)
+        except ChildProcessError:
+            with _known_worker_child_pids_lock:
+                _known_worker_child_pids.discard(int(pid))
+            continue
+        except OSError:
+            continue
+        except Exception:
+            continue
+        if reaped_pid == 0:
+            continue
+        with _known_worker_child_pids_lock:
+            _known_worker_child_pids.discard(int(reaped_pid))
+        _record_worker_exit(int(reaped_pid), int(status))
+
+
 def dispatch_once(
     conn: sqlite3.Connection,
     *,
@@ -3700,38 +3743,7 @@ def dispatch_once(
     ``board`` pins workspace/log/db resolution for this tick to a specific
     board. When omitted, the current-board resolution chain is used.
     """
-    # Reap zombie children from previously spawned workers.
-    # The gateway-embedded dispatcher is the parent of every worker spawned
-    # via _default_spawn (start_new_session=True only detaches the
-    # controlling tty, not the parent). Without an explicit waitpid, each
-    # completed worker becomes a <defunct> entry that lingers until gateway
-    # exit. WNOHANG keeps this non-blocking; ChildProcessError means no
-    # children to reap. Bounded: at most one tick's worth of completions
-    # can be in <defunct> at once.
-    #
-    # We also record the exit status keyed by pid, so
-    # ``detect_crashed_workers`` can distinguish a worker that exited
-    # cleanly without calling ``kanban_complete`` / ``kanban_block``
-    # (protocol violation — auto-block) from a real crash (OOM killer,
-    # SIGKILL, non-zero exit — existing counter behavior).
-    #
-    # Windows has no zombies / no os.WNOHANG — subprocess.Popen handles
-    # are freed when the Python object is garbage-collected or .wait() is
-    # called explicitly.  The kanban dispatcher discards the Popen handle
-    # after spawn (``_default_spawn`` → abandon), so on Windows there's
-    # nothing to reap here — skip the whole block.
-    if os.name != "nt":
-        try:
-            while True:
-                try:
-                    _pid, _status = os.waitpid(-1, os.WNOHANG)
-                except ChildProcessError:
-                    break
-                if _pid == 0:
-                    break
-                _record_worker_exit(_pid, _status)
-        except Exception:
-            pass
+    _reap_known_worker_children()
 
     result = DispatchResult()
     result.reclaimed = release_stale_claims(conn)
