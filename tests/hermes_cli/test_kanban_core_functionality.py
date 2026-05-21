@@ -4017,6 +4017,43 @@ def test_detect_crashed_workers_protocol_violation_auto_blocks(kanban_home):
         conn.close()
 
 
+def test_protocol_violation_forces_one_shot_limit_over_task_max_retries(kanban_home):
+    """Clean-exit protocol violations must auto-block immediately even
+    when the task has a larger per-task retry override.
+    """
+    import hermes_cli.kanban_db as _kb
+
+    conn = kb.connect()
+    try:
+        tid = kb.create_task(
+            conn, title="quiet-retry", assignee="worker", max_retries=5,
+        )
+        host_prefix = _kb._claimer_id().split(":", 1)[0]
+        kb.claim_task(conn, tid, claimer=f"{host_prefix}:mock")
+        fake_pid = 999996
+        kb._set_worker_pid(conn, tid, fake_pid)
+
+        _kb._record_worker_exit(fake_pid, 0)
+        original_alive = _kb._pid_alive
+        _kb._pid_alive = lambda p: False
+        try:
+            result_crashed = kb.detect_crashed_workers(conn)
+        finally:
+            _kb._pid_alive = original_alive
+
+        assert tid in result_crashed
+        task = kb.get_task(conn, tid)
+        assert task.status == "blocked"
+        assert task.consecutive_failures == 1
+
+        events = kb.list_events(conn, tid)
+        gave_up = [e for e in events if e.kind == "gave_up"]
+        assert gave_up, f"expected gave_up event, got {[e.kind for e in events]}"
+        assert gave_up[-1].payload.get("effective_limit") == 1
+        assert gave_up[-1].payload.get("limit_source") == "dispatcher"
+    finally:
+        conn.close()
+
 def test_detect_crashed_workers_nonzero_exit_uses_default_limit(kanban_home):
     """A worker that exited non-zero (real error / crash) uses the
     normal counter path — one failure doesn't trip the breaker.
