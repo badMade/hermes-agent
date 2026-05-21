@@ -173,7 +173,9 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     "HERMES_SESSION_THREAD_ID",
     "HERMES_SESSION_SOURCE",
     "HERMES_SESSION_KEY",
+    "HERMES_SESSION_ID",
     "HERMES_GATEWAY_SESSION",
+    "HERMES_CRON_SESSION",
     "HERMES_PLATFORM",
     "HERMES_MODEL",
     "HERMES_INFERENCE_MODEL",
@@ -528,7 +530,7 @@ def mock_config():
     }
 
 
-# ── Global test timeout ─────────────────────────────────────────────────────
+# ── Global test timeout ───────────────────────────────────────────────────
 # Kill any individual test that takes longer than 30 seconds.
 # Prevents hanging tests (subprocess spawns, blocking I/O) from stalling the
 # entire test suite.
