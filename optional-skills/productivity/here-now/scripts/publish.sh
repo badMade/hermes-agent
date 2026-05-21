@@ -53,6 +53,7 @@ should_exclude_publish_path() {
   [[ "$rel" == ".herenow" || "$rel" == .herenow/* ]] && return 0
   return 1
 }
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUNDLED_JQ="${SKILL_DIR}/bin/jq"
