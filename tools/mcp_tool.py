@@ -91,6 +91,11 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Maximum decoded size for a single MCP ImageContent payload. MCP servers can
+# be remote or compromised, so cap image blocks before caching them locally.
+_MCP_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+_MCP_IMAGE_MAX_BASE64_CHARS = ((_MCP_IMAGE_MAX_BYTES + 2) // 3) * 4
+
 
 # ---------------------------------------------------------------------------
 # Stdio subprocess stderr redirection
@@ -459,9 +464,32 @@ def _cache_mcp_image_block(block) -> str:
         return ""
 
     try:
+        encoded_len = len(data)
+    except TypeError as exc:
+        logger.warning("MCP image block decode failed (%s): %s", normalized_mime, exc)
+        return ""
+
+    if encoded_len > _MCP_IMAGE_MAX_BASE64_CHARS:
+        logger.warning(
+            "MCP image block rejected (%s): base64 payload exceeds %d bytes",
+            normalized_mime,
+            _MCP_IMAGE_MAX_BYTES,
+        )
+        return ""
+
+    try:
         raw_bytes = base64.b64decode(data)
     except (TypeError, ValueError) as exc:
         logger.warning("MCP image block decode failed (%s): %s", normalized_mime, exc)
+        return ""
+
+    if len(raw_bytes) > _MCP_IMAGE_MAX_BYTES:
+        logger.warning(
+            "MCP image block rejected (%s): decoded payload is %d bytes; max is %d",
+            normalized_mime,
+            len(raw_bytes),
+            _MCP_IMAGE_MAX_BYTES,
+        )
         return ""
 
     try:
