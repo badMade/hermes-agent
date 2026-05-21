@@ -3771,8 +3771,8 @@ class FeishuAdapter(BasePlatformAdapter):
         """Map Feishu's three-tier user IDs onto Hermes' SessionSource fields.
 
         Preference order for the primary ``user_id`` field:
-          1. user_id  (tenant-scoped, most stable — requires permission scope)
-          2. open_id  (app-scoped, always available — different per bot app)
+          1. open_id  (app-scoped, always available — different per bot app)
+          2. user_id  (tenant-scoped fallback — requires permission scope)
 
         ``user_id_alt`` carries the union_id (developer-scoped, stable across
         all apps by the same developer).  Session-key generation prefers
@@ -3782,8 +3782,9 @@ class FeishuAdapter(BasePlatformAdapter):
         open_id = getattr(sender_id, "open_id", None) or None
         user_id = getattr(sender_id, "user_id", None) or None
         union_id = getattr(sender_id, "union_id", None) or None
-        # Prefer tenant-scoped user_id; fall back to app-scoped open_id.
-        primary_id = user_id or open_id
+        # Use the app-scoped open_id as the gateway authorization principal.
+        # Tenant-scoped user_id can collide across tenants in multi-tenant bot deployments.
+        primary_id = open_id or user_id
         # bot/v3/bots/basic_batch only accepts open_id.
         name_lookup_id = open_id if is_bot else (primary_id or union_id)
         display_name = await self._resolve_sender_name_from_api(
@@ -4027,21 +4028,21 @@ class FeishuAdapter(BasePlatformAdapter):
             allowlist = self._allowed_group_users
             blacklist = set()
 
-        # Channel locks apply to everyone; allowlist/blacklist only gate humans
-        # (bots were already cleared upstream by FEISHU_ALLOW_BOTS).
+        # Channel locks and explicit deny-lists apply to everyone; admitted
+        # bots only bypass human allowlists after deny checks have run.
         if policy == "disabled":
             return False
         if policy == "open":
             return True
         if policy == "admin_only":
             return False
+        if policy == "blacklist":
+            return bool(sender_ids and not (sender_ids & blacklist))
         if is_bot:
             return True
 
         if policy == "allowlist":
             return bool(sender_ids and (sender_ids & allowlist))
-        if policy == "blacklist":
-            return bool(sender_ids and not (sender_ids & blacklist))
 
         return bool(sender_ids and (sender_ids & self._allowed_group_users))
 

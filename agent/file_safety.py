@@ -28,6 +28,7 @@ def build_write_denied_paths(home: str) -> set[str]:
             os.path.join(home, ".ssh", "config"),
             os.path.join(home, ".hermes", ".env"),
             str(hermes_home / ".env"),
+            str(hermes_home / "config.yaml"),
             os.path.join(home, ".bashrc"),
             os.path.join(home, ".zshrc"),
             os.path.join(home, ".profile"),
@@ -73,14 +74,28 @@ def get_safe_write_root() -> Optional[str]:
         return None
 
 
-def is_write_denied(path: str, home: str | None = None) -> bool:
-    """Return True if path is blocked by the write denylist or safe root.
+def _is_outside_root(candidate: str, root: str) -> bool:
+    """Return True when candidate is outside root (or incomparable)."""
+    try:
+        return os.path.commonpath([candidate, root]) != root
+    except ValueError:
+        # Mixed drives / invalid roots are always treated as outside.
+        return True
 
-    Args:
-        path: Candidate write path.
-        home: Optional target-environment home directory. When file tools run
-            over SSH or another remote backend, this must be the remote home
-            rather than the local Hermes process home.
+
+def is_write_denied(
+    path: str,
+    home: str | None = None,
+    base_dir: str | None = None,
+) -> bool:
+    """Return True if path is blocked by denylist or root constraints.
+
+    Enforcement order is additive (most restrictive wins):
+    1) static denylist/prefixes
+    2) optional call-site ``base_dir`` sandbox
+    3) optional ``HERMES_WRITE_SAFE_ROOT`` sandbox
+
+    ``home`` selects which user-home denylist paths are evaluated.
     """
     home = os.path.realpath(os.path.expanduser(home or "~"))
     resolved = os.path.realpath(os.path.expanduser(str(path)))
@@ -91,8 +106,13 @@ def is_write_denied(path: str, home: str | None = None) -> bool:
         if resolved.startswith(prefix):
             return True
 
+    if base_dir:
+        base_root = os.path.realpath(os.path.expanduser(str(base_dir)))
+        if _is_outside_root(resolved, base_root):
+            return True
+
     safe_root = get_safe_write_root()
-    if safe_root and not (resolved == safe_root or resolved.startswith(safe_root + os.sep)):
+    if safe_root and _is_outside_root(resolved, safe_root):
         return True
 
     return False
