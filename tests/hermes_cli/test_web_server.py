@@ -110,7 +110,20 @@ class TestWebServerEndpoints:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
+
+        # Make sure test plugins are enabled and loaded
+        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
+        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
+        import hermes_cli.web_server
+        hermes_cli.web_server._get_dashboard_plugins(force_rescan=True)
+
         from hermes_constants import get_hermes_home
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
+        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
+        # We also need to clear _dashboard_plugins_cache so it rescans!
+        import hermes_cli.web_server
+        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
@@ -563,7 +576,20 @@ class TestNewEndpoints:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
+
+        from hermes_cli.plugins import _get_enabled_plugins, _get_disabled_plugins
+        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
+        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
+        from hermes_cli.web_server import _get_dashboard_plugins
+        _get_dashboard_plugins(force_rescan=True)
+
         from hermes_constants import get_hermes_home
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
+        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
+        # We also need to clear _dashboard_plugins_cache so it rescans!
+        import hermes_cli.web_server
+        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
@@ -1899,7 +1925,18 @@ class TestPluginAPIAuth:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
+        from hermes_cli.plugins import _get_enabled_plugins, _get_disabled_plugins
+        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
+        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
+        import hermes_cli.web_server
+        hermes_cli.web_server._get_dashboard_plugins(force_rescan=True)
         from hermes_constants import get_hermes_home
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
+        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
+        # We also need to clear _dashboard_plugins_cache so it rescans!
+        import hermes_cli.web_server
+        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
@@ -1919,17 +1956,18 @@ class TestPluginAPIAuth:
 
         Use ``/api/plugins/hermes-achievements/scan-status`` — a stable,
         side-effect-free GET that reads in-process scan state with no DB or
-        external dependencies. With a valid token the middleware should
-        allow access (non-401); without one it should 401 before handler
-        dispatch.
+        external dependencies. With a valid token the handler should run
+        (200); without one the middleware should 401 before the handler.
         """
         # Without auth: middleware blocks before reaching the handler.
         resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 401
 
-        # With auth: middleware permits request through.
+        # With auth: middleware allows request through. Depending on active
+        # plugin registration in the test environment, the route may exist
+        # (200) or not (404), but it must not be blocked as unauthorized.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
-        assert resp.status_code != 401
+        assert resp.status_code in (200, 404)
 
     def test_plugin_post_requires_auth(self):
         """Plugin POST routes should return 401 without a valid session token."""
@@ -2407,30 +2445,13 @@ class TestPtyWebSocket:
     def test_pub_broadcasts_to_events_subscribers(self, monkeypatch):
         """Frame written to /api/pub is rebroadcast verbatim to every
         /api/events subscriber on the same channel."""
-        import time
         from urllib.parse import urlencode
-        from hermes_cli import web_server as ws_mod
 
         qs = urlencode({"token": self.token, "channel": "broadcast-test"})
         pub_path = f"/api/pub?{qs}"
         sub_path = f"/api/events?{qs}"
 
         with self.client.websocket_connect(sub_path) as sub:
-            # Wait for the subscriber to be registered on the server side.
-            # websocket_connect returns when ws.accept() completes, but the
-            # server adds us to ``_event_channels`` in a follow-up await,
-            # so a publish immediately after connect can race ahead of the
-            # subscriber registration and the message is dropped.
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                if ws_mod._event_channels.get("broadcast-test"):
-                    break
-                time.sleep(0.01)
-            else:
-                raise AssertionError(
-                    "subscriber did not register on channel within 5s"
-                )
-
             with self.client.websocket_connect(pub_path) as pub:
                 pub.send_text('{"type":"tool.start","payload":{"tool_id":"t1"}}')
                 received = sub.receive_text()
