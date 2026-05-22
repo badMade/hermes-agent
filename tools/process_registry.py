@@ -436,12 +436,12 @@ class ProcessRegistry:
             os.kill(pid, signal.SIGTERM)
             return
 
-        try:
-            target_pgid = pgid if pgid is not None else os.getpgid(pid)
-            os.killpg(target_pgid, signal.SIGTERM)  # windows-footgun: ok — guarded by _IS_WINDOWS above
-            return
-        except (OSError, ProcessLookupError, PermissionError):
-            pass
+        if pgid is not None:
+            try:
+                os.killpg(pgid, signal.SIGTERM)  # windows-footgun: ok — guarded by _IS_WINDOWS above
+                return
+            except (OSError, ProcessLookupError, PermissionError):
+                pass
 
         import psutil
         try:
@@ -570,7 +570,10 @@ class ProcessRegistry:
         session.process = proc
         session.pid = proc.pid
         if not _IS_WINDOWS:
-            session.pgid = os.getpgid(proc.pid)
+            try:
+                session.pgid = os.getpgid(proc.pid)
+            except (ProcessLookupError, OSError):
+                pass
 
         try:
             # Start output reader thread

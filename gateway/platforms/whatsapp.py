@@ -156,6 +156,7 @@ def _terminate_bridge_process(proc, *, force: bool = False) -> None:
         return
 
     pgid = getattr(proc, "_hermes_pgid", None)
+    _killpg_ok = False
     try:
         if pgid is None:
             pgid = os.getpgid(proc.pid)
@@ -163,11 +164,36 @@ def _terminate_bridge_process(proc, *, force: bool = False) -> None:
             os.killpg(pgid, signal.SIGKILL)  # windows-footgun: ok — guarded by _IS_WINDOWS above
         else:
             os.killpg(pgid, signal.SIGTERM)  # windows-footgun: ok — guarded by _IS_WINDOWS above
+        _killpg_ok = True
     except (ProcessLookupError, PermissionError, OSError):
-        if force:
-            proc.kill()
-        else:
-            proc.terminate()
+        pass
+
+    if not _killpg_ok:
+        import psutil as _psutil
+        try:
+            _parent = _psutil.Process(proc.pid)
+            for _child in _parent.children(recursive=True):
+                try:
+                    if force:
+                        _child.kill()
+                    else:
+                        _child.terminate()
+                except _psutil.NoSuchProcess:
+                    pass
+            try:
+                if force:
+                    _parent.kill()
+                else:
+                    _parent.terminate()
+            except _psutil.NoSuchProcess:
+                pass
+        except _psutil.NoSuchProcess:
+            pass
+        except (PermissionError, OSError):
+            if force:
+                proc.kill()
+            else:
+                proc.terminate()
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -562,7 +588,10 @@ class WhatsAppAdapter(BasePlatformAdapter):
                 env=bridge_env,
             )
             if not _IS_WINDOWS:
-                self._bridge_process._hermes_pgid = os.getpgid(self._bridge_process.pid)
+                try:
+                    self._bridge_process._hermes_pgid = os.getpgid(self._bridge_process.pid)
+                except (ProcessLookupError, OSError):
+                    pass
             _write_bridge_pidfile(self._session_path, self._bridge_process.pid)
             
             # Wait for the bridge to connect to WhatsApp.
