@@ -724,4 +724,5 @@ class TestBridgePidfileHardening:
         metadata = json.loads(pid_file.read_text(encoding="utf-8"))
         assert metadata["pid"] == os.getpid()
         assert metadata["session_path"] == str(tmp_path.resolve())
-        assert stat.S_IMODE(pid_file.stat().st_mode) == 0o600
+        if os.name != "nt":
+            assert stat.S_IMODE(pid_file.stat().st_mode) == 0o600
