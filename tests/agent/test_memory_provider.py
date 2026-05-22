@@ -1,6 +1,8 @@
 """Tests for the memory provider interface, manager, and builtin provider."""
 
 import json
+import re
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -84,6 +86,13 @@ class MetadataMemoryProvider(FakeMemoryProvider):
         self.memory_writes.append((action, target, content, metadata or {}))
 
 
+class UnhandledToolProvider(FakeMemoryProvider):
+    """Provider that routes tool handling to the base class implementation."""
+
+    def handle_tool_call(self, tool_name, args, **kwargs):
+        return MemoryProvider.handle_tool_call(self, tool_name, args, **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # MemoryProvider ABC tests
 # ---------------------------------------------------------------------------
@@ -115,28 +124,10 @@ class TestMemoryProviderABC:
 
     def test_handle_tool_call_raises_not_implemented(self):
         """Default handle_tool_call raises NotImplementedError."""
-
-        class MinimalProvider(MemoryProvider):
-            @property
-            def name(self):
-                return "test_provider"
-
-            def is_available(self):
-                return True
-
-            def initialize(self, session_id, **kw):
-                pass
-
-            def sync_turn(self, *a, **kw):
-                pass
-
-            def get_tool_schemas(self):
-                return []
-
-        p = MinimalProvider()
+        p = UnhandledToolProvider(name="test_provider")
         with pytest.raises(
             NotImplementedError,
-            match="Provider test_provider does not handle tool test_tool",
+            match=rf"^{re.escape('Provider test_provider does not handle tool test_tool')}$",
         ):
             p.handle_tool_call("test_tool", {"arg": "val"})
 
