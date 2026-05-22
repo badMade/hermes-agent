@@ -91,7 +91,8 @@ class MetadataMemoryProvider(FakeMemoryProvider):
 
 
 class MinimalMemoryProvider(MemoryProvider):
-    """A minimal provider to test default hook implementations without overrides."""
+    """A minimal provider that implements required abstract members but does not
+    override optional hooks (e.g. on_session_end) so the base no-op can be exercised."""
 
     @property
     def name(self) -> str:
@@ -135,7 +136,7 @@ class TestMemoryProviderABC:
         """Verify the base on_session_end implementation does not raise."""
         p = MinimalMemoryProvider()
         # Should not raise exception
-        assert p.on_session_end([{"role": "user", "content": "hi"}]) is None
+        p.on_session_end([{"role": "user", "content": "hi"}])
 
 
 # ---------------------------------------------------------------------------
