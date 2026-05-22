@@ -85,9 +85,9 @@ def _get_safe_write_root() -> Optional[str]:
     return _shared_get_safe_write_root()
 
 
-def _is_write_denied(path: str) -> bool:
+def _is_write_denied(path: str, base_dir: str | None = None) -> bool:
     """Return True if path is on the write deny list."""
-    return _shared_is_write_denied(path)
+    return _shared_is_write_denied(path, base_dir=base_dir)
 
 
 # =============================================================================
@@ -1045,7 +1045,7 @@ class ShellFileOperations(FileOperations):
         operations, parse_error = parse_v4a_patch(patch_content)
         if parse_error:
             return PatchResult(error=f"Failed to parse patch: {parse_error}")
-        
+
         # Apply operations
         result = apply_v4a_operations(operations, self)
         return result
