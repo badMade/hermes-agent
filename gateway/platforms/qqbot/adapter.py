@@ -232,6 +232,10 @@ class QQAdapter(BasePlatformAdapter):
             Callable[[InteractionEvent], Awaitable[None]]
         ] = None
 
+        # Suppress repeated "gateway_runner not attached" warnings after the
+        # first occurrence — one is enough to alert operators of a wiring gap.
+        self._warned_no_runner: bool = False
+
         # Default interaction dispatcher: routes approval-button clicks to
         # tools.approval.resolve_gateway_approval() and update-prompt clicks
         # to ~/.hermes/.update_response. Set here so the cross-adapter gateway
@@ -1072,11 +1076,18 @@ class QQAdapter(BasePlatformAdapter):
         runner = getattr(self, "gateway_runner", None)
         auth_fn = getattr(runner, "_is_user_authorized", None)
         if not callable(auth_fn):
-            logger.warning(
-                "[%s] Blocking QQ attachment processing before gateway authorization: "
-                "gateway runner is not attached",
-                self._log_tag,
-            )
+            if not self._warned_no_runner:
+                logger.warning(
+                    "[%s] Blocking QQ attachment processing before gateway authorization: "
+                    "gateway runner is not attached",
+                    self._log_tag,
+                )
+                self._warned_no_runner = True
+            else:
+                logger.debug(
+                    "[%s] Blocking QQ attachment processing: gateway runner still not attached",
+                    self._log_tag,
+                )
             return False
         try:
             return bool(auth_fn(source))
@@ -1104,6 +1115,8 @@ class QQAdapter(BasePlatformAdapter):
             message_type=MessageType.TEXT,
             raw_message=raw_message,
             message_id=message_id,
+            media_urls=[],
+            media_types=[],
             timestamp=self._parse_qq_timestamp(timestamp),
         ))
 
@@ -1152,7 +1165,7 @@ class QQAdapter(BasePlatformAdapter):
                         _att.get("filename", ""),
                     )
 
-        if attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
+        if isinstance(attachments_raw, list) and attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
             await self._forward_message_without_attachments(
                 source=source,
                 text=text,
@@ -1238,7 +1251,7 @@ class QQAdapter(BasePlatformAdapter):
         # Strip the @bot mention prefix from content
         text = self._strip_at_mention(content)
         attachments_raw = d.get("attachments")
-        if attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
+        if isinstance(attachments_raw, list) and attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
             await self._forward_message_without_attachments(
                 source=source,
                 text=text,
@@ -1325,7 +1338,7 @@ class QQAdapter(BasePlatformAdapter):
 
         text = content
         attachments_raw = d.get("attachments")
-        if attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
+        if isinstance(attachments_raw, list) and attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
             await self._forward_message_without_attachments(
                 source=source,
                 text=text,
@@ -1406,7 +1419,7 @@ class QQAdapter(BasePlatformAdapter):
         )
         text = content
         attachments_raw = d.get("attachments")
-        if attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
+        if isinstance(attachments_raw, list) and attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
             await self._forward_message_without_attachments(
                 source=source,
                 text=text,

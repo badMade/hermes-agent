@@ -1319,6 +1319,54 @@ class TestQQAttachmentPreAuth:
 
         assert adapter._is_source_authorized_for_attachment_processing(source) is False
 
+    def test_attachment_auth_gate_fails_closed_when_auth_raises(self):
+        """Auth exceptions must not grant access — the gate must fail closed."""
+        adapter = self._make_adapter()
+
+        class RaisingRunner:
+            def _is_user_authorized(self, source):
+                raise RuntimeError("unexpected auth error")
+
+        adapter.gateway_runner = RaisingRunner()
+        source = adapter.build_source(chat_id="u-err", user_id="u-err", chat_type="dm")
+
+        assert adapter._is_source_authorized_for_attachment_processing(source) is False
+
+    @pytest.mark.asyncio
+    async def test_c2c_attachment_not_processed_when_auth_raises(self):
+        """Attachment processing must be skipped when the auth check raises."""
+        adapter = self._make_adapter()
+
+        class RaisingRunner:
+            def _is_user_authorized(self, source):
+                raise RuntimeError("unexpected auth error")
+
+        adapter.gateway_runner = RaisingRunner()
+        processed = []
+        forwarded = []
+
+        async def fake_process(attachments):
+            processed.append(attachments)
+            return {"image_urls": [], "image_media_types": [], "voice_transcripts": [], "attachment_info": ""}
+
+        async def fake_handle(event):
+            forwarded.append(event)
+
+        adapter._process_attachments = fake_process  # type: ignore[assignment]
+        adapter.handle_message = fake_handle  # type: ignore[assignment]
+
+        await adapter._handle_c2c_message(
+            {"attachments": [{"url": "https://attacker.example/payload.bin"}]},
+            "msg-err",
+            "hello",
+            {"user_openid": "u-err"},
+            "2026-05-17T00:00:00Z",
+        )
+
+        assert processed == [], "attachment I/O must not run when auth raises"
+        assert len(forwarded) == 1, "text-only event must still be forwarded"
+        assert forwarded[0].media_urls == []
+
     @pytest.mark.asyncio
     async def test_c2c_attachment_from_unauthorized_source_is_not_processed(self):
         adapter = self._make_adapter()
