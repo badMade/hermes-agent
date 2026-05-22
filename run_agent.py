@@ -1584,7 +1584,7 @@ class AIAgent:
                     if _gr.get("trace"):
                         self._bedrock_guardrail_config["trace"] = _gr["trace"]
             except Exception as e:
-                logger.warning("Failed to load AWS Bedrock guardrail configuration: %s", e)
+                logger.warning("Failed to load AWS Bedrock guardrail configuration: %s", e, exc_info=True)
             self.client = None
             self._client_kwargs = {}
             if not self.quiet_mode:
