@@ -293,8 +293,12 @@ class HermesAgentLoop:
                             "Fallback parser extracted %d tool calls from raw content",
                             len(parsed_calls),
                         )
-                except Exception as e:
-                    logger.warning("Fallback parser failed", exc_info=True)
+                except Exception:
+                    logger.exception(
+                        "Fallback parser failed on turn %d (task=%s)",
+                        turn + 1,
+                        self.task_id[:8],
+                    )
                     # Fall through to no tool calls
 
             if assistant_msg.tool_calls:
