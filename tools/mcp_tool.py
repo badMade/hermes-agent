@@ -471,14 +471,15 @@ def _cache_mcp_image_block(block) -> str:
 
     if encoded_len > _MCP_IMAGE_MAX_BASE64_CHARS:
         logger.warning(
-            "MCP image block rejected (%s): base64 payload exceeds %d bytes",
+            "MCP image block rejected (%s): base64 payload is %d chars; max is %d chars",
             normalized_mime,
-            _MCP_IMAGE_MAX_BYTES,
+            encoded_len,
+            _MCP_IMAGE_MAX_BASE64_CHARS,
         )
         return ""
 
     try:
-        raw_bytes = base64.b64decode(data)
+        raw_bytes = base64.b64decode(data, validate=True)
     except (TypeError, ValueError) as exc:
         logger.warning("MCP image block decode failed (%s): %s", normalized_mime, exc)
         return ""
