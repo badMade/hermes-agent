@@ -85,24 +85,9 @@ def _get_safe_write_root() -> Optional[str]:
     return _shared_get_safe_write_root()
 
 
-def _is_write_denied(path: str) -> bool:
+def _is_write_denied(path: str, base_dir: str | None = None) -> bool:
     """Return True if path is on the write deny list."""
-    # base_dir is retained for backward compatibility with older callers/tests;
-    # the shared policy helper now resolves paths solely from the target path.
-    return _shared_is_write_denied(path)
-
-
-def _v4a_write_denial_error(operations: List[Any]) -> Optional[str]:
-    """Return an error if a V4A operation targets a write-denied path."""
-    for op in operations:
-        paths = [getattr(op, "file_path", None)]
-        new_path = getattr(op, "new_path", None)
-        if new_path:
-            paths.append(new_path)
-        for path in paths:
-            if path and _is_write_denied(path):
-                return f"Patch denied: {path} is a protected path"
-    return None
+    return _shared_is_write_denied(path, base_dir=base_dir)
 
 
 # =============================================================================
@@ -1061,14 +1046,8 @@ class ShellFileOperations(FileOperations):
         if parse_error:
             return PatchResult(error=f"Failed to parse patch: {parse_error}")
 
-        denial_error = _v4a_write_denial_error(operations)
-        if denial_error:
-            return PatchResult(error=denial_error)
         # Apply operations
         result = apply_v4a_operations(operations, self)
-        if result.error:
-            from agent.redact import redact_sensitive_text
-            result.error = redact_sensitive_text(result.error)
         return result
     
     def _check_lint(self, path: str, content: Optional[str] = None) -> LintResult:

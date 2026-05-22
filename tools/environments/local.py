@@ -66,7 +66,9 @@ def _build_provider_env_blocklist() -> frozenset:
         from hermes_cli.config import OPTIONAL_ENV_VARS
         for name, metadata in OPTIONAL_ENV_VARS.items():
             category = metadata.get("category")
-            if category in {"tool", "messaging"} or metadata.get("password"):
+            if category in {"tool", "messaging"} or (
+                category == "setting" and metadata.get("password")
+            ):
                 blocked.add(name)
     except ImportError:
         pass
