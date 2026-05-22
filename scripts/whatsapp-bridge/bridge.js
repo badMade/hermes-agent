@@ -513,21 +513,12 @@ app.post('/edit', async (req, res) => {
   try {
     const key = { id: messageId, fromMe: true, remoteJid: chatId };
     const chunks = splitLongMessage(formatOutgoingMessage(message));
-    const messageIds = [];
 
+    // Edits must only mutate the target message. Sending overflow chunks here
+    // makes repeated streaming edits duplicate the tail as fresh messages.
     await sock.sendMessage(chatId, { text: chunks[0], edit: key });
-    if (chunks.length > 1) {
-      for (let i = 1; i < chunks.length; i += 1) {
-        const sent = await sock.sendMessage(chatId, { text: chunks[i] });
-        trackSentMessageId(sent);
-        if (sent?.key?.id) messageIds.push(sent.key.id);
-        if (i < chunks.length - 1) {
-          await sleep(CHUNK_DELAY_MS);
-        }
-      }
-    }
 
-    res.json({ success: true, messageIds });
+    res.json({ success: true, messageIds: [], overflow: chunks.length > 1 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

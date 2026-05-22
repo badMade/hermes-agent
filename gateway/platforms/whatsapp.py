@@ -880,12 +880,17 @@ class WhatsAppAdapter(BasePlatformAdapter):
             return SendResult(success=False, error=bridge_exit)
         try:
             import aiohttp
+
+            formatted = self.format_message(content)
+            chunks = self.truncate_message(formatted, self._outgoing_chunk_limit())
+            edit_content = chunks[0] if chunks else formatted
+
             async with self._http_session.post(
                 f"http://127.0.0.1:{self._bridge_port}/edit",
                 json={
                     "chatId": chat_id,
                     "messageId": message_id,
-                    "message": content,
+                    "message": edit_content,
                 },
                 timeout=aiohttp.ClientTimeout(total=15)
             ) as resp:
