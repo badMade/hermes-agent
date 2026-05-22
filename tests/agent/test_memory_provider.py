@@ -91,13 +91,17 @@ class MetadataMemoryProvider(FakeMemoryProvider):
 
 class MinimalMemoryProvider(MemoryProvider):
     """Minimal concrete provider that doesn't override optional hooks like shutdown."""
+
     @property
     def name(self) -> str:
         return "minimal"
+
     def is_available(self) -> bool:
         return True
+
     def initialize(self, session_id, **kwargs):
         pass
+
     def get_tool_schemas(self):
         return []
 
@@ -116,7 +120,7 @@ class TestMemoryProviderABC:
     def test_base_shutdown_is_noop(self):
         """The base MemoryProvider.shutdown implementation is a no-op that does not raise."""
         p = MinimalMemoryProvider()
-        p.shutdown()
+        assert p.shutdown() is None
 
     def test_default_optional_hooks_are_noop(self):
         """Optional hooks have default no-op implementations."""
