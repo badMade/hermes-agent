@@ -54,8 +54,8 @@ def test_gateway_session_id_keeps_its_own_container_key():
     "task_id",
     ["api-session-A", "api-session-", "api-session-123", "api-session-long-uuid-string"],
 )
-def test_api_session_id_collapses_to_default_container_key(task_id):
-    assert terminal_tool._resolve_container_task_id(task_id) == "default"
+def test_api_session_id_keeps_its_own_container_key(task_id):
+    assert terminal_tool._resolve_container_task_id(task_id) == task_id
 
 
 def test_subagent_alias_maps_child_to_parent_session_container():
@@ -140,22 +140,33 @@ class _CleanupProbe:
         self.cleaned = True
 
 
-def test_cleanup_vm_resolves_session_id_to_shared_container():
-    """API/session task IDs must tear down the real shared sandbox key."""
-    env = _CleanupProbe()
-    terminal_tool._active_environments["default"] = env
-    terminal_tool._last_activity["default"] = 123.0
+def test_cleanup_vm_keeps_api_session_distinct_from_default_container():
+    """Client-controlled API session IDs must not tear down the default sandbox."""
+    api_env = _CleanupProbe()
+    default_env = _CleanupProbe()
+    terminal_tool._active_environments["api-session-A"] = api_env
+    terminal_tool._active_environments["default"] = default_env
+    terminal_tool._last_activity["api-session-A"] = 123.0
+    terminal_tool._last_activity["default"] = 456.0
+    terminal_tool._creation_locks["api-session-A"] = object()
     terminal_tool._creation_locks["default"] = object()
     try:
         terminal_tool.cleanup_vm("api-session-A")
 
-        assert env.cleaned is True
-        assert "default" not in terminal_tool._active_environments
-        assert "default" not in terminal_tool._last_activity
-        assert "default" not in terminal_tool._creation_locks
+        assert api_env.cleaned is True
+        assert default_env.cleaned is False
+        assert "api-session-A" not in terminal_tool._active_environments
+        assert "api-session-A" not in terminal_tool._last_activity
+        assert "api-session-A" not in terminal_tool._creation_locks
+        assert terminal_tool._active_environments["default"] is default_env
+        assert terminal_tool._last_activity["default"] == 456.0
+        assert "default" in terminal_tool._creation_locks
     finally:
+        terminal_tool._active_environments.pop("api-session-A", None)
         terminal_tool._active_environments.pop("default", None)
+        terminal_tool._last_activity.pop("api-session-A", None)
         terminal_tool._last_activity.pop("default", None)
+        terminal_tool._creation_locks.pop("api-session-A", None)
         terminal_tool._creation_locks.pop("default", None)
 
 
