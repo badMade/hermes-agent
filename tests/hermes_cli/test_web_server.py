@@ -1885,7 +1885,7 @@ class TestPluginAPIAuth:
 
         self._ha_scan_status_mounted = any(
             getattr(route, "path", "") == "/api/plugins/hermes-achievements/scan-status"
-            for route in app.routes
+            for route in app.router.routes
         )
 
         self.client = TestClient(app)
