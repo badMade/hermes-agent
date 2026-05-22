@@ -7431,10 +7431,11 @@ class GatewayRunner:
                                                 _werr,
                                             )
                                 finally:
-                                    # Evict the cached agent so the next turn
-                                    # rebuilds its system prompt from current
-                                    # SOUL.md, memory, and skills.
-                                    self._evict_cached_agent(session_key)
+                                    # Evict and clean the cached session agent so
+                                    # the next turn rebuilds its system prompt
+                                    # without leaking resources owned by the old
+                                    # cached instance.
+                                    self._cleanup_evicted_cached_agent(session_key)
                                     self._cleanup_agent_resources(_hyg_agent)
 
                     except Exception as e:
@@ -10785,9 +10786,10 @@ class GatewayRunner:
                 _aux_fail_model = getattr(compressor, "_last_aux_model_failure_model", None)
                 _aux_fail_err = getattr(compressor, "_last_aux_model_failure_error", None)
             finally:
-                # Evict cached agent so next turn rebuilds system prompt
-                # from current files (SOUL.md, memory, etc.).
-                self._evict_cached_agent(session_key)
+                # Evict and clean the cached session agent so next turn
+                # rebuilds its system prompt without leaking resources owned
+                # by the old cached instance.
+                self._cleanup_evicted_cached_agent(session_key)
                 self._cleanup_agent_resources(tmp_agent)
             lines = [f"🗜️ {summary['headline']}"]
             if focus_topic:
@@ -13649,12 +13651,35 @@ class GatewayRunner:
         if release_running_state:
             self._release_running_agent_state(session_key)
 
-    def _evict_cached_agent(self, session_key: str) -> None:
-        """Remove a cached agent for a session (called on /new, /model, etc)."""
+    @staticmethod
+    def _agent_from_cache_entry(entry: Any) -> Any:
+        """Return the agent object from a cache entry, if present."""
+        if isinstance(entry, tuple) and entry:
+            return entry[0]
+        return entry
+
+    def _evict_cached_agent(self, session_key: str) -> Any:
+        """Remove and return a cached agent for a session.
+
+        This is intentionally non-destructive: callers that invalidate a
+        session but need to preserve its tool state should only pop the cache.
+        Call ``_cleanup_evicted_cached_agent`` when the evicted instance is no
+        longer resumable and its resources must be closed.
+        """
+        _cache = getattr(self, "_agent_cache", None)
+        if _cache is None:
+            return None
         _lock = getattr(self, "_agent_cache_lock", None)
         if _lock:
             with _lock:
-                self._agent_cache.pop(session_key, None)
+                entry = _cache.pop(session_key, None)
+        else:
+            entry = _cache.pop(session_key, None)
+        return self._agent_from_cache_entry(entry)
+
+    def _cleanup_evicted_cached_agent(self, session_key: str) -> None:
+        """Evict a cached session agent and close resources it owned."""
+        self._cleanup_agent_resources(self._evict_cached_agent(session_key))
 
     @staticmethod
     def _init_cached_agent_for_turn(agent: Any, interrupt_depth: int) -> None:
