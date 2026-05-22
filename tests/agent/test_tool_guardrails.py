@@ -284,9 +284,9 @@ def test_tool_call_guardrail_controller_init():
     controller_default = ToolCallGuardrailController()
     assert isinstance(controller_default.config, ToolCallGuardrailConfig)
     # Verify reset_for_turn side effects: collections must exist and be empty
-    assert not controller_default._exact_failure_counts
-    assert not controller_default._same_tool_failure_counts
-    assert not controller_default._no_progress
+    assert hasattr(controller_default, "_exact_failure_counts") and not controller_default._exact_failure_counts
+    assert hasattr(controller_default, "_same_tool_failure_counts") and not controller_default._same_tool_failure_counts
+    assert hasattr(controller_default, "_no_progress") and not controller_default._no_progress
 
     # Test initialization with specific config
     custom_config = ToolCallGuardrailConfig(
@@ -297,6 +297,6 @@ def test_tool_call_guardrail_controller_init():
     assert controller_custom.config.hard_stop_enabled is True
     assert controller_custom.config.no_progress_block_after == 99
     # Verify reset_for_turn side effects: collections must exist and be empty
-    assert not controller_custom._exact_failure_counts
-    assert not controller_custom._same_tool_failure_counts
-    assert not controller_custom._no_progress
+    assert hasattr(controller_custom, "_exact_failure_counts") and not controller_custom._exact_failure_counts
+    assert hasattr(controller_custom, "_same_tool_failure_counts") and not controller_custom._same_tool_failure_counts
+    assert hasattr(controller_custom, "_no_progress") and not controller_custom._no_progress
