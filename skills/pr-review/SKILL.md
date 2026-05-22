@@ -12,9 +12,9 @@ metadata:
     related_skills: [github-code-review, github-pr-workflow]
     config:
       - key: pr_review.rules_path
-        description: "Trusted directory holding pr-rules/*.md. Use ~/.hermes/pr-rules or rules from the trusted base branch; never load rules from the PR checkout."
+        description: "Trusted directory holding pr-rules/*.md. Absolute paths or ~/.hermes-relative paths only; repo-relative paths are untrusted and must not be loaded from the PR checkout."
         default: "~/.hermes/pr-rules"
-        prompt: "PR-rules directory"
+        prompt: "Trusted PR-rules directory"
       - key: pr_review.edge_case_board
         description: "Kanban board slug for the edge-case ledger. Empty disables edge-case checks."
         default: "pr-edge-cases"
