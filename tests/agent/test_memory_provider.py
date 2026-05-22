@@ -115,7 +115,10 @@ class TestMemoryProviderABC:
             def get_tool_schemas(self):
                 return []
 
-        with pytest.raises(TypeError, match=r".*initialize.*"):
+        with pytest.raises(
+            TypeError,
+            match=r"Can't instantiate abstract class .*initialize",
+        ):
             IncompleteProvider()
 
     def test_on_pre_compress_default_returns_empty_string(self):
