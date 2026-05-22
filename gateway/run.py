@@ -8358,7 +8358,10 @@ class GatewayRunner:
             while i < len(tokens):
                 tok = tokens[i]
                 if tok == "--notifier-profile":
-                    i += 2
+                    i += 1
+                    # Only consume the next token if it's actually a value (not another flag)
+                    if i < len(tokens) and not tokens[i].startswith("-"):
+                        i += 1
                     continue
                 if tok.startswith("--notifier-profile="):
                     i += 1

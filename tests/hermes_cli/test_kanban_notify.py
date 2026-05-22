@@ -489,7 +489,7 @@ async def test_gateway_notify_subscribe_ignores_spoofed_notifier_profile(kanban_
 
     conn = kb.connect()
     try:
-        task_id = kb.create_task(conn, "notify target", assignee="alice")
+        task_id = kb.create_task(conn, title="notify target", assignee="alice")
     finally:
         conn.close()
 
