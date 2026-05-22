@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 from fastmcp import FastMCP
@@ -12,8 +13,8 @@ mcp = FastMCP("__SERVER_NAME__")
 
 DATABASE_PATH = os.getenv("SQLITE_PATH", "./app.db")
 MAX_ROWS = int(os.getenv("SQLITE_MAX_ROWS", "200"))
-MAX_PROGRESS_CALLS = int(os.getenv("SQLITE_MAX_PROGRESS_CALLS", "20000"))
-PROGRESS_GRANULARITY = int(os.getenv("SQLITE_PROGRESS_GRANULARITY", "1000"))
+MAX_PROGRESS_CALLS = max(1, int(os.getenv("SQLITE_MAX_PROGRESS_CALLS", "20000")))
+PROGRESS_GRANULARITY = max(1, int(os.getenv("SQLITE_PROGRESS_GRANULARITY", "1000")))
 TABLE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -33,14 +34,14 @@ def _validate_table_name(table_name: str) -> str:
     return table_name
 
 
-def _progress_budget(max_calls: int) -> tuple[callable[[], int], dict[str, int]]:
+def _progress_budget(max_calls: int) -> Callable[[], int]:
     state = {"remaining": max_calls}
 
     def _progress_handler() -> int:
         state["remaining"] -= 1
         return 1 if state["remaining"] <= 0 else 0
 
-    return _progress_handler, state
+    return _progress_handler
 
 
 @mcp.tool
@@ -78,7 +79,7 @@ def query(sql: str, limit: int = 50) -> dict[str, Any]:
     _reject_mutation(sql)
     safe_limit = max(0, min(limit, MAX_ROWS))
     with _connect() as conn:
-        progress_handler, _ = _progress_budget(MAX_PROGRESS_CALLS)
+        progress_handler = _progress_budget(MAX_PROGRESS_CALLS)
         conn.set_progress_handler(progress_handler, PROGRESS_GRANULARITY)
         try:
             cursor = conn.execute(sql.strip())
