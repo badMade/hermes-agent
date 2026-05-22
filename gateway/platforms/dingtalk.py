@@ -915,8 +915,13 @@ class DingTalkAdapter(BasePlatformAdapter):
             if isinstance(status_code_raw, int):
                 status_code = status_code_raw
             else:
+                logger.warning(
+                    "[%s] Unexpected webhook response status_code type: %r",
+                    self.name,
+                    type(status_code_raw).__name__,
+                )
                 status_code = 500
-            if resp.status_code < 300 if isinstance(resp.status_code, int) else False:
+            if status_code < 300:
                 # Webhook path: fire Done only for final replies, same as
                 # the card path.
                 if is_final_reply:

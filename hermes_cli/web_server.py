@@ -3313,9 +3313,12 @@ async def events_ws(ws: WebSocket) -> None:
         await ws.close(code=4400)
         return
 
-    await ws.accept()
-
+    # Register the subscriber in the same critical section as accept().
+    # This guarantees websocket_connect() only returns after the channel
+    # subscription is live, avoiding a connect/publish race where the first
+    # broadcast can be dropped.
     async with _event_lock:
+        await ws.accept()
         _event_channels.setdefault(channel, set()).add(ws)
 
     try:
@@ -3771,10 +3774,9 @@ def _dashboard_plugin_is_enabled(name: str, directory_name: str) -> bool:
             return False
 
         enabled = _get_enabled_plugins()
-        # None means no explicit allow-list configured: allow all non-disabled plugins
-        return enabled is None or (name in enabled or directory_name in enabled)
+        return enabled is not None and (name in enabled or directory_name in enabled)
     except Exception:
-        return True
+        return False
 
 
 def _discover_dashboard_plugins() -> list:
