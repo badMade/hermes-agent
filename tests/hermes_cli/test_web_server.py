@@ -1,5 +1,6 @@
 """Tests for hermes_cli.web_server and related config utilities."""
 
+import ast
 import os
 import json
 import tempfile
@@ -1828,16 +1829,19 @@ class TestNormaliseThemeExtensions:
 
 def test_kanban_plugin_security_note_warns_against_public_binds():
     """Kanban plugin docs must not imply public dashboard binds are safe."""
-    note = (
+    source = (
         Path(__file__).resolve().parents[2]
         / "plugins"
         / "kanban"
         / "dashboard"
         / "plugin_api.py"
-    ).read_text()
+    ).read_text(encoding="utf-8")
+    note = ast.get_docstring(ast.parse(source))
 
+    assert note is not None
     assert "is safe to run on a LAN" not in note
-    assert "Do not expose ``hermes dashboard`` on" in note
+    assert "Bind to localhost by default." in note
+    assert "network-level access controls (firewall, VPN, or SSH tunnel)" in note
     assert "session token is not robust protection" in note
 
 

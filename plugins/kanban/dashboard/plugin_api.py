@@ -23,9 +23,10 @@ can call protected APIs.
 
 Because the dashboard HTML is served before API authentication and contains
 that token, the session token is not robust protection against other users
-who can reach the dashboard port. Do not expose ``hermes dashboard`` on
-untrusted or shared networks; non-local binds still require the explicit
-``--insecure`` override and should only be used in trusted environments.
+who can reach the dashboard port. Bind to localhost by default. If you use
+non-local binds (which still require the explicit ``--insecure`` override),
+add network-level access controls (firewall, VPN, or SSH tunnel) that limit
+the dashboard port to the single intended user/device.
 
 For the ``/events`` WebSocket we still require the session token as a
 ``?token=`` query parameter (browsers cannot set the ``Authorization``
