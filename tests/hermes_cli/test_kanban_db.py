@@ -657,7 +657,8 @@ def test_has_spawnable_ready_false_on_empty_queue(kanban_home):
 def test_dispatch_does_not_reap_unrelated_child(kanban_home):
     if os.name == "nt":
         pytest.skip("POSIX waitpid regression")
-    kb._known_worker_child_pids.clear()
+    with kb._known_worker_child_pids_lock:
+        kb._known_worker_child_pids.clear()
     child = subprocess.Popen([sys.executable, "-c", "import sys; sys.exit(42)"])
     time.sleep(0.1)
 
@@ -675,10 +676,13 @@ def test_dispatch_does_not_reap_unrelated_child(kanban_home):
 def test_dispatch_reaps_tracked_worker_child(kanban_home):
     if os.name == "nt":
         pytest.skip("POSIX waitpid regression")
-    kb._known_worker_child_pids.clear()
-    child = subprocess.Popen([sys.executable, "-c", "import sys; sys.exit(7)"])
+    with kb._known_worker_child_pids_lock:
+        kb._known_worker_child_pids.clear()
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import sys,time; time.sleep(0.2); sys.exit(7)"]
+    )
     kb._track_worker_child(child.pid)
-    time.sleep(0.2)
+    time.sleep(0.3)
 
     try:
         with kb.connect() as conn:
@@ -687,7 +691,8 @@ def test_dispatch_reaps_tracked_worker_child(kanban_home):
         assert child.pid not in kb._known_worker_child_pids
         assert kb._classify_worker_exit(child.pid) == ("nonzero_exit", 7)
     finally:
-        kb._known_worker_child_pids.discard(child.pid)
+        with kb._known_worker_child_pids_lock:
+            kb._known_worker_child_pids.discard(child.pid)
         if child.poll() is None:
             child.kill()
             child.wait(timeout=5)

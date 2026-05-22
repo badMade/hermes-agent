@@ -71,6 +71,7 @@ new locking.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 import re
@@ -3614,7 +3615,6 @@ def _set_worker_pid(conn: sqlite3.Connection, task_id: str, pid: int) -> None:
     tail`` can correlate log lines with OS-level traces without opening
     the drawer.
     """
-    _track_worker_child(pid)
     with write_txn(conn):
         conn.execute(
             "UPDATE tasks SET worker_pid = ? WHERE id = ?",
@@ -3627,6 +3627,7 @@ def _set_worker_pid(conn: sqlite3.Connection, task_id: str, pid: int) -> None:
                 (int(pid), run_id),
             )
         _append_event(conn, task_id, "spawned", {"pid": int(pid)}, run_id=run_id)
+    _track_worker_child(pid)
 
 
 def _clear_failure_counter(conn: sqlite3.Connection, task_id: str) -> None:
@@ -3704,9 +3705,10 @@ def _reap_known_worker_children() -> None:
             with _known_worker_child_pids_lock:
                 _known_worker_child_pids.discard(int(pid))
             continue
-        except OSError:
-            continue
-        except Exception:
+        except OSError as exc:
+            if exc.errno in (errno.ECHILD, errno.ESRCH):
+                with _known_worker_child_pids_lock:
+                    _known_worker_child_pids.discard(int(pid))
             continue
         if reaped_pid == 0:
             continue
