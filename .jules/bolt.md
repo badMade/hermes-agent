@@ -1,8 +1,8 @@
 
 ## Optimization: Bulk Task Link Insertion in kanban_db.py
 
-**Date**: $(date -I)
-**File**: `hermes_cli/kanban_db.py:1402`
+**Date**: 2026-05-20
+**File**: `hermes_cli/kanban_db.py` — `create_task()`
 
 ### What
 Replaced a `for` loop executing individual `INSERT OR IGNORE` queries with a single `conn.executemany` call for inserting task links (parent-child relationships).
