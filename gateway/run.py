@@ -63,6 +63,14 @@ _AGENT_CACHE_IDLE_TTL_SECS = 3600.0  # evict agents idle for >1h
 _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
 _ADAPTER_DISCONNECT_TIMEOUT_SECS_DEFAULT = 5.0
 _TELEGRAM_COMMAND_MENTION_RE = re.compile(r"(?<![\w:/])/([A-Za-z0-9][A-Za-z0-9_-]*)")
+_GIT_URL_USERINFO_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s]+@)")
+_GIT_SCP_SECRET_USERINFO_RE = re.compile(r"(?<!\S)([^@:/\s]+:[^@\s]+@)([^:\s]+:[^\s]+)")
+
+
+def _redact_update_output_secrets(text: str) -> str:
+    """Redact credential userinfo from update output before chat delivery."""
+    text = _GIT_URL_USERINFO_RE.sub(r"\1[REDACTED]@", text)
+    return _GIT_SCP_SECRET_USERINFO_RE.sub(r"[REDACTED]@\2", text)
 
 
 def _telegramize_command_mentions(text: str, platform: Any) -> str:
@@ -5390,7 +5398,10 @@ class GatewayRunner:
             Platform.QQBOT: "QQ_ALLOW_ALL_USERS",
             Platform.YUANBAO: "YUANBAO_ALLOW_ALL_USERS",
         }
-        # Bots admitted by {PLATFORM}_ALLOW_BOTS bypass the human allowlist (#4466).
+        # Bots admitted by {PLATFORM}_ALLOW_BOTS bypass the human allowlist.
+        # Discord keeps this gateway-level bypass aligned with adapter behavior:
+        # if DISCORD_ALLOW_BOTS is permissive and the message reaches here as a
+        # bot sender, this layer should not re-reject it on user allowlists.
         platform_allow_bots_map = {
             Platform.DISCORD: "DISCORD_ALLOW_BOTS",
             Platform.FEISHU: "FEISHU_ALLOW_BOTS",
@@ -12698,7 +12709,8 @@ class GatewayRunner:
             if adapter and chat_id:
                 metadata = {"thread_id": thread_id} if thread_id else None
                 # Strip ANSI escape codes for clean display
-                output = re.sub(r'\x1b\[[0-9;]*m', '', output).strip()
+                output = re.sub(r'\x1b\[[0-9;]*m', '', output)
+                output = _redact_update_output_secrets(output).strip()
                 if output:
                     if len(output) > 3500:
                         output = "…" + output[-3500:]
@@ -13641,6 +13653,19 @@ class GatewayRunner:
             agent._last_activity_ts = time.time()
             agent._last_activity_desc = "starting new turn (cached)"
         agent._api_call_count = 0
+
+    @staticmethod
+    def _refresh_agent_source_context(agent: Any, source: SessionSource, session_key: str) -> None:
+        """Refresh source-scoped identity on a cached agent for this gateway turn."""
+        platform = getattr(source.platform, "value", source.platform)
+        agent.platform = platform if platform is None or isinstance(platform, str) else str(platform)
+        agent._user_id = source.user_id
+        agent._user_name = source.user_name
+        agent._chat_id = source.chat_id
+        agent._chat_name = source.chat_name
+        agent._chat_type = source.chat_type
+        agent._thread_id = source.thread_id
+        agent._gateway_session_key = session_key
 
     def _release_evicted_agent_soft(self, agent: Any) -> None:
         """Soft cleanup for cache-evicted agents — preserves session tool state.
@@ -14896,6 +14921,7 @@ class GatewayRunner:
             agent.reasoning_config = reasoning_config
             agent.service_tier = self._service_tier
             agent.request_overrides = turn_route.get("request_overrides") or {}
+            self._refresh_agent_source_context(agent, source, session_key)
 
             _bg_review_release = threading.Event()
             _bg_review_pending: list[str] = []
