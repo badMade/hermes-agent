@@ -180,11 +180,11 @@ def test_stream_delta_is_deferred_when_transform_hook_registered(monkeypatch):
     from run_agent import AIAgent
 
     agent = object.__new__(AIAgent)
+    emitted = []
     agent.stream_delta_callback = lambda text: emitted.append(text)
     agent._stream_callback = None
     agent._current_streamed_assistant_text = ""
     agent._stream_needs_break = False
-    emitted = []
 
     monkeypatch.setattr(plugins_mod, "has_hook", lambda hook_name: hook_name == "transform_llm_output")
 

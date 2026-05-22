@@ -1493,6 +1493,10 @@ class AIAgent:
         # commentary when the provider later returns it as a completed interim
         # assistant message.
         self._current_streamed_assistant_text = ""
+        # Per-turn cache for whether a transform_llm_output hook is registered.
+        # Computed once on the first delta of each streaming turn and reset by
+        # _reset_stream_delivery_tracking() so the next turn re-evaluates.
+        self._transform_hook_enabled_cache: "Optional[bool]" = None
 
         # Optional current-turn user-message override used when the API-facing
         # user message intentionally differs from the persisted transcript
@@ -7511,6 +7515,9 @@ class AIAgent:
                             pass
                 self._record_streamed_assistant_text(tail)
         self._current_streamed_assistant_text = ""
+        # Invalidate the per-turn hook-presence cache so the next streaming
+        # turn re-evaluates whether a transform_llm_output hook is registered.
+        self._transform_hook_enabled_cache = None
 
     def _record_streamed_assistant_text(self, text: str) -> None:
         """Accumulate visible assistant text emitted through stream callbacks."""
@@ -7520,14 +7527,24 @@ class AIAgent:
             )
 
     def _llm_output_transform_hook_enabled(self) -> bool:
-        """Return True when streaming must wait for output transformation."""
+        """Return True when streaming must wait for output transformation.
+
+        The result is cached for the duration of the current streaming turn to
+        avoid a repeated import + lookup on every emitted delta.  The cache is
+        cleared by _reset_stream_delivery_tracking() at the end of each turn.
+        """
+        cached = getattr(self, "_transform_hook_enabled_cache", None)
+        if cached is not None:
+            return cached
         try:
             from hermes_cli.plugins import has_hook as _has_hook
 
-            return bool(_has_hook("transform_llm_output"))
+            result = bool(_has_hook("transform_llm_output"))
         except Exception as exc:
             logger.debug("transform_llm_output hook check failed: %s", exc)
-            return False
+            result = False
+        self._transform_hook_enabled_cache = result
+        return result
 
     def _apply_transform_llm_output_hook(self, response_text: str) -> str:
         """Apply the first non-empty transform_llm_output hook result."""
@@ -7945,9 +7962,9 @@ class AIAgent:
                         else:
                             try:
                                 self.stream_delta_callback(delta.content)
-                                self._record_streamed_assistant_text(delta.content)
                             except Exception:
                                 pass
+                            self._record_streamed_assistant_text(delta.content)
 
                 # Accumulate tool call deltas — notify display on first name
                 if delta and delta.tool_calls:
