@@ -2216,6 +2216,32 @@ def reassign_task(
         return False
 
 
+def _created_with_parent(
+    conn: sqlite3.Connection,
+    child_id: str,
+    parent_id: str,
+) -> bool:
+    """Return True when a task's creation event declared ``parent_id``.
+
+    Later ``linked`` events are intentionally ignored: kanban_link does not
+    carry trusted provenance, so accepting post-hoc links here would let a
+    worker claim unrelated existing tasks in ``created_cards``.
+    """
+    rows = conn.execute(
+        "SELECT payload FROM task_events WHERE task_id = ? AND kind = 'created'",
+        (child_id,),
+    ).fetchall()
+    for row in rows:
+        try:
+            payload = json.loads(row["payload"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        parents = payload.get("parents") if isinstance(payload, dict) else None
+        if isinstance(parents, list) and parent_id in {str(p) for p in parents}:
+            return True
+    return False
+
+
 def _verify_created_cards(
     conn: sqlite3.Connection,
     completing_task_id: str,
@@ -2231,15 +2257,13 @@ def _verify_created_cards(
       which stamps ``created_by=A``).
     * ``created_by`` matches the completing task's id (edge case where
       a worker passed its own task id as the ``created_by`` value).
-    * The card is linked as a ``task_links.child`` of the completing
-      task — i.e. the worker explicitly called ``kanban_create`` with
-      ``parents=[<current_task>]``. This accepts cards created through
-      the dashboard/CLI by a different principal but then attached to
-      the completing task by the worker.
+    * The card's own ``created`` event declared the completing task as a
+      parent, which proves the relationship was established at creation
+      time rather than through an untrusted post-hoc link.
 
     ``phantom`` returns ids that either don't exist at all, or exist
-    but don't satisfy any of the three trust conditions. The caller
-    decides what to do with each bucket; this helper never mutates.
+    but don't satisfy any of the trust conditions. The caller decides
+    what to do with each bucket; this helper never mutates.
     """
     claimed = [str(x).strip() for x in (claimed_ids or []) if str(x).strip()]
     if not claimed:
@@ -2268,10 +2292,6 @@ def _verify_created_cards(
     ).fetchall()
     found = {r["id"]: r["created_by"] for r in rows}
 
-    # Pull the set of cards linked as children of the completing task.
-    # Cheap: one query, indexed on parent_id.
-    linked_children: set[str] = set(child_ids(conn, completing_task_id))
-
     verified: list[str] = []
     phantom: list[str] = []
     for cid in ordered:
@@ -2284,7 +2304,7 @@ def _verify_created_cards(
             verified.append(cid)
         elif created_by == completing_task_id:
             verified.append(cid)
-        elif cid in linked_children:
+        elif _created_with_parent(conn, cid, completing_task_id):
             verified.append(cid)
         else:
             phantom.append(cid)
