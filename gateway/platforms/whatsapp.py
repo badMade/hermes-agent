@@ -285,7 +285,6 @@ def _write_bridge_pidfile(session_path: Path, pid: int) -> None:
                 fh.write("\n")
                 fh.flush()
                 os.fsync(fh.fileno())
-            os.chmod(tmp_name, 0o600)
             os.replace(tmp_name, pid_file)
         except Exception:
             try:
