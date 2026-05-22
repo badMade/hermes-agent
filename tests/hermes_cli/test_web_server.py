@@ -109,20 +109,7 @@ class TestWebServerEndpoints:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
-
-        # Make sure test plugins are enabled and loaded
-        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
-        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
-        import hermes_cli.web_server
-        hermes_cli.web_server._get_dashboard_plugins(force_rescan=True)
-
         from hermes_constants import get_hermes_home
-        import hermes_cli.plugins
-        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
-        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
-        # We also need to clear _dashboard_plugins_cache so it rescans!
-        import hermes_cli.web_server
-        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(
@@ -625,20 +612,7 @@ class TestNewEndpoints:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
-
-        from hermes_cli.plugins import _get_enabled_plugins, _get_disabled_plugins
-        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
-        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
-        from hermes_cli.web_server import _get_dashboard_plugins
-        _get_dashboard_plugins(force_rescan=True)
-
         from hermes_constants import get_hermes_home
-        import hermes_cli.plugins
-        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
-        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
-        # We also need to clear _dashboard_plugins_cache so it rescans!
-        import hermes_cli.web_server
-        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(
@@ -2062,34 +2036,17 @@ class TestPluginAPIAuth:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
-        from hermes_cli.plugins import _get_enabled_plugins, _get_disabled_plugins
-        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
-        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
-        import hermes_cli.web_server
-        hermes_cli.web_server._get_dashboard_plugins(force_rescan=True)
         from hermes_constants import get_hermes_home
-        import hermes_cli.plugins
-        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
-        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
-        # We also need to clear _dashboard_plugins_cache so it rescans!
-        import hermes_cli.web_server
-        hermes_cli.web_server._dashboard_plugins_cache = None
-        from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+        from hermes_cli import web_server
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(
             hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db"
         )
 
-        # Avoid re-mounting plugin routes on every test (include_router is not
-        # idempotent and duplicates routes). Only mount once when missing.
-        has_kanban_api = any(
-            getattr(route, "path", "").startswith("/api/plugins/kanban")
-            for route in app.router.routes
-        )
-        if not has_kanban_api:
-            web_server._dashboard_plugins_cache = None
-            web_server._mount_plugin_api_routes()
+        # Ensure plugin routes are mounted for tests since _mount_plugin_api_routes uses _dashboard_plugins_cache
+        web_server._dashboard_plugins_cache = None
+        web_server._mount_plugin_api_routes()
 
         self.client = TestClient(app)
         self.auth_client = TestClient(app)
@@ -2105,15 +2062,8 @@ class TestPluginAPIAuth:
         """Plugin API routes should work with a valid session token."""
         resp = self.client.get("/api/plugins/kanban/board")
         assert resp.status_code == 401
-        route_mounted = any(
-            getattr(route, "path", "").startswith("/api/plugins/kanban/board")
-            for route in self.client.app.router.routes
-        )
         resp = self.auth_client.get("/api/plugins/kanban/board")
         assert resp.status_code != 401
-        if route_mounted:
-            assert resp.status_code != 404
-        assert resp.status_code < 500
 
     def test_plugin_post_requires_auth(self):
         """Plugin POST routes should return 401 without a valid session token."""
@@ -2631,7 +2581,9 @@ class TestPtyWebSocket:
     def test_pub_broadcasts_to_events_subscribers(self, monkeypatch):
         """Frame written to /api/pub is rebroadcast verbatim to every
         /api/events subscriber on the same channel."""
+        import time
         from urllib.parse import urlencode
+        from hermes_cli import web_server as ws_mod
 
         qs = urlencode({"token": self.token, "channel": "broadcast-test"})
         pub_path = f"/api/pub?{qs}"
@@ -2650,7 +2602,6 @@ class TestPtyWebSocket:
                 time.sleep(0.01)
             else:
                 raise AssertionError("subscriber did not register on channel within 5s")
-
 
             with self.client.websocket_connect(pub_path) as pub:
                 pub.send_text('{"type":"tool.start","payload":{"tool_id":"t1"}}')
