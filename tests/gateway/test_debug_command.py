@@ -115,3 +115,19 @@ class TestDebugCommandGatewayExposure:
 
         assert result == "Command `/debug` is only available in the local CLI."
         mock_upload.assert_not_called()
+        runner._handle_message_with_agent.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hook_rewrite_to_debug_is_rejected_before_upload(self):
+        runner = _make_runner()
+        runner.hooks.emit_collect = AsyncMock(
+            return_value=[{"decision": "rewrite", "command_name": "debug"}]
+        )
+        event = _make_event(text="/help")
+
+        with patch("hermes_cli.debug.upload_to_pastebin") as mock_upload:
+            result = await runner._handle_message(event)
+
+        assert result == "Command `/debug` is only available in the local CLI."
+        mock_upload.assert_not_called()
+        runner._handle_message_with_agent.assert_not_called()

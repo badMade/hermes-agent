@@ -109,7 +109,20 @@ class TestWebServerEndpoints:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
+
+        # Make sure test plugins are enabled and loaded
+        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
+        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
+        import hermes_cli.web_server
+        hermes_cli.web_server._get_dashboard_plugins(force_rescan=True)
+
         from hermes_constants import get_hermes_home
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
+        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
+        # We also need to clear _dashboard_plugins_cache so it rescans!
+        import hermes_cli.web_server
+        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
@@ -562,7 +575,20 @@ class TestNewEndpoints:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
+
+        from hermes_cli.plugins import _get_enabled_plugins, _get_disabled_plugins
+        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
+        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
+        from hermes_cli.web_server import _get_dashboard_plugins
+        _get_dashboard_plugins(force_rescan=True)
+
         from hermes_constants import get_hermes_home
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
+        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
+        # We also need to clear _dashboard_plugins_cache so it rescans!
+        import hermes_cli.web_server
+        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
@@ -1838,7 +1864,18 @@ class TestPluginAPIAuth:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
+        from hermes_cli.plugins import _get_enabled_plugins, _get_disabled_plugins
+        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
+        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
+        import hermes_cli.web_server
+        hermes_cli.web_server._get_dashboard_plugins(force_rescan=True)
         from hermes_constants import get_hermes_home
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
+        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
+        # We also need to clear _dashboard_plugins_cache so it rescans!
+        import hermes_cli.web_server
+        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
@@ -1865,7 +1902,9 @@ class TestPluginAPIAuth:
         resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 401
 
-        # With auth: middleware allows routing; plugin endpoint may be absent.
+        # With auth: middleware allows request through. Depending on active
+        # plugin registration in the test environment, the route may exist
+        # (200) or not (404), but it must not be blocked as unauthorized.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code in (200, 404)
 
