@@ -1295,7 +1295,7 @@ def create_task(
             f"workspace_kind must be one of {sorted(VALID_WORKSPACE_KINDS)}, "
             f"got {workspace_kind!r}"
         )
-    parents = tuple(p for p in parents if p)
+    parents_list: list[str] = [p for p in parents if p]
 
     # Normalise + validate skills: strip whitespace, drop empties, dedupe
     # (preserving order). Refuse commas inside a single name so we don't
@@ -1372,8 +1372,8 @@ def create_task(
                     initial_status = "triage"
                 else:
                     initial_status = "ready"
-                    if parents:
-                        missing = _find_missing_parents(conn, parents)
+                    if parents_list:
+                        missing = _find_missing_parents(conn, parents_list)
                         if missing:
                             raise ValueError(
                                 f"unknown parent task(s): {', '.join(missing)}"
@@ -1381,15 +1381,15 @@ def create_task(
                         # If any parent is not yet done, we're todo.
                         rows = conn.execute(
                             "SELECT status FROM tasks WHERE id IN "
-                            "(" + ",".join("?" * len(parents)) + ")",
-                            parents,
+                            "(" + ",".join("?" * len(parents_list)) + ")",
+                            parents_list,
                         ).fetchall()
                         if any(r["status"] != "done" for r in rows):
                             initial_status = "todo"
                 # Even in triage mode we still need to validate parent ids
                 # so the eventual link rows don't dangle.
-                if triage and parents:
-                    missing = _find_missing_parents(conn, parents)
+                if triage and parents_list:
+                    missing = _find_missing_parents(conn, parents_list)
                     if missing:
                         raise ValueError(
                             f"unknown parent task(s): {', '.join(missing)}"
@@ -1422,13 +1422,11 @@ def create_task(
                         int(max_retries) if max_retries is not None else None,
                     ),
                 )
-                parents_list = list(parents)
                 if parents_list:
-                    # Optimization: Batch insert task_links to avoid N+1 query round-trips.
-                    # Expected to improve insertion speed for tasks with multiple parents by ~12-36%.
+                    # Batch insert task_links to avoid per-parent execute overhead.
                     conn.executemany(
                         "INSERT OR IGNORE INTO task_links (parent_id, child_id) VALUES (?, ?)",
-                        [(pid, task_id) for pid in parents_list],
+                        ((pid, task_id) for pid in parents_list),
                     )
                 _append_event(
                     conn,
