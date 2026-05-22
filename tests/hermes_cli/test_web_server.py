@@ -2044,9 +2044,15 @@ class TestPluginAPIAuth:
             hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db"
         )
 
-        # Ensure plugin routes are mounted for tests since _mount_plugin_api_routes uses _dashboard_plugins_cache
-        web_server._dashboard_plugins_cache = None
-        web_server._mount_plugin_api_routes()
+        # Avoid re-mounting plugin routes on every test (include_router is not
+        # idempotent and duplicates routes). Only mount once when missing.
+        has_kanban_api = any(
+            getattr(route, "path", "").startswith("/api/plugins/kanban")
+            for route in app.router.routes
+        )
+        if not has_kanban_api:
+            web_server._dashboard_plugins_cache = None
+            web_server._mount_plugin_api_routes()
 
         self.client = TestClient(app)
         self.auth_client = TestClient(app)
@@ -2062,8 +2068,15 @@ class TestPluginAPIAuth:
         """Plugin API routes should work with a valid session token."""
         resp = self.client.get("/api/plugins/kanban/board")
         assert resp.status_code == 401
+        route_mounted = any(
+            getattr(route, "path", "").startswith("/api/plugins/kanban/board")
+            for route in self.client.app.router.routes
+        )
         resp = self.auth_client.get("/api/plugins/kanban/board")
         assert resp.status_code != 401
+        if route_mounted:
+            assert resp.status_code != 404
+        assert resp.status_code < 500
 
     def test_plugin_post_requires_auth(self):
         """Plugin POST routes should return 401 without a valid session token."""
