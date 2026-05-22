@@ -131,16 +131,18 @@ def _read_bridge_pidfile(session_path: Path) -> Optional[dict[str, Any]]:
 
     try:
         data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, int):
+            return {"pid": data, "legacy": True}
     except json.JSONDecodeError:
         # Backward-compatible support for old bare-PID files. These can only
         # be used if the live process independently proves it is the bridge.
         try:
             return {"pid": int(raw), "legacy": True}
         except ValueError:
-            return None
+            pass
 
-    if isinstance(data, dict):
-        return data
     return None
 
 
