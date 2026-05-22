@@ -22,6 +22,7 @@ from plugins.memory.hindsight import (
     RETAIN_SCHEMA,
     _load_config,
     _build_embedded_profile_env,
+    _materialize_embedded_profile_env,
     _normalize_retain_tags,
     _resolve_bank_id_template,
     _sanitize_bank_segment,
@@ -347,7 +348,8 @@ class TestPostSetup:
         user_home.mkdir()
         monkeypatch.setenv("HOME", str(user_home))
 
-        old_umask = os.umask(0o022)
+        if os.name != "nt":
+            old_umask = os.umask(0o022)
         try:
             profile_env = _materialize_embedded_profile_env({
                 "profile": "hermes",
@@ -356,11 +358,13 @@ class TestPostSetup:
                 "llmApiKey": "sk-local-test",
             })
         finally:
-            os.umask(old_umask)
+            if os.name != "nt":
+                os.umask(old_umask)
 
-        assert stat.S_IMODE(profile_env.parent.parent.stat().st_mode) == 0o700
-        assert stat.S_IMODE(profile_env.parent.stat().st_mode) == 0o700
-        assert stat.S_IMODE(profile_env.stat().st_mode) == 0o600
+        if os.name != "nt":
+            assert stat.S_IMODE(profile_env.parent.parent.stat().st_mode) == 0o700
+            assert stat.S_IMODE(profile_env.parent.stat().st_mode) == 0o700
+            assert stat.S_IMODE(profile_env.stat().st_mode) == 0o600
         assert "HINDSIGHT_API_LLM_API_KEY=sk-local-test" in profile_env.read_text()
 
     def test_materialized_embedded_profile_env_tightens_existing_permissions(self, tmp_path, monkeypatch):
@@ -369,7 +373,8 @@ class TestPostSetup:
         profile_dir.mkdir(parents=True)
         profile_env = profile_dir / "hermes.env"
         profile_env.write_text("HINDSIGHT_API_LLM_API_KEY=old-key\n")
-        profile_env.chmod(0o644)
+        if os.name != "nt":
+            profile_env.chmod(0o644)
         monkeypatch.setenv("HOME", str(user_home))
 
         _materialize_embedded_profile_env({
@@ -379,7 +384,8 @@ class TestPostSetup:
             "llmApiKey": "sk-local-test",
         })
 
-        assert stat.S_IMODE(profile_env.stat().st_mode) == 0o600
+        if os.name != "nt":
+            assert stat.S_IMODE(profile_env.stat().st_mode) == 0o600
         assert "HINDSIGHT_API_LLM_API_KEY=sk-local-test" in profile_env.read_text()
 
     def test_local_embedded_setup_respects_existing_profile_name(self, tmp_path, monkeypatch):
