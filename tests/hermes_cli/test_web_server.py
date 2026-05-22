@@ -1839,21 +1839,54 @@ class TestPluginAPIAuth:
 
         import hermes_state
         from hermes_constants import get_hermes_home
-        from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN, _mount_plugin_api_routes, _discover_dashboard_plugins
+        from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN, _mount_plugin_api_routes
         import hermes_cli.web_server as ws
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
         # Force the plugin manually into the cache since discovery might skip it during isolated test setup
-        import hermes_cli.web_server
-        plugin_path = hermes_cli.web_server.PROJECT_ROOT / "plugins" / "hermes-achievements" / "dashboard"
-        ws._dashboard_plugins_cache = [{
-            "name": "hermes-achievements",
-            "_dir": str(plugin_path),
-            "_api_file": "plugin_api.py",
-            "api": "plugin_api.py"
-        }]
+        plugin_path = ws.PROJECT_ROOT / "plugins" / "hermes-achievements" / "dashboard"
+        monkeypatch.setattr(
+            ws,
+            "_dashboard_plugins_cache",
+            [
+                {
+                    "name": "hermes-achievements",
+                    "_dir": str(plugin_path),
+                    "_api_file": "plugin_api.py",
+                    "api": "plugin_api.py",
+                }
+            ],
+        )
         _mount_plugin_api_routes()
+
+        # Ensure plugin API routes are checked before the SPA catch-all route.
+        # In this test module, routes are mounted after app import, so without
+        # reordering the catch-all can shadow them.
+        routes = list(app.router.routes)
+        catchall_index = next(
+            (
+                idx
+                for idx, route in enumerate(routes)
+                if getattr(route, "path", "") == "/{full_path:path}"
+            ),
+            None,
+        )
+        plugin_routes = [
+            route
+            for route in routes
+            if getattr(route, "path", "").startswith("/api/plugins/hermes-achievements/")
+        ]
+        if catchall_index is not None and plugin_routes:
+            routes = [route for route in routes if route not in plugin_routes]
+            for offset, route in enumerate(plugin_routes):
+                routes.insert(catchall_index + offset, route)
+            monkeypatch.setattr(app.router, "routes", routes)
+
+        self._ha_scan_status_mounted = any(
+            getattr(route, "path", "") == "/api/plugins/hermes-achievements/scan-status"
+            for route in app.routes
+        )
 
         self.client = TestClient(app)
         self.auth_client = TestClient(app)
@@ -1877,10 +1910,12 @@ class TestPluginAPIAuth:
         resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 401
 
-        # With auth: handler runs. It's okay if the plugin isn't correctly mounted in tests (404)
-        # We just need to verify it didn't return 401
+        if not self._ha_scan_status_mounted:
+            pytest.skip("hermes-achievements plugin API route not mounted in this environment")
+
+        # With auth: handler runs.
         resp = self.auth_client.get("/api/plugins/hermes-achievements/scan-status")
-        assert resp.status_code in (200, 404)
+        assert resp.status_code == 200
 
     def test_plugin_post_requires_auth(self):
         """Plugin POST routes should return 401 without a valid session token."""
