@@ -295,15 +295,14 @@ REMEMBER_SCHEMA = {
 ADD_RESOURCE_SCHEMA = {
     "name": "viking_add_resource",
     "description": (
-        "Add a remote URL or local file/directory to the OpenViking knowledge base. "
+        "Add a remote URL to the OpenViking knowledge base. "
         "Remote resources must be public http(s), git, or ssh URLs. "
-        "Local files are uploaded first using OpenViking temp_upload. "
         "The system automatically parses, indexes, and generates summaries."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "url": {"type": "string", "description": "Remote URL or local file/directory path to add."},
+            "url": {"type": "string", "description": "Remote URL to add."},
             "reason": {
                 "type": "string",
                 "description": "Why this resource is relevant (improves search).",
@@ -884,43 +883,20 @@ class OpenVikingMemoryProvider(MemoryProvider):
                 payload[key] = args[key]
 
         parsed_url = urlparse(url)
-        if _is_remote_resource_source(url):
-            source_path = None
-        elif parsed_url.scheme == "file":
-            source_path = _path_from_file_uri(url)
-            if isinstance(source_path, str):
-                return tool_error(source_path)
-        elif parsed_url.scheme and not _is_windows_absolute_path(url):
-            source_path = None
-        else:
-            source_path = Path(url).expanduser()
+        local_file_uri = parsed_url.scheme == "file"
+        local_reference = (
+            _is_windows_absolute_path(url)
+            or _is_local_path_reference(url)
+            or (not parsed_url.scheme and Path(url).expanduser().exists())
+        )
+        if local_file_uri or local_reference:
+            return tool_error(
+                "Local file/directory paths are not allowed in viking_add_resource; provide a remote URL."
+            )
 
-        cleanup_path: Optional[Path] = None
-        try:
-            if source_path is not None:
-                if source_path.exists():
-                    if source_path.is_dir():
-                        payload["source_name"] = source_path.name
-                        cleanup_path = _zip_directory(source_path)
-                        upload_path = cleanup_path
-                    elif source_path.is_file():
-                        payload["source_name"] = source_path.name
-                        upload_path = source_path
-                    else:
-                        return tool_error(f"Unsupported local resource path: {url}")
-                    payload["temp_file_id"] = self._client.upload_temp_file(upload_path)
-                elif _is_local_path_reference(url):
-                    return tool_error(f"Local resource path does not exist: {url}")
-                else:
-                    payload["path"] = url
-            else:
-                payload["path"] = url
-
-            resp = self._client.post("/api/v1/resources", payload)
-            result = resp.get("result", {})
-        finally:
-            if cleanup_path:
-                cleanup_path.unlink(missing_ok=True)
+        payload["path"] = url
+        resp = self._client.post("/api/v1/resources", payload)
+        result = resp.get("result", {})
 
         return json.dumps({
             "status": "added",
