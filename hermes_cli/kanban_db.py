@@ -3422,6 +3422,7 @@ def detect_crashed_workers(conn: sqlite3.Connection) -> list[str]:
             error=error_text,
             outcome="crashed",
             failure_limit=(1 if protocol_violation else None),
+            force_failure_limit=protocol_violation,
             release_claim=False,
             end_run=False,
             event_payload_extra={"pid": pid, "claimer": claimer},
@@ -3443,6 +3444,7 @@ def _record_task_failure(
     *,
     outcome: str,
     failure_limit: int = None,
+    force_failure_limit: bool = False,
     release_claim: bool = False,
     end_run: bool = False,
     event_payload_extra: Optional[dict] = None,
@@ -3476,10 +3478,12 @@ def _record_task_failure(
     context (e.g. pid on crash, elapsed on timeout).
 
     Resolution order for the effective threshold:
-      1. per-task ``max_retries`` if set (nothing else overrides)
-      2. caller-supplied ``failure_limit`` (gateway passes the config
+      1. forced caller-supplied ``failure_limit`` for deterministic
+         one-shot safety guards, such as clean-exit protocol violations
+      2. per-task ``max_retries`` if set
+      3. caller-supplied ``failure_limit`` (gateway passes the config
          value from ``kanban.failure_limit``; tests pass fixed values)
-      3. ``DEFAULT_FAILURE_LIMIT``
+      4. ``DEFAULT_FAILURE_LIMIT``
     """
     if failure_limit is None:
         failure_limit = DEFAULT_FAILURE_LIMIT
@@ -3494,17 +3498,18 @@ def _record_task_failure(
         failures = int(row["consecutive_failures"]) + 1
         cur_status = row["status"]
 
-        # Per-task override wins over both caller-supplied and default
-        # thresholds. None (the common case) falls through.
+        # Normal retry policy lets a task override dispatcher/default
+        # thresholds. Safety-critical callers can force their limit when
+        # retrying would deterministically repeat a protocol violation.
         task_override = (
             row["max_retries"] if "max_retries" in row.keys() else None
         )
-        if task_override is not None:
-            effective_limit = int(task_override)
-            limit_source = "task"
-        else:
+        if force_failure_limit or task_override is None:
             effective_limit = int(failure_limit)
             limit_source = "dispatcher"
+        else:
+            effective_limit = int(task_override)
+            limit_source = "task"
 
         if failures >= effective_limit:
             # Trip the breaker.
