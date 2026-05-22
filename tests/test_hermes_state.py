@@ -989,6 +989,17 @@ class TestCJKSearchFallback:
 
         assert {r["session_id"] for r in results} == {"s1"}
 
+    def test_cjk_distinct_short_token_or_query_does_not_raise(self, db):
+        """Distinct short-token OR queries beyond the cap stay safe."""
+        db.create_session(session_id="s1", source="cli")
+        tokens = [f"测{chr(0x4E00 + i)}" for i in range(300)]
+        db.append_message("s1", role="user", content=f"{tokens[0]}旅游攻略")
+
+        query = " OR ".join(tokens)
+        results = db.search_messages(query)
+
+        assert {r["session_id"] for r in results} == {"s1"}
+
     def test_cjk_short_token_or_query_preserves_filters(self, db):
         """Source filter applies correctly in the short-token LIKE path (#20494)."""
         db.create_session(session_id="s1", source="cli")
@@ -3000,4 +3011,3 @@ class TestFTS5ToolCallMigration:
             assert version == 11
         finally:
             session_db.close()
-

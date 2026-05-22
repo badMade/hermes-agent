@@ -2126,10 +2126,11 @@ class SessionDB:
                 with self._lock:
                     try:
                         like_cursor = self._conn.execute(like_sql, like_params)
+                        like_rows = like_cursor.fetchall()
                     except sqlite3.OperationalError:
                         matches = []
                     else:
-                        matches = [dict(row) for row in like_cursor.fetchall()]
+                        matches = [dict(row) for row in like_rows]
         else:
             with self._lock:
                 try:
@@ -3023,4 +3024,3 @@ class SessionDB:
                 (error[:500], session_id),
             )
         self._execute_write(_do)
-
