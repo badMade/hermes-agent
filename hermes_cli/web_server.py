@@ -3340,6 +3340,11 @@ async def events_ws(ws: WebSocket) -> None:
                     _event_channels.pop(channel, None)
 
 
+_PREFIX_ALLOWED_CHARS: frozenset = frozenset(
+    "/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~-"
+)
+
+
 def _normalise_prefix(raw: Optional[str]) -> str:
     """Normalise an X-Forwarded-Prefix header value.
 
@@ -3359,8 +3364,7 @@ def _normalise_prefix(raw: Optional[str]) -> str:
         return ""
     if len(p) > 64:
         return ""
-    allowed = frozenset("/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~-")
-    if "//" in p or ".." in p or any(c not in allowed for c in p):
+    if "//" in p or ".." in p or any(c not in _PREFIX_ALLOWED_CHARS for c in p):
         return ""
     return p
 
