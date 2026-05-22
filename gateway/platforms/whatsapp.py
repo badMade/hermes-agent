@@ -176,8 +176,12 @@ def _process_matches_bridge_metadata(
                     if str(Path(cmdline[i + 1]).resolve()) == expected_session:
                         session_verified = True
                         break
-                except (OSError, ValueError):
-                    pass
+                except (OSError, ValueError) as exc:
+                    logger.debug(
+                        "[whatsapp] Could not resolve --session arg %r: %s",
+                        cmdline[i + 1],
+                        exc,
+                    )
         if not session_verified:
             return False
     except (OSError, RuntimeError):
