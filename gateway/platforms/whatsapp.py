@@ -169,10 +169,16 @@ def _process_matches_bridge_metadata(
 
     try:
         expected_session = str(session_path.resolve())
-        cmdline_paths = {str(Path(arg).resolve()) if arg else "" for arg in cmdline}
-        if expected_session not in cmdline_paths:
-            return False
-        if "--session" not in cmdline:
+        session_verified = False
+        for i, arg in enumerate(cmdline):
+            if arg == "--session" and i + 1 < len(cmdline):
+                try:
+                    if str(Path(cmdline[i + 1]).resolve()) == expected_session:
+                        session_verified = True
+                        break
+                except (OSError, ValueError):
+                    pass
+        if not session_verified:
             return False
     except (OSError, RuntimeError):
         return False
