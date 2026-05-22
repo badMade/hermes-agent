@@ -41,8 +41,8 @@ PYPROJECT_FILE = REPO_ROOT / "pyproject.toml"
 AUTHOR_MAP = {
     # teknium (multiple emails)
     "teknium1@gmail.com": "teknium1",
+    "geoffplymale@gmail.com": "badMade",
     "geoffplymale@users.noreply.github.com": "badMade",
-    "161369871+google-labs-jules[bot]@users.noreply.github.com": "google-labs-jules",
     "0x.badfriend@gmail.com": "discodirector",
     "altriatree@gmail.com": "TruaShamu",
     "m@mobrienv.dev": "mikeyobrien",
