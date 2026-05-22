@@ -80,9 +80,13 @@ class TestDelegateRequirements(unittest.TestCase):
 
         with patch.dict(os.environ, {"TERMINAL_CWD": ""}, clear=False):
             with patch("os.path.isdir", return_value=True):
-                parent = _make_mock_parent()
-                parent.terminal_cwd = "/parent/workdir"
-                resolved = _resolve_workspace_hint(parent)
+                with patch("gateway.session_context.get_terminal_cwd", return_value=""):
+                    parent = _make_mock_parent()
+                    # Disable MagicMock auto-attribute so _subdirectory_hints.working_dir
+                    # doesn't shadow the explicit terminal_cwd we want to test.
+                    parent._subdirectory_hints = None
+                    parent.terminal_cwd = "/parent/workdir"
+                    resolved = _resolve_workspace_hint(parent)
 
         self.assertEqual(resolved, "/parent/workdir")
 
