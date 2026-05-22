@@ -599,6 +599,7 @@ class TestSwitchModelDirectAliasOverride:
 
         assert result.success
         assert result.api_key == "no-key-required"
+        assert result.base_url == "http://localhost:11434/v1"
         assert captured["api_key"] == "no-key-required"
         assert captured["base_url"] == "http://localhost:11434/v1"
 

@@ -905,7 +905,10 @@ def switch_model(
             if (
                 alias_base_url
                 and alias_base_url != resolved_base_url
-                and target_provider in {"custom", "local"}
+                and (
+                    target_provider in {"custom", "local"}
+                    or target_provider.startswith("custom:")
+                )
             ):
                 api_key = "no-key-required"
             base_url = _da.base_url
