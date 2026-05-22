@@ -125,17 +125,6 @@ def _implicit_default_off_toolsets(platform: str) -> Set[str]:
             and ts_key not in platform_defaults
         )
     }
-    """Toolsets treated as opt-in when inferring enabled sets.
-
-    ``homeassistant`` is the only default-off toolset that remains on by
-    default for its own dedicated platform.
-    """
-    default_off = set(_DEFAULT_OFF_TOOLSETS)
-    if platform == "homeassistant":
-        default_off.discard("homeassistant")
-    return default_off
-
-
 def _get_effective_configurable_toolsets():
     """Return CONFIGURABLE_TOOLSETS + any plugin-provided toolsets.
 
