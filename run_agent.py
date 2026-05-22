@@ -1249,7 +1249,11 @@ class AIAgent:
         try:
             self._get_transport()
         except Exception as e:
-            logger.debug("Could not warm transport cache (Non-fatal): %s", e)
+            logger.debug(
+                "Could not warm transport cache (Non-fatal): %s",
+                e,
+                exc_info=True,
+            )
 
         try:
             from hermes_cli.model_normalize import (
