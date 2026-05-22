@@ -2931,12 +2931,21 @@ class DispatchResult:
 _RECENT_WORKER_EXIT_TTL_SECONDS = 600
 _RECENT_WORKER_EXITS_MAX = 4096
 _recent_worker_exits: "dict[int, tuple[int, float]]" = {}
+# Child PIDs spawned by this process that we may need to reap explicitly.
+# This in-memory set is intentionally broader than the set of workers whose
+# PIDs were durably persisted to the database: callers may register a child
+# here before the corresponding DB write/commit succeeds so we do not lose
+# track of a local subprocess that still needs reaping.
 _known_worker_child_pids: "set[int]" = set()
 _known_worker_child_pids_lock = threading.Lock()
 
 
 def _track_worker_child(pid: Optional[int]) -> None:
-    """Remember a kanban worker PID spawned by this process."""
+    """Remember a kanban worker PID spawned by this process for reaping.
+
+    This tracks locally spawned children even if the later database write
+    that associates the PID with a task fails or is rolled back.
+    """
     if pid and int(pid) > 0:
         with _known_worker_child_pids_lock:
             _known_worker_child_pids.add(int(pid))
