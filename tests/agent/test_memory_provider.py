@@ -105,10 +105,17 @@ class TestMemoryProviderABC:
         """on_pre_compress should return empty string by default."""
         class DummyProvider(MemoryProvider):
             @property
-            def name(self) -> str: return "dummy"
-            def is_available(self) -> bool: return True
-            def initialize(self, session_id: str, **kwargs) -> None: pass
-            def get_tool_schemas(self): return []
+            def name(self) -> str:
+                return "dummy"
+
+            def is_available(self) -> bool:
+                return True
+
+            def initialize(self, session_id: str, **kwargs) -> None:
+                pass
+
+            def get_tool_schemas(self):
+                return []
 
         p = DummyProvider()
         assert p.on_pre_compress([{"role": "user", "content": "hello"}]) == ""
