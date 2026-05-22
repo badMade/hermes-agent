@@ -49,25 +49,25 @@ ONESHOT_GRACE_SECONDS = 120
 def _job_output_dir_for_cleanup(job_id: str) -> Optional[Path]:
     """Return a contained per-job output directory path safe for deletion."""
     job_id_text = str(job_id)
-    if (
-        not job_id_text
-        or job_id_text in {".", ".."}
-        or Path(job_id_text).is_absolute()
-        or PureWindowsPath(job_id_text).is_absolute()
-        or "/" in job_id_text
-        or "\\" in job_id_text
-    ):
-        logger.warning("Skipping cron output cleanup for unsafe job id %r", job_id)
-        return None
-
-    output_root = OUTPUT_DIR.resolve()
-    candidate = (OUTPUT_DIR / job_id_text).resolve(strict=False)
     try:
+        if (
+            not job_id_text
+            or job_id_text in {".", ".."}
+            or Path(job_id_text).is_absolute()
+            or PureWindowsPath(job_id_text).is_absolute()
+            or "/" in job_id_text
+            or "\\" in job_id_text
+        ):
+            logger.warning("Skipping cron output cleanup for unsafe job id %r", job_id)
+            return None
+
+        output_root = OUTPUT_DIR.resolve()
+        candidate = (OUTPUT_DIR / job_id_text).resolve(strict=False)
         candidate.relative_to(output_root)
-    except ValueError:
-        logger.warning("Skipping cron output cleanup outside output directory: %s", candidate)
+    except (OSError, ValueError):
+        logger.warning("Skipping cron output cleanup for invalid path from job id %r", job_id)
         return None
-    return OUTPUT_DIR / job_id_text
+    return candidate
 
 
 def _normalize_skill_list(skill: Optional[str] = None, skills: Optional[Any] = None) -> List[str]:
@@ -788,8 +788,11 @@ def remove_job(job_id: str) -> bool:
         # Jobs may come from legacy/crafted storage, so only delete a single
         # contained path component under OUTPUT_DIR.
         job_output_dir = _job_output_dir_for_cleanup(job_id)
-        if job_output_dir and job_output_dir.exists():
-            shutil.rmtree(job_output_dir)
+        if job_output_dir and job_output_dir.is_dir():
+            try:
+                shutil.rmtree(job_output_dir)
+            except OSError as exc:
+                logger.warning("Failed to remove cron job output directory %s: %s", job_output_dir, exc)
         return True
     return False
 
