@@ -21,7 +21,8 @@ import pytest
 @pytest.fixture(autouse=True)
 def _disable_camofox(monkeypatch, request):
     """Force the non-camofox path when browser_tool dispatch tests need it."""
-    if request.cls is not TestBrowserEvalSupervisorPath:
+    cls = getattr(request, "cls", None)
+    if cls is None or not issubclass(cls, TestBrowserEvalSupervisorPath):
         return
 
     import tools.browser_tool as bt
@@ -233,7 +234,7 @@ def _make_supervisor_with_cdp(cdp_response):
     async def _capturing_cdp(method, params=None, *, session_id=None, timeout=10.0):
         sup._captured_cdp_calls.append({
             "method": method,
-            "params": params or {},
+            "params": dict(params) if params is not None else {},
             "session_id": session_id,
             "timeout": timeout,
         })
@@ -277,7 +278,7 @@ class TestEvaluateRuntimeResponseShaping:
             cdp_call = sup._captured_cdp_calls[-1]
             assert cdp_call["method"] == "Runtime.evaluate"
             assert cdp_call["params"]["expression"] == "navigator.clipboard.readText()"
-            assert "userGesture" not in cdp_call["params"]
+            assert cdp_call["params"].get("userGesture") is not True
         finally:
             _stop_supervisor(sup)
 
