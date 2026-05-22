@@ -132,8 +132,8 @@ DEFAULT_INTERRUPTED_TEXT = "Run was interrupted before completion."
 # Media defaults
 MEDIA_TOKEN_TTL_SECONDS = 1800  # 30 minutes; LINE caches the URL aggressively
 LINE_IMAGE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB per LINE docs
-LINE_AV_MAX_BYTES = 200 * 1024 * 1024  # 200 MB for voice/video
-LINE_FILE_MAX_BYTES = 200 * 1024 * 1024  # Bound inbound file downloads
+LINE_AV_MAX_BYTES = 25 * 1024 * 1024  # 25 MB; LINE allows 200 MB but cap to limit RAM per download
+LINE_FILE_MAX_BYTES = 25 * 1024 * 1024  # 25 MB; cap inbound file downloads to limit RAM per download
 LINE_CONTENT_CHUNK_BYTES = 64 * 1024
 
 # A 1×1 transparent PNG used as fallback video preview thumbnail when no

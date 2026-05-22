@@ -310,9 +310,11 @@ class TestInboundMediaLimits:
         def __init__(self, chunks):
             self._chunks = chunks
 
-        async def iter_chunked(self, _size):
-            for chunk in self._chunks:
-                yield chunk
+        def iter_chunked(self, _size):
+            async def _gen():
+                for chunk in self._chunks:
+                    yield chunk
+            return _gen()
 
     class _FakeResponse:
         def __init__(self, *, status=200, headers=None, chunks=()):
