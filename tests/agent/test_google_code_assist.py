@@ -1,4 +1,3 @@
-import pytest
 from agent.google_code_assist import CodeAssistError, ProjectIdRequiredError
 
 def test_code_assist_error_init():
@@ -31,6 +30,19 @@ def test_code_assist_error_init_with_kwargs():
     assert err.response is response
     assert err.retry_after == 60.0
     assert err.details == details
+
+
+def test_code_assist_error_default_details_isolation():
+    """Default details dicts should not be shared across instances."""
+    first = CodeAssistError("first")
+    second = CodeAssistError("second")
+
+    first.details["marker"] = "set"
+
+    assert first.details == {"marker": "set"}
+    assert second.details == {}
+    assert first.details is not second.details
+
 
 def test_project_id_required_error_init():
     """Test ProjectIdRequiredError initialization."""

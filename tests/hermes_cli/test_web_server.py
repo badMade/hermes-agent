@@ -1869,9 +1869,12 @@ class TestPluginAPIAuth:
             "entry": "dist/index.js",
             "api": "api.py",
         }))
-        (tmp_path / "config.yaml").write_text(json.dumps({
-            "plugins": {"enabled": ["auth-test"], "disabled": []},
-        }))
+        (tmp_path / "config.yaml").write_text(
+            "plugins:\n"
+            "  enabled:\n"
+            "    - auth-test\n"
+            "  disabled: []\n"
+        )
         (plugin_dir / "api.py").write_text(
             "from fastapi import APIRouter\n"
             "router = APIRouter()\n"
