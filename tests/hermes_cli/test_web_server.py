@@ -109,7 +109,20 @@ class TestWebServerEndpoints:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
+
+        # Make sure test plugins are enabled and loaded
+        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
+        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
+        import hermes_cli.web_server
+        hermes_cli.web_server._get_dashboard_plugins(force_rescan=True)
+
         from hermes_constants import get_hermes_home
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
+        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
+        # We also need to clear _dashboard_plugins_cache so it rescans!
+        import hermes_cli.web_server
+        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(
@@ -612,7 +625,20 @@ class TestNewEndpoints:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
+
+        from hermes_cli.plugins import _get_enabled_plugins, _get_disabled_plugins
+        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
+        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
+        from hermes_cli.web_server import _get_dashboard_plugins
+        _get_dashboard_plugins(force_rescan=True)
+
         from hermes_constants import get_hermes_home
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
+        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
+        # We also need to clear _dashboard_plugins_cache so it rescans!
+        import hermes_cli.web_server
+        hermes_cli.web_server._dashboard_plugins_cache = None
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(
@@ -2036,8 +2062,19 @@ class TestPluginAPIAuth:
             pytest.skip("fastapi/starlette not installed")
 
         import hermes_state
+        from hermes_cli.plugins import _get_enabled_plugins, _get_disabled_plugins
+        monkeypatch.setattr("hermes_cli.plugins._get_enabled_plugins", lambda: ["hermes-achievements", "kanban"])
+        monkeypatch.setattr("hermes_cli.plugins._get_disabled_plugins", lambda: [])
+        import hermes_cli.web_server
+        hermes_cli.web_server._get_dashboard_plugins(force_rescan=True)
         from hermes_constants import get_hermes_home
-        from hermes_cli import web_server
+        import hermes_cli.plugins
+        monkeypatch.setattr(hermes_cli.plugins, "_get_enabled_plugins", lambda: {"hermes-achievements", "kanban", "memory"})
+        monkeypatch.setattr(hermes_cli.plugins, "_get_disabled_plugins", lambda: set())
+        # We also need to clear _dashboard_plugins_cache so it rescans!
+        import hermes_cli.web_server
+        hermes_cli.web_server._dashboard_plugins_cache = None
+        from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
         monkeypatch.setattr(
@@ -2594,9 +2631,7 @@ class TestPtyWebSocket:
     def test_pub_broadcasts_to_events_subscribers(self, monkeypatch):
         """Frame written to /api/pub is rebroadcast verbatim to every
         /api/events subscriber on the same channel."""
-        import time
         from urllib.parse import urlencode
-        from hermes_cli import web_server as ws_mod
 
         qs = urlencode({"token": self.token, "channel": "broadcast-test"})
         pub_path = f"/api/pub?{qs}"
@@ -2615,6 +2650,7 @@ class TestPtyWebSocket:
                 time.sleep(0.01)
             else:
                 raise AssertionError("subscriber did not register on channel within 5s")
+
 
             with self.client.websocket_connect(pub_path) as pub:
                 pub.send_text('{"type":"tool.start","payload":{"tool_id":"t1"}}')
