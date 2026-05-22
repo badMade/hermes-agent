@@ -103,7 +103,7 @@ class TestMemoryProviderABC:
             def get_tool_schemas(self) -> list:
                 return []
 
-        with pytest.raises(TypeError, match="name"):
+        with pytest.raises(TypeError, match=r"abstract.*\bname\b"):
             IncompleteProvider()
 
     def test_cannot_instantiate_abstract(self):
