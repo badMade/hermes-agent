@@ -276,6 +276,7 @@ class TestJobCRUD:
         (cron_dir / "output").mkdir(parents=True, exist_ok=True)
         sentinel.write_text("must stay")
 
+        assert _job_output_dir_for_cleanup("bad\0id") is None
         assert remove_job("bad\0id") is True
         assert sentinel.read_text() == "must stay"
 
