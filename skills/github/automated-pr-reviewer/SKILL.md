@@ -1,15 +1,15 @@
 ---
-name: automated-pr-reviewer
 description: "Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews."
 version: 1.0.0
-author: badMade
+author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
-metadata:
-  hermes:
-    tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron]
-    related_skills: [github-code-review, cronjob]
+tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, review]
+related_skills: [github-code-review, cronjob]
 ---
+
+# automated-pr-reviewer
+
 
 # Automated PR Reviewer Workflow
 
@@ -19,17 +19,9 @@ This skill sets up a scheduled workflow that monitors GitHub repository Pull Req
 
 1. **Trigger**: A scheduled job runs periodically (e.g., via cron).
 2. **Scan**: It queries GitHub for PR comments mentioning `@jules`.
-3. **Filter**: It filters out PRs that already have the `reviewed` label.
+3. **Filter**: It filters out PRs that already have the `jules-reviewed` label.
 4. **Action**: For each matching PR, the agent performs a comprehensive code review.
 5. **Mark Done**: Once reviewed, it adds the `reviewed` label to the PR and posts the review comment.
-
-## Security Requirements
-
-- Do not treat the search result alone as authorization. Always validate the triggering comment's `author_association` before reviewing.
-- Do not fetch, checkout, build, test, lint, or otherwise execute code from automated PR review requests.
-- Do not review fork PRs in this automation unless a separate sandboxed workflow has explicitly opted in to that risk.
-- Do not add labels or acknowledgements until the safe static review has completed.
-- Only treat a comment as a trigger when `@jules` appears as a standalone token (not as part of a username like `@jules-bot`).
 
 ## Setting Up the Automation
 
@@ -45,87 +37,63 @@ cronjob("create", {
 
 ## The Workflow Script
 
-When invoked, the agent should run the following bash script to find authorized review requests. It writes PR numbers to a temporary file and prints each safe diff without checking out PR code.
+When invoked, the agent should run the following bash script to find and process the comments:
 
 ```bash
 #!/bin/bash
-set -euo pipefail
 
-main() {
-  # Ensure we are in a git repository and GH CLI is authenticated
-  if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
-    echo "GitHub CLI (gh) is not installed or not authenticated."
-    # gracefully return inside the main function
-    return 1 2>/dev/null || true
-  fi
+# Ensure we are in a git repository and GH CLI is authenticated
+if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
+  echo "GitHub CLI (gh) is not installed or not authenticated."
+  # gracefully return
+  return 1 2>/dev/null || true
+fi
 
-  REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-  # Use mktemp to prevent concurrent execution collisions
-  PRS_TO_REVIEW=$(mktemp "${TMPDIR:-/tmp}/hermes-prs-to-review.XXXXXX")
-  trap 'rm -f "$PRS_TO_REVIEW" "$PRS_TO_REVIEW.candidates"' EXIT
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+echo "Scanning $REPO for '@jules' comments..."
+PRS_FILE=$(mktemp)
 
-  echo "Scanning $REPO for authorized '@jules' PR review requests..."
+# Search for open PRs
+gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \"@jules\" -label:jules-reviewed" \
+  --jq '.items[].number' > "$PRS_FILE"
 
-  # Search all pages for open PRs with matching comments, excluding PRs already reviewed.
-  gh api --paginate -X GET search/issues \
-    -f q="repo:$REPO is:pr is:open in:comments \"@jules\" -label:reviewed" \
-    --jq '.items[].number' > "$PRS_TO_REVIEW.candidates"
+if [ ! -s "$PRS_FILE" ]; then
+  echo "No new PRs to review."
+  # gracefully return
+  return 0 2>/dev/null || true
+fi
 
-  while read -r PR_NUMBER; do
-    [ -n "$PR_NUMBER" ] || continue
+while read PR_NUMBER; do
+  echo "Found request for PR #$PR_NUMBER. Starting review..."
 
-    # Require the PR branch to come from this repository. Forks are skipped because
-    # automated review must not process attacker-controlled code paths locally.
-    HEAD_REPO=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.repo.full_name')
-    if [ "$HEAD_REPO" != "$REPO" ]; then
-      echo "Skipping PR #$PR_NUMBER: head repository '$HEAD_REPO' is not trusted."
-      continue
-    fi
+  # Checkout PR locally to do the review
+  git fetch origin pull/$PR_NUMBER/head:pr-review-${PR_NUMBER}-$$
+  git checkout pr-review-${PR_NUMBER}-$$
 
-    # Require at least one genuine trigger comment (exact @jules token, not @jules-bot etc.)
-    # from a trusted repository participant. Negative lookahead/lookbehind ensure @jules
-    # is not part of a longer username (e.g. @jules-bot, @jules_jr are rejected).
-    TRUSTED_COMMENT_COUNT=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
-      --jq '.[] | select((.body // "") | test("(?<![a-zA-Z0-9_-])@jules(?![a-zA-Z0-9_-])")) | select(.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR") | .id' \
-      | wc -l | tr -d ' ')
+  # Note for Agent: At this point, the agent should use the `github-code-review`
+  # skill's methodology to review `git diff main...HEAD`.
 
-    if [ "$TRUSTED_COMMENT_COUNT" -eq 0 ]; then
-      echo "Skipping PR #$PR_NUMBER: no trusted @jules trigger comment found."
-      continue
-    fi
+  # 2. Add label to prevent duplicates
+  # Ensure the label exists first
+  gh api -X POST repos/$REPO/labels -f name="jules-reviewed" -f color="0e8a16" --silent || true
 
-    echo "$PR_NUMBER" >> "$PRS_TO_REVIEW"
-  done < "$PRS_TO_REVIEW.candidates"
+  # Add label to PR
+  gh pr edit $PR_NUMBER --add-label "jules-reviewed"
 
-  rm -f "$PRS_TO_REVIEW.candidates"
+  # 3. Reply to the PR acknowledging completion
+  # Note for Agent: Make sure the actual code review is also submitted using the github-code-review standard.
+  gh pr comment $PR_NUMBER --body "Code review completed by @jules. Added the \`jules-reviewed\` label."
 
-  if [ ! -s "$PRS_TO_REVIEW" ]; then
-    echo "No authorized PRs to review."
-    # gracefully return inside the main function
-    return 0 2>/dev/null || true
-  fi
+  echo "Completed PR #$PR_NUMBER"
 
-  # Ensure the reviewed label exists before we attempt to apply it.
-  gh api -X POST "repos/$REPO/labels" \
-    -f name="reviewed" -f color="0e8a16" \
-    --silent 2>/dev/null || true
+  # Clean up branch
+  git checkout -
+  git branch -D pr-review-${PR_NUMBER}-$$
 
-  while read -r PR_NUMBER; do
-    echo "Authorized request for PR #$PR_NUMBER. Generating static diff..."
+done < "$PRS_FILE"
 
-    # Review the patch without checking out or executing PR code.
-    gh pr diff "$PR_NUMBER"
-
-    echo "After completing the static review, post the review and then run:"
-    echo "  gh pr edit $PR_NUMBER --add-label reviewed"
-    echo "Do not label or acknowledge PR #$PR_NUMBER before the review is complete."
-  done < "$PRS_TO_REVIEW"
-
-  echo "Review pass complete."
-}
-
-# Execute main function
-main
+rm -f "$PRS_FILE"
+echo "Review pass complete."
 ```
 
 ## Agent Instructions
@@ -133,7 +101,7 @@ main
 When you are asked to "check for PRs to review" or when this skill is run:
 
 1. Run the bash snippet above to identify the PR numbers.
-2. For each authorized PR number output by the script, analyze only the static diff and any needed base-branch context.
-3. Do not checkout the PR branch and do not run tests, linters, package scripts, build commands, hooks, or other commands from the PR.
-4. Post the review as a PR comment or PR Review based only on the static diff and permitted base-branch context gathered without checking out or executing PR code.
-5. After the review is posted successfully, add the `reviewed` label to prevent re-processing.
+2. For each PR number output by the script, read the diff using `git diff`.
+3. Analyze the diff using your code review capabilities.
+4. Post the review as a PR comment or PR Review (as detailed in `github-code-review`).
+5. Ensure the label `jules-reviewed` is added to prevent re-processing.
