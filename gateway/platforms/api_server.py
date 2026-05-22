@@ -1011,22 +1011,13 @@ class APIServerAdapter(BasePlatformAdapter):
 
         stream = body.get("stream", False)
 
-        proxy_scope = body.get("hermes_proxy_scope")
+        # hermes_proxy_scope is reserved for trusted internal proxy flows.
+        # Public /v1/chat/completions callers must not be able to override
+        # origin platform or tool capability scope from the request body.
+        if body.get("hermes_proxy_scope") is not None:
+            return web.json_response(_openai_error("hermes_proxy_scope is not supported on this endpoint"), status=400)
         origin_platform = None
         enabled_toolsets_override = None
-        if proxy_scope is not None:
-            if not isinstance(proxy_scope, dict):
-                return web.json_response(_openai_error("Invalid hermes_proxy_scope"), status=400)
-            raw_platform = proxy_scope.get("origin_platform")
-            if raw_platform is not None:
-                origin_platform = str(raw_platform).strip()
-                if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", origin_platform):
-                    return web.json_response(_openai_error("Invalid hermes_proxy_scope.origin_platform"), status=400)
-            raw_toolsets = proxy_scope.get("enabled_toolsets")
-            if raw_toolsets is not None:
-                if not isinstance(raw_toolsets, list) or not all(isinstance(ts, str) for ts in raw_toolsets):
-                    return web.json_response(_openai_error("Invalid hermes_proxy_scope.enabled_toolsets"), status=400)
-                enabled_toolsets_override = [ts for ts in raw_toolsets if ts]
 
         # Extract system message (becomes ephemeral system prompt layered ON TOP of core)
         system_prompt = None

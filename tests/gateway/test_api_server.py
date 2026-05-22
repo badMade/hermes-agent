@@ -2356,6 +2356,24 @@ class TestUsageCounting:
             assert data["usage"]["completion_tokens"] == 80
             assert data["usage"]["total_tokens"] == 280
 
+    @pytest.mark.asyncio
+    async def test_chat_completions_rejects_proxy_scope(self, adapter):
+        """Public API clients cannot set hermes_proxy_scope."""
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "hermes-agent",
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "hermes_proxy_scope": {"enabled_toolsets": ["all"]},
+                },
+            )
+
+            assert resp.status == 400
+            data = await resp.json()
+            assert "hermes_proxy_scope is not supported" in data["error"]["message"]
+
 
 # ---------------------------------------------------------------------------
 # Truncation
