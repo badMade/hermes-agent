@@ -92,6 +92,23 @@ class TestRedactKey:
         assert "not set" in result.lower() or result == "***" or "\x1b" in result
 
 
+def test_normalise_prefix_rejects_cross_origin_metacharacters():
+    from hermes_cli.web_server import _normalise_prefix
+
+    assert _normalise_prefix("hermes") == "/hermes"
+    assert _normalise_prefix("/hermes/dashboard/") == "/hermes/dashboard"
+
+    for raw in (
+        r"/\evil.example",
+        r"/hermes\evil",
+        "/?next=//evil.example",
+        "/#//evil.example",
+        "/hermes:evil",
+        "/hermes@evil",
+        "/hermes%5cevil",
+    ):
+        assert _normalise_prefix(raw) == ""
+
 # ---------------------------------------------------------------------------
 # web_server tests (FastAPI endpoints)
 # ---------------------------------------------------------------------------
