@@ -1837,14 +1837,27 @@ class TelegramAdapter(BasePlatformAdapter):
                     )
                     break
                 except Exception as send_err:
-                    if "reply message not found" in str(send_err).lower():
+                    err_lower = str(send_err).lower()
+                    retry_without_dm_topic_anchor = self._should_retry_without_dm_topic_reply_anchor(
+                        send_err,
+                        metadata,
+                        reply_to_id,
+                    )
+                    if (
+                        "reply message not found" in err_lower
+                        or "message to be replied not found" in err_lower
+                    ):
                         # Drop the reply anchor and try again.
                         try:
-                            no_reply_kwargs = self._thread_kwargs_for_send(
-                                chat_id,
-                                thread_id,
-                                metadata,
-                                reply_to_message_id=None,
+                            no_reply_kwargs = (
+                                {}
+                                if retry_without_dm_topic_anchor
+                                else self._thread_kwargs_for_send(
+                                    chat_id,
+                                    thread_id,
+                                    metadata,
+                                    reply_to_message_id=None,
+                                )
                             )
                             sent_msg = await self._bot.send_message(
                                 chat_id=int(chat_id),

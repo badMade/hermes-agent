@@ -1156,7 +1156,7 @@ class GatewayStreamConsumer:
                         "content": text,
                         "finalize": finalize,
                     }
-                    if getattr(self.adapter, "name", "") == "telegram":
+                    if str(getattr(self.adapter, "name", "")).lower() == "telegram":
                         edit_kwargs["metadata"] = self.metadata
                     result = await self.adapter.edit_message(
                         **edit_kwargs,
