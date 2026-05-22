@@ -272,6 +272,7 @@ class TestJobCRUD:
     def test_remove_job_invalid_id_path_error_skips_cleanup(self, tmp_cron_dir):
         cron_dir = tmp_cron_dir / "cron"
         sentinel = cron_dir / "KEEP_ME.txt"
+        # Direct write simulates legacy/crafted storage that bypassed create/update validation.
         save_jobs([{"id": "bad\0id", "prompt": "bad", "schedule": {"kind": "once"}, "enabled": True}])
         (cron_dir / "output").mkdir(parents=True, exist_ok=True)
         sentinel.write_text("must stay")

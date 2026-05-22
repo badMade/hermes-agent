@@ -64,8 +64,12 @@ def _job_output_dir_for_cleanup(job_id: str) -> Optional[Path]:
         output_root = OUTPUT_DIR.resolve()
         candidate = (OUTPUT_DIR / job_id_text).resolve(strict=False)
         candidate.relative_to(output_root)
-    except (OSError, ValueError):
-        logger.warning("Skipping cron output cleanup for invalid path from job id %r", job_id)
+    except (OSError, ValueError) as exc:
+        logger.warning(
+            "Skipping cron output cleanup for job id %r due to invalid or non-contained path: %s",
+            job_id,
+            exc,
+        )
         return None
     return candidate
 
