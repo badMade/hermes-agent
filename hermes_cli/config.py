@@ -141,9 +141,6 @@ _EXTRA_ENV_KEYS = frozenset({
     "HERMES_LANGFUSE_SAMPLE_RATE",
     "HERMES_LANGFUSE_MAX_CHARS",
     "HERMES_LANGFUSE_DEBUG",
-    "LANGFUSE_PUBLIC_KEY",
-    "LANGFUSE_SECRET_KEY",
-    "LANGFUSE_BASE_URL",
 })
 import yaml
 
@@ -2209,6 +2206,30 @@ OPTIONAL_ENV_VARS = {
     },
     "HERMES_LANGFUSE_BASE_URL": {
         "description": "Langfuse server URL (default: https://cloud.langfuse.com)",
+        "prompt": "Langfuse server URL (leave empty for cloud.langfuse.com)",
+        "url": None,
+        "password": False,
+        "category": "tool",
+        "advanced": True,
+    },
+    "LANGFUSE_PUBLIC_KEY": {
+        "description": "Langfuse project public key (standard SDK variable)",
+        "prompt": "Langfuse public key",
+        "url": "https://cloud.langfuse.com",
+        "password": False,
+        "category": "tool",
+        "advanced": True,
+    },
+    "LANGFUSE_SECRET_KEY": {
+        "description": "Langfuse project secret key (standard SDK variable)",
+        "prompt": "Langfuse secret key",
+        "url": "https://cloud.langfuse.com",
+        "password": True,
+        "category": "tool",
+        "advanced": True,
+    },
+    "LANGFUSE_BASE_URL": {
+        "description": "Langfuse server URL (standard SDK variable)",
         "prompt": "Langfuse server URL (leave empty for cloud.langfuse.com)",
         "url": None,
         "password": False,
