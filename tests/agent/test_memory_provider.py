@@ -197,6 +197,12 @@ class TestMemoryProviderABC:
 
 
 class TestMemoryManager:
+    def test_init(self):
+        mgr = MemoryManager()
+        assert mgr._providers == []
+        assert mgr._tool_to_provider == {}
+        assert mgr._has_external is False
+
     def test_empty_manager(self):
         mgr = MemoryManager()
         assert mgr.providers == []
