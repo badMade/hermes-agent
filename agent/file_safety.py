@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 
 def _hermes_home_path() -> Path:
@@ -74,39 +74,6 @@ def get_safe_write_root() -> Optional[str]:
         return None
 
 
-def _candidate_write_denied_homes() -> Iterable[str]:
-    """Yield HOME roots whose credential/startup files must be protected."""
-    homes = [os.path.expanduser("~")]
-
-    try:
-        from hermes_constants import get_subprocess_home  # local import to avoid cycles
-
-        subprocess_home = get_subprocess_home()
-        if subprocess_home:
-            homes.append(subprocess_home)
-    except Exception:
-        pass
-
-    seen: set[str] = set()
-    for home in homes:
-        if not home or home == "~":
-            continue
-        resolved = os.path.realpath(home)
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        yield resolved
-
-
-def _is_outside_root(candidate: str, root: str) -> bool:
-    """Return True when candidate is outside root (or incomparable)."""
-    try:
-        return os.path.commonpath([candidate, root]) != root
-    except ValueError:
-        # Mixed drives / invalid roots are always treated as outside.
-        return True
-
-
 def is_write_denied(path: str, home: str | None = None) -> bool:
     """Return True if path is blocked by the write denylist or safe root.
 
@@ -119,20 +86,11 @@ def is_write_denied(path: str, home: str | None = None) -> bool:
     home = os.path.realpath(os.path.expanduser(home or "~"))
     resolved = os.path.realpath(os.path.expanduser(str(path)))
 
-    # Always protect the process home and subprocess home; also include any
-    # explicitly-provided remote home (e.g. SSH backend).
-    candidate_homes = list(_candidate_write_denied_homes())
-    if home:
-        explicit_home = os.path.realpath(os.path.expanduser(home))
-        if explicit_home not in candidate_homes:
-            candidate_homes.append(explicit_home)
-
-    for h in candidate_homes:
-        if resolved in build_write_denied_paths(h):
+    if resolved in build_write_denied_paths(home):
+        return True
+    for prefix in build_write_denied_prefixes(home):
+        if resolved.startswith(prefix):
             return True
-        for prefix in build_write_denied_prefixes(h):
-            if resolved.startswith(prefix):
-                return True
 
     safe_root = get_safe_write_root()
     if safe_root and not (resolved == safe_root or resolved.startswith(safe_root + os.sep)):
