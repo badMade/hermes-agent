@@ -2582,6 +2582,7 @@ class TestPtyWebSocket:
         """Frame written to /api/pub is rebroadcast verbatim to every
         /api/events subscriber on the same channel."""
         import time
+        import asyncio
         from urllib.parse import urlencode
         from hermes_cli import web_server as ws_mod
 
