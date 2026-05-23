@@ -2,10 +2,10 @@
 """
 Skill Manager Tool -- Agent-Managed Skill Creation & Editing
 
-Allows the agent to create, update, and delete skills, turning successful
+Allows the agent to create, update, and delete local skills, turning successful
 approaches into reusable procedural knowledge. New skills are created in
-~/.hermes/skills/. Existing skills (bundled, hub-installed, or user-created)
-can be modified or deleted wherever they live.
+~/.hermes/skills/. Skills from configured external directories are readable but
+not modified in place by this tool.
 
 Skills are the agent's procedural memory: they capture *how to do a specific
 type of task* based on proven experience. General memory (MEMORY.md, USER.md) is
@@ -132,6 +132,29 @@ def _containing_skills_root(skill_path: Path) -> Path:
         except (ValueError, OSError):
             continue
     return SKILLS_DIR
+
+
+def _is_local_skill(skill_path: Path) -> bool:
+    """Return True when ``skill_path`` lives under the writable local skills root."""
+    try:
+        skill_path.resolve().relative_to(SKILLS_DIR.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def _external_skill_mutation_error(name: str) -> str:
+    return (
+        f"Skill '{name}' is in an external directory and cannot be modified. "
+        f"Copy it to {display_hermes_home()}/skills/ first if you want to edit it."
+    )
+
+
+def _ensure_local_skill(name: str, skill_path: Path) -> Optional[str]:
+    """Return a refusal message when a mutating action targets an external skill."""
+    if _is_local_skill(skill_path):
+        return None
+    return _external_skill_mutation_error(name)
 
 
 def _pinned_guard(name: str) -> Optional[str]:
@@ -428,7 +451,7 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
 
 
 def _edit_skill(name: str, content: str) -> Dict[str, Any]:
-    """Replace the SKILL.md of any existing skill (full rewrite)."""
+    """Replace the SKILL.md of an existing local skill (full rewrite)."""
     err = _validate_frontmatter(content)
     if err:
         return {"success": False, "error": err}
@@ -440,6 +463,9 @@ def _edit_skill(name: str, content: str) -> Dict[str, Any]:
     existing = _find_skill(name)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found. Use skills_list() to see available skills."}
+    local_err = _ensure_local_skill(name, existing["path"])
+    if local_err:
+        return {"success": False, "error": local_err}
 
     skill_md = existing["path"] / "SKILL.md"
     # Back up original content for rollback
@@ -480,6 +506,9 @@ def _patch_skill(
     existing = _find_skill(name)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found."}
+    local_err = _ensure_local_skill(name, existing["path"])
+    if local_err:
+        return {"success": False, "error": local_err}
 
     skill_dir = existing["path"]
 
@@ -569,6 +598,9 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
     existing = _find_skill(name)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found."}
+    local_err = _ensure_local_skill(name, existing["path"])
+    if local_err:
+        return {"success": False, "error": local_err}
 
     pinned_err = _pinned_guard(name)
     if pinned_err:
@@ -612,7 +644,7 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
 
 
 def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
-    """Add or overwrite a supporting file within any skill directory."""
+    """Add or overwrite a supporting file within a local skill directory."""
     err = _validate_file_path(file_path)
     if err:
         return {"success": False, "error": err}
@@ -638,6 +670,9 @@ def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
     existing = _find_skill(name)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found. Create it first with action='create'."}
+    local_err = _ensure_local_skill(name, existing["path"])
+    if local_err:
+        return {"success": False, "error": local_err}
 
     target, err = _resolve_skill_target(existing["path"], file_path)
     if err:
@@ -664,7 +699,7 @@ def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
 
 
 def _remove_file(name: str, file_path: str) -> Dict[str, Any]:
-    """Remove a supporting file from any skill directory."""
+    """Remove a supporting file from a local skill directory."""
     err = _validate_file_path(file_path)
     if err:
         return {"success": False, "error": err}
@@ -672,6 +707,9 @@ def _remove_file(name: str, file_path: str) -> Dict[str, Any]:
     existing = _find_skill(name)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found."}
+    local_err = _ensure_local_skill(name, existing["path"])
+    if local_err:
+        return {"success": False, "error": local_err}
 
     skill_dir = existing["path"]
 
@@ -799,7 +837,7 @@ SKILL_MANAGE_SCHEMA = {
     "description": (
         "Manage skills (create, update, delete). Skills are your procedural "
         "memory — reusable approaches for recurring task types. "
-        f"New skills go to {display_hermes_home()}/skills/; existing skills can be modified wherever they live.\n\n"
+        f"New skills and modifications are limited to {display_hermes_home()}/skills/; external skill directories are read-only.\n\n"
         "Actions: create (full SKILL.md + optional category), "
         "patch (old_string/new_string — preferred for fixes), "
         "edit (full SKILL.md rewrite — major overhauls only), "
