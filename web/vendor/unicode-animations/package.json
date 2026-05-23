@@ -1,0 +1,16 @@
+{
+  "name": "unicode-animations",
+  "version": "1.0.3",
+  "type": "module",
+  "license": "MIT",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "sideEffects": false
+}
