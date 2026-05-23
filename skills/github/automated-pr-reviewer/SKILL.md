@@ -4,8 +4,10 @@ version: 1.0.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
-tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, review]
-related_skills: [github-code-review, cronjob]
+metadata:
+  hermes:
+    tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, Review]
+    related_skills: [github-code-review, cronjob]
 ---
 
 # automated-pr-reviewer
