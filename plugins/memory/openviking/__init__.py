@@ -352,7 +352,7 @@ def _is_windows_absolute_path(value: str) -> bool:
 
 
 def _is_remote_resource_source(value: str) -> bool:
-    return value.startswith(_REMOTE_RESOURCE_PREFIXES)
+    return value.lower().startswith(_REMOTE_RESOURCE_PREFIXES)
 
 
 def _is_local_path_reference(value: str) -> bool:
