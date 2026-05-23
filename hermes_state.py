@@ -2311,7 +2311,9 @@ class SessionDB:
     def _safe_session_file_path(sessions_dir: Path, filename: str) -> Optional[Path]:
         """Return a cleanup target only when it remains below sessions_dir."""
         root = sessions_dir.resolve(strict=False)
-        candidate = sessions_dir / filename
+        if Path(filename).is_absolute():
+            return None
+        candidate = root / filename
         try:
             candidate.parent.resolve(strict=False).relative_to(root)
         except (OSError, ValueError):
