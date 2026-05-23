@@ -37,6 +37,7 @@ import threading
 import time
 from collections import defaultdict
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -55,6 +56,17 @@ _MAX_PATHS_PER_AGENT = 4096
 # Global last-writer map cap.  Same policy.
 _MAX_GLOBAL_WRITERS = 4096
 
+# Top-level task entries retained in the read-stamp registry.  This is a
+# defense-in-depth cap for long-lived gateway/API processes; normal task
+# completion removes entries explicitly via ``cleanup_task``.
+_MAX_TASKS = 4096
+
+
+@dataclass
+class _TrackedLock:
+    lock: threading.Lock
+    users: int = 0
+
 
 class FileStateRegistry:
     """Process-wide coordinator for cross-agent file edits."""
@@ -62,32 +74,46 @@ class FileStateRegistry:
     def __init__(self) -> None:
         self._reads: Dict[str, Dict[str, ReadStamp]] = defaultdict(dict)
         self._last_writer: Dict[str, Tuple[str, float]] = {}
-        self._path_locks: Dict[str, threading.Lock] = {}
+        self._path_locks: Dict[str, _TrackedLock] = {}
         self._meta_lock = threading.Lock()  # guards _path_locks
         self._state_lock = threading.Lock()  # guards _reads + _last_writer
 
     # ── Path lock management ────────────────────────────────────────
-    def _lock_for(self, resolved: str) -> threading.Lock:
+    def _retain_lock(self, resolved: str) -> _TrackedLock:
         with self._meta_lock:
-            lock = self._path_locks.get(resolved)
-            if lock is None:
-                lock = threading.Lock()
-                self._path_locks[resolved] = lock
-            return lock
+            tracked = self._path_locks.get(resolved)
+            if tracked is None:
+                tracked = _TrackedLock(threading.Lock())
+                self._path_locks[resolved] = tracked
+            tracked.users += 1
+            return tracked
+
+    def _release_lock(self, resolved: str, tracked: _TrackedLock) -> None:
+        with self._meta_lock:
+            tracked.users -= 1
+            if tracked.users <= 0 and self._path_locks.get(resolved) is tracked:
+                self._path_locks.pop(resolved, None)
 
     @contextmanager
     def lock_path(self, resolved: str):
         """Acquire the per-path lock for a read→modify→write section.
 
         Same process, same filesystem — threads on the same path serialize.
-        Different paths proceed in parallel.
+        Different paths proceed in parallel.  Locks are retained only while
+        active/waiting so unique-path writes cannot grow process memory
+        indefinitely.
         """
-        lock = self._lock_for(resolved)
-        lock.acquire()
+        if _disabled():
+            yield
+            return
+
+        tracked = self._retain_lock(resolved)
+        tracked.lock.acquire()
         try:
             yield
         finally:
-            lock.release()
+            tracked.lock.release()
+            self._release_lock(resolved, tracked)
 
     # ── Read/write accounting ───────────────────────────────────────
     def record_read(
@@ -110,6 +136,7 @@ class FileStateRegistry:
             agent_reads = self._reads[task_id]
             agent_reads[resolved] = (float(mtime), now, bool(partial))
             _cap_dict(agent_reads, _MAX_PATHS_PER_AGENT)
+            _cap_dict(self._reads, _MAX_TASKS)
 
     def note_write(
         self,
@@ -136,8 +163,10 @@ class FileStateRegistry:
             self._last_writer[resolved] = (task_id, now)
             _cap_dict(self._last_writer, _MAX_GLOBAL_WRITERS)
             # Writer's own view is now up-to-date.
-            self._reads[task_id][resolved] = (float(mtime), now, False)
-            _cap_dict(self._reads[task_id], _MAX_PATHS_PER_AGENT)
+            agent_reads = self._reads[task_id]
+            agent_reads[resolved] = (float(mtime), now, False)
+            _cap_dict(agent_reads, _MAX_PATHS_PER_AGENT)
+            _cap_dict(self._reads, _MAX_TASKS)
 
     def check_stale(self, task_id: str, resolved: str) -> Optional[str]:
         """Return a model-facing warning if this write would be stale.
@@ -248,6 +277,13 @@ class FileStateRegistry:
         with self._state_lock:
             return list(self._reads.get(task_id, {}).keys())
 
+    def cleanup_task(self, task_id: str) -> None:
+        """Forget read stamps owned by a completed task."""
+        if _disabled():
+            return
+        with self._state_lock:
+            self._reads.pop(task_id, None)
+
     # ── Testing hooks ───────────────────────────────────────────────
     def clear(self) -> None:
         """Reset all state.  Intended for tests only."""
@@ -282,13 +318,10 @@ def _cap_dict(d: dict, limit: int) -> None:
     over = len(d) - limit
     if over <= 0:
         return
-    # dict preserves insertion order (PY>=3.7) — pop the oldest keys.
-    it = iter(d)
-    for _ in range(over):
-        try:
-            d.pop(next(it))
-        except (StopIteration, KeyError):
-            break
+    # dict preserves insertion order (PY>=3.7) — snapshot keys before
+    # mutating so trimming multiple entries is safe.
+    for key in list(d)[:over]:
+        d.pop(key, None)
 
 
 # ── Convenience wrappers (short names used at call sites) ────────────
@@ -320,6 +353,10 @@ def known_reads(task_id: str) -> List[str]:
     return _registry.known_reads(task_id)
 
 
+def cleanup_task(task_id: str) -> None:
+    _registry.cleanup_task(task_id)
+
+
 __all__ = [
     "FileStateRegistry",
     "get_registry",
@@ -329,4 +366,5 @@ __all__ = [
     "lock_path",
     "writes_since",
     "known_reads",
+    "cleanup_task",
 ]
