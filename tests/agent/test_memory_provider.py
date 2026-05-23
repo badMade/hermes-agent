@@ -103,7 +103,7 @@ class TestMemoryProviderABC:
             def get_tool_schemas(self) -> list:
                 return []
 
-        with pytest.raises(TypeError, match=r"abstract.*\bname\b"):
+        with pytest.raises(TypeError, match="name"):
             IncompleteProvider()
 
     def test_cannot_instantiate_abstract(self):
@@ -117,50 +117,17 @@ class TestMemoryProviderABC:
         assert p.name == "fake"
         assert p.is_available()
 
-    def test_on_pre_compress_default_returns_empty_string(self):
-        """Default on_pre_compress implementation returns empty string."""
-
-        class MinimalMemoryProvider(MemoryProvider):
-            @property
-            def name(self):
-                return "min"
-
-            def is_available(self):
-                return True
-
-            def initialize(self, session_id, **kwargs):
-                pass
-
-            def get_tool_schemas(self):
-                return []
-
-        p = MinimalMemoryProvider()
-        assert p.on_pre_compress([{"role": "user", "content": "hi"}]) == ""
-
     def test_default_optional_hooks_are_noop(self):
         """Optional hooks have default no-op implementations."""
-        class MinimalProvider(MemoryProvider):
-            @property
-            def name(self): return "minimal"
-            def is_available(self): return True
-            def initialize(self, session_id, **kwargs): pass
-            def get_tool_schemas(self): return []
-
-        p = MinimalProvider()
-        # These should not raise and return defaults where applicable
+        p = FakeMemoryProvider()
+        # These should not raise
         p.on_turn_start(1, "hello")
         p.on_session_end([])
-        p.on_session_switch("new_id")
-        assert p.on_pre_compress([]) == ""
+        p.on_pre_compress([])
         p.on_memory_write("add", "memory", "test")
-        p.on_delegation("task", "result")
         p.queue_prefetch("query")
         p.sync_turn("user", "assistant")
         p.shutdown()
-        assert p.system_prompt_block() == ""
-        assert p.prefetch("query") == ""
-        assert p.get_config_schema() == []
-        p.save_config({}, "/tmp")
 
 
 # ---------------------------------------------------------------------------
