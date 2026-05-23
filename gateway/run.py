@@ -16327,18 +16327,11 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
                 "Replacing existing gateway instance (PID %d) with --replace.",
                 existing_pid,
             )
-            # Record a takeover marker so the target's shutdown handler
-            # recognises its SIGTERM as a planned takeover and exits 0
-            # (rather than exit 1, which would trigger systemd's
-            # Restart=on-failure and start a flap loop against us).
-            # Best-effort — proceed even if the write fails.
             try:
-                from gateway.status import write_takeover_marker
-                write_takeover_marker(existing_pid)
-            except Exception as e:
-                logger.debug("Could not write takeover marker: %s", e)
-            try:
-                terminate_pid(existing_pid, force=False)
+                if hasattr(signal, "SIGUSR1"):
+                    os.kill(existing_pid, signal.SIGUSR1)  # windows-footgun: POSIX signal, guarded by hasattr
+                else:
+                    terminate_pid(existing_pid, force=False)
             except ProcessLookupError:
                 pass  # Already gone
             except (PermissionError, OSError):
@@ -16346,13 +16339,6 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
                     "Permission denied killing PID %d. Cannot replace.",
                     existing_pid,
                 )
-                # Marker is scoped to a specific target; clean it up on
-                # give-up so it doesn't grief an unrelated future shutdown.
-                try:
-                    from gateway.status import clear_takeover_marker
-                    clear_takeover_marker()
-                except Exception:
-                    pass
                 return False
             # Wait up to 10 seconds for the old process to exit.
             # ``os.kill(pid, 0)`` on Windows is NOT a no-op — use the
@@ -16378,13 +16364,6 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
             # Force-unlink to cover the old-process-crashed case.
             try:
                 (get_hermes_home() / "gateway.pid").unlink(missing_ok=True)
-            except Exception:
-                pass
-            # Clean up any takeover marker the old process didn't consume
-            # (e.g. SIGKILL'd before its shutdown handler could read it).
-            try:
-                from gateway.status import clear_takeover_marker
-                clear_takeover_marker()
             except Exception:
                 pass
             # Also release all scoped locks left by the old process.
@@ -16456,20 +16435,6 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     # Set up signal handlers
     def shutdown_signal_handler(received_signal=None):
         nonlocal _signal_initiated_shutdown
-        # Planned --replace takeover check: when a sibling gateway is
-        # taking over via --replace, it wrote a marker naming this PID
-        # before sending SIGTERM. If present, treat the signal as a
-        # planned shutdown and exit 0 so systemd's Restart=on-failure
-        # doesn't revive us (which would flap-fight the replacer when
-        # both services are enabled, e.g. hermes.service + hermes-
-        # gateway.service from pre-rename installs).
-        planned_takeover = False
-        try:
-            from gateway.status import consume_takeover_marker_for_self
-            planned_takeover = consume_takeover_marker_for_self()
-        except Exception as e:
-            logger.debug("Takeover marker check failed: %s", e)
-
         # Planned stop check: service managers and `hermes gateway stop`
         # also send SIGTERM, which is indistinguishable from an unexpected
         # external kill unless the CLI marks it first. SIGINT comes from an
@@ -16477,7 +16442,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
         planned_stop = False
         if received_signal == signal.SIGINT:
             planned_stop = True
-        elif not planned_takeover:
+        else:
             try:
                 from gateway.status import consume_planned_stop_marker_for_self
                 planned_stop = consume_planned_stop_marker_for_self()
@@ -16501,12 +16466,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
             _shutdown_ctx = None
             logger.debug("snapshot_shutdown_context failed: %s", _e)
 
-        if planned_takeover:
-            logger.info(
-                "Received %s as a planned --replace takeover — exiting cleanly",
-                _shutdown_ctx["signal"] if _shutdown_ctx else "SIGTERM",
-            )
-        elif planned_stop:
+        if planned_stop:
             logger.info(
                 "Received %s as a planned gateway stop — exiting cleanly",
                 _shutdown_ctx["signal"] if _shutdown_ctx else "SIGTERM/SIGINT",
