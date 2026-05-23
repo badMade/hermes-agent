@@ -52,6 +52,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
 
 API_URL = "https://api.linear.app/graphql"
@@ -135,7 +136,7 @@ def _resolve_team_id(key_or_name: str) -> str | None:
 
 def _resolve_user_id(name: str) -> str | None:
     """Map a user name to UUID."""
-    if len(name) == 36 and name.count("-") == 4:
+    if _is_uuid(name):
         return name
     q = "query { users(first: 100) { nodes { id name displayName email } } }"
     users = gql(q).get("users", {}).get("nodes", [])
@@ -167,7 +168,7 @@ def _get_label_id_or_exit(name: str) -> str:
 
 def _resolve_label_id(name: str) -> str | None:
     """Map a label name to UUID."""
-    if len(name) == 36 and name.count("-") == 4:
+    if _is_uuid(name):
         return name
     q = "query { issueLabels(first: 100) { nodes { id name } } }"
     labels = gql(q).get("issueLabels", {}).get("nodes", [])
@@ -176,6 +177,14 @@ def _resolve_label_id(name: str) -> str | None:
         if l["name"].lower() == nl:
             return str(l["id"])
     return None
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
 
 
 def cmd_list_projects(args: argparse.Namespace) -> None:
