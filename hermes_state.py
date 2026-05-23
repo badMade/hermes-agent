@@ -1172,14 +1172,15 @@ class SessionDB:
         for _ in range(100):
             with self._lock:
                 cursor = self._conn.execute(
-                    "SELECT id FROM sessions "
-                    "WHERE parent_session_id = ? "
-                    "  AND started_at >= ("
-                    "      SELECT ended_at FROM sessions "
-                    "      WHERE id = ? AND end_reason = 'compression'"
-                    "  ) "
-                    "ORDER BY started_at DESC LIMIT 1",
-                    (current, current),
+                    "SELECT child.id FROM sessions child "
+                    "JOIN sessions parent ON parent.id = child.parent_session_id "
+                    "WHERE child.parent_session_id = ? "
+                    "  AND parent.end_reason = 'compression' "
+                    "  AND child.started_at >= parent.ended_at "
+                    "  AND child.source = parent.source "
+                    "  AND child.user_id IS parent.user_id "
+                    "ORDER BY child.started_at DESC LIMIT 1",
+                    (current,),
                 )
                 row = cursor.fetchone()
             if row is None:
@@ -1279,6 +1280,8 @@ class SessionDB:
                     JOIN sessions child ON child.parent_session_id = c.cur_id
                     WHERE parent.end_reason = 'compression'
                       AND child.started_at >= parent.ended_at
+                      AND child.source = parent.source
+                      AND child.user_id IS parent.user_id
                 ),
                 chain_max AS (
                     SELECT
