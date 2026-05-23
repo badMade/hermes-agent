@@ -1189,7 +1189,7 @@ class QQAdapter(BasePlatformAdapter):
         runner = getattr(self, "gateway_runner", None)
         auth_fn = getattr(runner, "_is_user_authorized", None)
         if not callable(auth_fn):
-            return True
+            return False
         try:
             return bool(auth_fn(source))
         except Exception:

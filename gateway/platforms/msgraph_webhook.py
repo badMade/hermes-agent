@@ -139,6 +139,14 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
         self._notification_scheduler = scheduler
 
     async def connect(self) -> bool:
+        if not self.client_state_configured:
+            self._set_fatal_error(
+                "missing_client_state",
+                "MS Graph webhook client_state is required",
+                retryable=False,
+            )
+            return False
+
         app = web.Application()
         app.router.add_get(self._health_path, self._handle_health)
         app.router.add_get(self._webhook_path, self._handle_validation)
@@ -315,11 +323,20 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
         """
         expected = self._client_state
         if expected is None:
-            return True
+            return False
         provided = self._string_or_none(notification.get("clientState"))
         if provided is None:
             return False
-        return hmac.compare_digest(provided, expected)
+        try:
+            return hmac.compare_digest(
+                provided.encode("utf-8"),
+                expected.encode("utf-8"),
+            )
+        except UnicodeEncodeError:
+            # Lone surrogates (e.g. JSON "\ud800") cannot be UTF-8-encoded.
+            # Treat any unencodable clientState as an auth failure rather than
+            # letting the exception propagate as a 500.
+            return False
 
     def _has_seen_receipt(self, receipt_key: str) -> bool:
         return receipt_key in self._seen_receipts
