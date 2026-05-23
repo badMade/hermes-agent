@@ -11230,6 +11230,18 @@ class GatewayRunner:
                 return "That session is already linked to another Telegram topic."
 
         session_key = self._session_key_for_source(source)
+        current_entry = self.session_store.get_or_create_session(source)
+        if current_entry.session_id != session_id:
+            # /topic <session_id> creates the same kind of conversation
+            # boundary as /resume: the in-memory SessionStore entry and any
+            # cached AIAgent must move with the persistent topic binding.
+            self._release_running_agent_state(session_key)
+            switched_entry = self.session_store.switch_session(session_key, session_id)
+            if not switched_entry:
+                return t("gateway.resume.switch_failed")
+            self._clear_session_boundary_security_state(session_key)
+            self._evict_cached_agent(session_key)
+
         try:
             self._session_db.bind_telegram_topic(
                 chat_id=str(source.chat_id),
