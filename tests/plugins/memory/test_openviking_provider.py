@@ -7,6 +7,11 @@ import pytest
 import plugins.memory.openviking as openviking
 from plugins.memory.openviking import OpenVikingMemoryProvider, _VikingClient
 
+EXPECTED_LOCAL_PATH_ERROR = (
+    "Local filesystem paths are not allowed for viking_add_resource; "
+    "provide a remote URL instead."
+)
+
 
 @pytest.fixture(autouse=True)
 def stub_openviking_httpx(monkeypatch):
@@ -76,54 +81,103 @@ def test_tool_search_sorts_missing_raw_score_after_negative_scores():
     assert result["total"] == 3
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-def test_tool_add_resource_rejects_local_file_path(tmp_path):
-    local_file = tmp_path / "sample.md"
-    local_file.write_text("# Local resource\n", encoding="utf-8")
+def test_tool_add_resource_rejects_existing_local_file(tmp_path):
+    sample = tmp_path / "sample.md"
+    sample.write_text("# Local resource\n", encoding="utf-8")
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
+    result = json.loads(provider._tool_add_resource({
+        "url": str(sample),
+        "reason": "local test",
+        "wait": True,
+    }))
 
-    result = json.loads(provider._tool_add_resource({"url": str(local_file)}))
-
-    assert result["error"] == "Local file and directory paths are not allowed for viking_add_resource"
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
     provider._client.upload_temp_file.assert_not_called()
     provider._client.post.assert_not_called()
 
 
 def test_tool_add_resource_rejects_file_uri(tmp_path):
-    local_file = tmp_path / "sample.md"
-    local_file.write_text("# Local resource\n", encoding="utf-8")
+    sample = tmp_path / "sample.md"
+    sample.write_text("# Local resource\n", encoding="utf-8")
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
+    result = json.loads(provider._tool_add_resource({
+        "url": sample.as_uri(),
+        "reason": "file uri test",
+    }))
 
-    result = json.loads(provider._tool_add_resource({"url": local_file.as_uri()}))
-
-    assert result["error"] == "Local file and directory paths are not allowed for viking_add_resource"
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
     provider._client.upload_temp_file.assert_not_called()
     provider._client.post.assert_not_called()
 
 
-def test_tool_add_resource_rejects_missing_local_path(tmp_path):
+def test_tool_add_resource_rejects_existing_local_directory(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    nested = docs / "nested"
+    nested.mkdir()
+    (nested / "api.md").write_text("# API\n", encoding="utf-8")
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+    result = json.loads(provider._tool_add_resource({
+        "url": str(docs),
+        "reason": "directory test",
+        "wait": True,
+    }))
+
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_not_called()
+    provider._client.post.assert_not_called()
+
+
+def test_tool_add_resource_rejects_local_directory_before_add(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+    result = json.loads(provider._tool_add_resource({"url": str(docs)}))
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_not_called()
+    provider._client.post.assert_not_called()
+
+
+def test_tool_add_resource_rejects_local_directory_before_upload(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+    result = json.loads(provider._tool_add_resource({"url": str(docs)}))
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_not_called()
+    provider._client.post.assert_not_called()
+
+
+def test_tool_add_resource_rejects_missing_local_path_with_generic_local_path_error(tmp_path):
     missing = tmp_path / "missing.md"
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
 
     result = json.loads(provider._tool_add_resource({"url": str(missing)}))
 
-    assert result["error"] == "Local file and directory paths are not allowed for viking_add_resource"
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
     provider._client.upload_temp_file.assert_not_called()
     provider._client.post.assert_not_called()
+
+
+def test_tool_add_resource_rejects_unsupported_scheme():
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+
+    result = json.loads(provider._tool_add_resource({"url": "ftp://example.com/file.txt"}))
+
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_not_called()
+    provider._client.post.assert_not_called()
+
 
 def test_tool_add_resource_sends_remote_url_as_path():
     provider = OpenVikingMemoryProvider()

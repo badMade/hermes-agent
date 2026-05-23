@@ -289,13 +289,14 @@ ADD_RESOURCE_SCHEMA = {
     "name": "viking_add_resource",
     "description": (
         "Add a remote URL to the OpenViking knowledge base. "
-        "Resources must be public http(s), git, or ssh URLs. "
+        "Remote resources must be public http(s), git, or ssh URLs. "
+        "Local filesystem paths and file:// URIs are not allowed. "
         "The system automatically parses, indexes, and generates summaries."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "url": {"type": "string", "description": "Remote public URL (http(s), git, or ssh) to add."},
+            "url": {"type": "string", "description": "Remote URL to add (http(s), git, or ssh)."},
             "reason": {
                 "type": "string",
                 "description": "Why this resource is relevant (improves search).",
@@ -325,6 +326,9 @@ ADD_RESOURCE_SCHEMA = {
     },
 }
 
+
+def _is_remote_resource_source(value: str) -> bool:
+    return value.startswith(_REMOTE_RESOURCE_PREFIXES)
 
 
 def _is_windows_absolute_path(value: str) -> bool:
@@ -852,17 +856,18 @@ class OpenVikingMemoryProvider(MemoryProvider):
         if args.get("to") and args.get("parent"):
             return tool_error("Cannot specify both 'to' and 'parent'")
 
+        if not _is_remote_resource_source(url):
+            return tool_error(
+                "Local filesystem paths are not allowed for viking_add_resource; "
+                "provide a remote URL instead."
+            )
+
         payload: Dict[str, Any] = {}
         for key in ("reason", "to", "parent", "instruction", "wait", "timeout"):
             if key in args and args[key] not in (None, ""):
                 payload[key] = args[key]
 
-        parsed_url = urlparse(url)
-        if parsed_url.scheme == "file" or _is_local_path_reference(url):
-            return tool_error("Local file and directory paths are not allowed for viking_add_resource")
-
         payload["path"] = url
-
         resp = self._client.post("/api/v1/resources", payload)
         result = resp.get("result", {})
 
