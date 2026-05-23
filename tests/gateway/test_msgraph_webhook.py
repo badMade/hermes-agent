@@ -209,11 +209,47 @@ class TestMSGraphNotifications:
         assert adapter.fatal_error_code == "missing_client_state"
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "bad_state",
+        [
+            "é",  # multi-byte UTF-8; wrong secret, not a surrogate
+            "\ud800",  # lone high surrogate — unencodable in strict UTF-8
+            "\udfff",  # lone low surrogate — unencodable in strict UTF-8
+        ],
+    )
+    async def test_non_ascii_client_state_rejected_as_auth_failure(self, bad_state):
+        """Non-ASCII / unencodable clientState values reject cleanly (no 500)."""
+        adapter = _make_adapter()
+        scheduled: list[tuple[dict, object]] = []
+
+        async def _capture(notification, event):
+            scheduled.append((notification, event))
+
+        adapter.set_notification_scheduler(_capture)
+        payload = {
+            "value": [
+                {
+                    "id": "notif-non-ascii",
+                    "subscriptionId": "sub-1",
+                    "changeType": "updated",
+                    "resource": "communications/onlineMeetings/meeting-2",
+                    "clientState": bad_state,
+                }
+            ]
+        }
+
+        resp = await adapter._handle_notification(_FakeRequest(json_payload=payload))
+        assert resp.status == 403
+        # Auth failed before _schedule_notification was ever reached, so the
+        # scheduler must not have been called — no sleep needed.
+        assert scheduled == []
+
+    @pytest.mark.anyio
     async def test_client_state_compare_is_timing_safe(self, monkeypatch):
         """Ensure hmac.compare_digest is used for clientState comparison."""
         import hmac
 
-        calls: list[tuple[str, str]] = []
+        calls: list[tuple[bytes, bytes]] = []
         real_compare = hmac.compare_digest
 
         def _spy(a, b):
@@ -240,8 +276,8 @@ class TestMSGraphNotifications:
 
         assert calls, "hmac.compare_digest was never called; clientState check is not timing-safe"
         provided, expected = calls[0]
-        assert provided == "expected-client-state"
-        assert expected == "expected-client-state"
+        assert provided == b"expected-client-state"
+        assert expected == b"expected-client-state"
 
     @pytest.mark.anyio
     async def test_duplicate_notification_deduped(self):
