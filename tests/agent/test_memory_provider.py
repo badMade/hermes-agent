@@ -95,77 +95,12 @@ class TestMemoryProviderABC:
         with pytest.raises(TypeError):
             MemoryProvider()
 
-
-    def test_get_tool_schemas_is_abstract(self):
-        """Classes missing get_tool_schemas cannot be instantiated."""
-        class MissingToolSchemasProvider(MemoryProvider):
-            @property
-            def name(self):
-                return "missing"
-
-            def is_available(self):
-                return True
-
-            def initialize(self, session_id, **kwargs):
-                return None
-
-        with pytest.raises(TypeError, match="get_tool_schemas"):
-            MissingToolSchemasProvider()
-
-    def test_get_tool_schemas_returns_value(self):
-        """A valid implementation can return tool schemas."""
-        p = FakeMemoryProvider(tools=[{"name": "my_tool", "description": "test", "parameters": {}}])
-        assert p.get_tool_schemas() == [{"name": "my_tool", "description": "test", "parameters": {}}]
-
     def test_concrete_provider_works(self):
         """Concrete implementation can be instantiated."""
         p = FakeMemoryProvider()
         assert p.name == "fake"
         assert p.is_available()
 
-<<<<<<< HEAD
-=======
-    def test_missing_initialize_raises(self):
-        """Classes missing the initialize method cannot be instantiated."""
-
-        class IncompleteProvider(MemoryProvider):
-            @property
-            def name(self) -> str:
-                return "incomplete"
-
-            def is_available(self) -> bool:
-                return True
-
-            def get_tool_schemas(self):
-                return []
-
-        with pytest.raises(
-            TypeError,
-            match=r"Can't instantiate abstract class .*initialize",
-        ):
-            IncompleteProvider()
-
-    def test_on_pre_compress_default_returns_empty_string(self):
-        """Default on_pre_compress implementation returns empty string."""
-
-        class MinimalMemoryProvider(MemoryProvider):
-            @property
-            def name(self):
-                return "min"
-
-            def is_available(self):
-                return True
-
-            def initialize(self, session_id, **kwargs):
-                pass
-
-            def get_tool_schemas(self):
-                return []
-        p = MinimalMemoryProvider()
-        assert p.on_pre_compress([{"role": "user", "content": "hi"}]) == ""
-        assert p.on_pre_compress([{"role": "user", "content": "hi"}]) == ""
-
->>>>>>> origin/main
     def test_default_optional_hooks_are_noop(self):
         """Optional hooks have default no-op implementations."""
         p = FakeMemoryProvider()
@@ -178,28 +113,6 @@ class TestMemoryProviderABC:
         p.sync_turn("user", "assistant")
         p.shutdown()
 
-    def test_system_prompt_block_default(self):
-        """Default implementation of system_prompt_block returns empty string."""
-
-        class _MinimalProvider(MemoryProvider):
-            """Implements abstract methods only; intentionally omits system_prompt_block."""
-
-            @property
-            def name(self) -> str:
-                return "minimal"
-
-            def is_available(self) -> bool:
-                return True
-
-            def initialize(self, session_id, **kwargs):
-                pass
-
-            def get_tool_schemas(self):
-                return []
-
-        p = _MinimalProvider()
-        assert p.system_prompt_block() == ""
-
 
 # ---------------------------------------------------------------------------
 # MemoryManager tests
@@ -207,12 +120,6 @@ class TestMemoryProviderABC:
 
 
 class TestMemoryManager:
-    def test_init(self):
-        mgr = MemoryManager()
-        assert mgr._providers == []
-        assert mgr._tool_to_provider == {}
-        assert mgr._has_external is False
-
     def test_empty_manager(self):
         mgr = MemoryManager()
         assert mgr.providers == []

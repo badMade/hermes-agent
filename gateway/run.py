@@ -5764,9 +5764,7 @@ class GatewayRunner:
                     "QQBot: aiohttp/httpx missing or QQ_APP_ID/QQ_CLIENT_SECRET not configured"
                 )
                 return None
-            adapter = QQAdapter(config)
-            adapter.gateway_runner = self
-            return adapter
+            return QQAdapter(config)
 
         elif platform == Platform.YUANBAO:
             from gateway.platforms.yuanbao import YuanbaoAdapter, WEBSOCKETS_AVAILABLE
@@ -17976,16 +17974,16 @@ async def start_gateway(
     if threading.current_thread() is threading.main_thread():
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
-                loop.add_signal_handler(
-                    sig, shutdown_signal_handler, sig
-                )  # windows-footgun: ok — wrapped in try/except NotImplementedError for Windows
+                # fmt: off
+                loop.add_signal_handler(sig, shutdown_signal_handler, sig)  # windows-footgun: ok — wrapped in try/except NotImplementedError for Windows
+                # fmt: on
             except NotImplementedError:
                 pass
         if hasattr(signal, "SIGUSR1"):
             try:
-                loop.add_signal_handler(
-                    signal.SIGUSR1, restart_signal_handler
-                )  # windows-footgun: ok — POSIX signal, guarded by hasattr above + try/except NotImplementedError
+                # fmt: off
+                loop.add_signal_handler(getattr(signal, "SIGUSR1", None), restart_signal_handler)  # windows-footgun: ok — POSIX signal, guarded by hasattr above + try/except NotImplementedError
+                # fmt: on
             except NotImplementedError:
                 pass
     else:
