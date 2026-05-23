@@ -18,7 +18,7 @@ on:
     types: [edited]
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 concurrency:
@@ -203,7 +203,8 @@ jobs:
 
       - uses: ./.github/actions/nix-setup
         with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          name: hermes-agent
+        continue-on-error: true
 
       - name: Apply lockfile hashes
         id: apply
