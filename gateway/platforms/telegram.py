@@ -77,6 +77,7 @@ from gateway.platforms.base import (
     SUPPORTED_VIDEO_TYPES,
     SUPPORTED_DOCUMENT_TYPES,
     utf16_len,
+    _same_message_sender,
 )
 from gateway.platforms.telegram_network import (
     TelegramFallbackTransport,
@@ -1971,7 +1972,12 @@ class TelegramAdapter(BasePlatformAdapter):
             )
             return SendResult(success=False, error=str(e))
 
-    async def _send_message_with_thread_fallback(self, **kwargs):
+    async def _send_message_with_thread_fallback(
+        self,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
         """Send a Telegram message, retrying once without message_thread_id
         if Telegram returns 'Message thread not found'.
 
@@ -1988,7 +1994,10 @@ class TelegramAdapter(BasePlatformAdapter):
         try:
             return await self._bot.send_message(**kwargs)
         except Exception as send_err:
+            allow_dm_fallback = bool(metadata and metadata.get("telegram_dm_topic_reply_fallback"))
             if (
+                allow_dm_fallback
+                and
                 message_thread_id is not None
                 and self._is_bad_request_error(send_err)
                 and self._is_thread_not_found_error(send_err)
@@ -2027,6 +2036,7 @@ class TelegramAdapter(BasePlatformAdapter):
             thread_id = self._metadata_thread_id(metadata)
             reply_to_id = self._reply_to_message_id_for_send(None, metadata)
             msg = await self._send_message_with_thread_fallback(
+                metadata=metadata,
                 chat_id=int(chat_id),
                 text=text,
                 parse_mode=ParseMode.MARKDOWN,
@@ -2106,7 +2116,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 )
             )
 
-            msg = await self._send_message_with_thread_fallback(**kwargs)
+            msg = await self._send_message_with_thread_fallback(metadata=metadata, **kwargs)
 
             # Store session_key keyed by approval_id for the callback handler
             self._approval_state[approval_id] = session_key
@@ -2158,7 +2168,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 )
             )
 
-            msg = await self._send_message_with_thread_fallback(**kwargs)
+            msg = await self._send_message_with_thread_fallback(metadata=metadata, **kwargs)
             self._slash_confirm_state[confirm_id] = session_key
             return SendResult(success=True, message_id=str(msg.message_id))
         except Exception as e:
@@ -2217,6 +2227,7 @@ class TelegramAdapter(BasePlatformAdapter):
             thread_id = metadata.get("thread_id") if metadata else None
             reply_to_id = self._reply_to_message_id_for_send(None, metadata)
             msg = await self._send_message_with_thread_fallback(
+                metadata=metadata,
                 chat_id=int(chat_id),
                 text=text,
                 parse_mode=ParseMode.MARKDOWN,
@@ -3903,17 +3914,18 @@ class TelegramAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     def _photo_batch_key(self, event: MessageEvent, msg: Message) -> str:
-        """Return a batching key for Telegram photos/albums."""
+        """Return a sender-scoped batching key for Telegram photos/albums."""
         from gateway.session import build_session_key
         session_key = build_session_key(
             event.source,
             group_sessions_per_user=self.config.extra.get("group_sessions_per_user", True),
             thread_sessions_per_user=self.config.extra.get("thread_sessions_per_user", False),
         )
+        sender_id = getattr(event.source, "user_id_alt", None) or getattr(event.source, "user_id", None) or "unknown"
         media_group_id = getattr(msg, "media_group_id", None)
         if media_group_id:
-            return f"{session_key}:album:{media_group_id}"
-        return f"{session_key}:photo-burst"
+            return f"{session_key}:sender:{sender_id}:album:{media_group_id}"
+        return f"{session_key}:sender:{sender_id}:photo-burst"
 
     async def _flush_photo_batch(self, batch_key: str) -> None:
         """Send a buffered photo burst/album as a single MessageEvent."""
@@ -3935,10 +3947,13 @@ class TelegramAdapter(BasePlatformAdapter):
         if existing is None:
             self._pending_photo_batches[batch_key] = event
         else:
-            existing.media_urls.extend(event.media_urls)
-            existing.media_types.extend(event.media_types)
-            if event.text:
-                existing.text = self._merge_caption(existing.text, event.text)
+            if not _same_message_sender(existing, event):
+                self._pending_photo_batches[batch_key] = event
+            else:
+                existing.media_urls.extend(event.media_urls)
+                existing.media_types.extend(event.media_types)
+                if event.text:
+                    existing.text = self._merge_caption(existing.text, event.text)
 
         prior_task = self._pending_photo_batch_tasks.get(batch_key)
         if prior_task and not prior_task.done():
