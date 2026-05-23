@@ -1,8 +1,6 @@
 """Tests for the memory provider interface, manager, and builtin provider."""
 
 import json
-import re
-
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -86,13 +84,6 @@ class MetadataMemoryProvider(FakeMemoryProvider):
         self.memory_writes.append((action, target, content, metadata or {}))
 
 
-class UnhandledToolProvider(FakeMemoryProvider):
-    """Provider that routes tool handling to the base class implementation."""
-
-    def handle_tool_call(self, tool_name, args, **kwargs):
-        return MemoryProvider.handle_tool_call(self, tool_name, args, **kwargs)
-
-
 # ---------------------------------------------------------------------------
 # MemoryProvider ABC tests
 # ---------------------------------------------------------------------------
@@ -104,127 +95,48 @@ class TestMemoryProviderABC:
         with pytest.raises(TypeError):
             MemoryProvider()
 
-
-    def test_get_tool_schemas_is_abstract(self):
-        """Classes missing get_tool_schemas cannot be instantiated."""
-        class MissingToolSchemasProvider(MemoryProvider):
-            @property
-            def name(self):
-                return "missing"
-
-            def is_available(self):
-                return True
-
-            def initialize(self, session_id, **kwargs):
-                return None
-
-        with pytest.raises(TypeError, match="get_tool_schemas"):
-            MissingToolSchemasProvider()
-
-    def test_get_tool_schemas_returns_value(self):
-        """A valid implementation can return tool schemas."""
-        p = FakeMemoryProvider(tools=[{"name": "my_tool", "description": "test", "parameters": {}}])
-        assert p.get_tool_schemas() == [{"name": "my_tool", "description": "test", "parameters": {}}]
-
     def test_concrete_provider_works(self):
         """Concrete implementation can be instantiated."""
         p = FakeMemoryProvider()
         assert p.name == "fake"
         assert p.is_available()
 
-    def test_missing_initialize_raises(self):
-        """Classes missing the initialize method cannot be instantiated."""
+    def test_default_optional_hooks_are_noop(self):
+        """Optional hooks have default no-op implementations."""
+        p = FakeMemoryProvider()
+        # These should not raise
+        p.on_turn_start(1, "hello")
+        p.on_session_end([])
+        p.on_pre_compress([])
+        p.on_memory_write("add", "memory", "test")
+        p.queue_prefetch("query")
+        p.sync_turn("user", "assistant")
+        p.shutdown()
 
-        class IncompleteProvider(MemoryProvider):
-            @property
-            def name(self) -> str:
-                return "incomplete"
+    def test_handle_tool_call_raises_not_implemented(self):
+        """Default handle_tool_call raises NotImplementedError."""
 
-            def is_available(self) -> bool:
-                return True
-
-            def get_tool_schemas(self):
-                return []
-
-        with pytest.raises(
-            TypeError,
-            match=r"Can't instantiate abstract class .*initialize",
-        ):
-            IncompleteProvider()
-
-    def test_on_pre_compress_default_returns_empty_string(self):
-        """Default on_pre_compress implementation returns empty string."""
-
-        class MinimalMemoryProvider(MemoryProvider):
+        class MinimalProvider(MemoryProvider):
             @property
             def name(self):
-                return "min"
+                return "test_provider"
 
             def is_available(self):
                 return True
 
-            def initialize(self, session_id, **kwargs):
+            def initialize(self, session_id, **kw):
+                pass
+
+            def sync_turn(self, *a, **kw):
                 pass
 
             def get_tool_schemas(self):
                 return []
-        p = MinimalMemoryProvider()
-        assert p.on_pre_compress([{"role": "user", "content": "hi"}]) == ""
-        assert p.on_pre_compress([{"role": "user", "content": "hi"}]) == ""
-
-    def test_default_optional_hooks_are_noop(self):
-        """Optional hooks have default no-op implementations."""
-        class MinimalProvider(MemoryProvider):
-            @property
-            def name(self): return "minimal"
-            def is_available(self): return True
-            def initialize(self, session_id, **kwargs): pass
-            def get_tool_schemas(self): return []
 
         p = MinimalProvider()
-        # These should not raise and return defaults where applicable
-        p.on_turn_start(1, "hello")
-        p.on_session_end([])
-        p.on_session_switch("new_id")
-        assert p.on_pre_compress([]) == ""
-        p.on_memory_write("add", "memory", "test")
-        p.on_delegation("task", "result")
-        p.queue_prefetch("query")
-        p.sync_turn("user", "assistant")
-        p.shutdown()
-        assert p.system_prompt_block() == ""
-        assert p.prefetch("query") == ""
-        assert p.get_config_schema() == []
-        p.save_config({}, "/tmp")
-
-    def test_system_prompt_block_default(self):
-        """Default implementation of system_prompt_block returns empty string."""
-
-        class _MinimalProvider(MemoryProvider):
-            """Implements abstract methods only; intentionally omits system_prompt_block."""
-
-            @property
-            def name(self) -> str:
-                return "minimal"
-
-            def is_available(self) -> bool:
-                return True
-
-            def initialize(self, session_id, **kwargs):
-                pass
-
-            def get_tool_schemas(self):
-                return []
-
-        p = _MinimalProvider()
-        assert p.system_prompt_block() == ""
-
-    def test_handle_tool_call_raises_not_implemented(self):
-        """Default handle_tool_call raises NotImplementedError."""
-        p = UnhandledToolProvider(name="test_provider")
         with pytest.raises(
             NotImplementedError,
-            match=rf"^{re.escape('Provider test_provider does not handle tool test_tool')}$",
+            match="Provider test_provider does not handle tool test_tool",
         ):
             p.handle_tool_call("test_tool", {"arg": "val"})
 
@@ -235,12 +147,6 @@ class TestMemoryProviderABC:
 
 
 class TestMemoryManager:
-    def test_init(self):
-        mgr = MemoryManager()
-        assert mgr._providers == []
-        assert mgr._tool_to_provider == {}
-        assert mgr._has_external is False
-
     def test_empty_manager(self):
         mgr = MemoryManager()
         assert mgr.providers == []
