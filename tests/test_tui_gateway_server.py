@@ -730,6 +730,82 @@ def _session(agent=None, **extra):
     }
 
 
+def test_session_save_writes_secure_snapshot_under_hermes_home(tmp_path, monkeypatch):
+    hermes_home = tmp_path / ".hermes"
+    work = tmp_path / "cwd"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    monkeypatch.setattr(server, "get_hermes_home", lambda: hermes_home)
+    monkeypatch.setattr(server.time, "strftime", lambda _fmt: "20260101_120000")
+    monkeypatch.setattr(
+        server.uuid,
+        "uuid4",
+        lambda: types.SimpleNamespace(hex="abc123"),
+    )
+
+    server._sessions["sid"] = _session(
+        agent=types.SimpleNamespace(model="test-model"),
+        history=[{"role": "user", "content": "secret"}],
+    )
+
+    try:
+        resp = server.handle_request(
+            {"id": "1", "method": "session.save", "params": {"session_id": "sid"}}
+        )
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert "error" not in resp
+    saved_path = Path(resp["result"]["file"])
+    assert (
+        saved_path
+        == hermes_home
+        / "sessions"
+        / "saved"
+        / "hermes_conversation_20260101_120000_abc123.json"
+    )
+    assert not list(work.glob("hermes_conversation_*.json"))
+    assert saved_path.stat().st_mode & 0o777 == 0o600
+    assert (saved_path.parent.stat().st_mode & 0o777) == 0o700
+    assert json.loads(saved_path.read_text(encoding="utf-8")) == {
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "secret"}],
+    }
+
+
+def test_session_save_refuses_existing_export_path(tmp_path, monkeypatch):
+    hermes_home = tmp_path / ".hermes"
+    saved_dir = hermes_home / "sessions" / "saved"
+    saved_dir.mkdir(parents=True)
+    target = tmp_path / "target.json"
+    target.write_text("do not overwrite", encoding="utf-8")
+    export_path = saved_dir / "hermes_conversation_20260101_120000_abc123.json"
+    export_path.symlink_to(target)
+    monkeypatch.setattr(server, "get_hermes_home", lambda: hermes_home)
+    monkeypatch.setattr(server.time, "strftime", lambda _fmt: "20260101_120000")
+    monkeypatch.setattr(
+        server.uuid,
+        "uuid4",
+        lambda: types.SimpleNamespace(hex="abc123"),
+    )
+
+    server._sessions["sid"] = _session(
+        agent=types.SimpleNamespace(model="test-model"),
+        history=[{"role": "user", "content": "secret"}],
+    )
+
+    try:
+        resp = server.handle_request(
+            {"id": "1", "method": "session.save", "params": {"session_id": "sid"}}
+        )
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert resp["error"]["code"] == 5011
+    assert export_path.is_symlink()
+    assert target.read_text(encoding="utf-8") == "do not overwrite"
+
+
 def test_session_close_commits_memory_and_fires_finalize_hook(monkeypatch):
     calls = {"hooks": []}
 
