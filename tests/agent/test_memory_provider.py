@@ -123,6 +123,26 @@ class TestMemoryProviderABC:
         assert p.name == "fake"
         assert p.is_available()
 
+    def test_missing_initialize_raises(self):
+        """Classes missing the initialize method cannot be instantiated."""
+
+        class IncompleteProvider(MemoryProvider):
+            @property
+            def name(self) -> str:
+                return "incomplete"
+
+            def is_available(self) -> bool:
+                return True
+
+            def get_tool_schemas(self):
+                return []
+
+        with pytest.raises(
+            TypeError,
+            match=r"Can't instantiate abstract class .*initialize",
+        ):
+            IncompleteProvider()
+
     def test_on_pre_compress_default_returns_empty_string(self):
         """Default on_pre_compress implementation returns empty string."""
 
@@ -139,8 +159,8 @@ class TestMemoryProviderABC:
 
             def get_tool_schemas(self):
                 return []
-
         p = MinimalMemoryProvider()
+        assert p.on_pre_compress([{"role": "user", "content": "hi"}]) == ""
         assert p.on_pre_compress([{"role": "user", "content": "hi"}]) == ""
 
     def test_default_optional_hooks_are_noop(self):
