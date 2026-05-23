@@ -4,7 +4,23 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import plugins.memory.openviking as openviking
 from plugins.memory.openviking import OpenVikingMemoryProvider, _VikingClient
+
+EXPECTED_LOCAL_PATH_ERROR = (
+    "Only http://, https://, git@, ssh://, or git:// URLs are accepted for "
+    "viking_add_resource. Local filesystem paths and file:// URIs are not allowed."
+)
+
+
+@pytest.fixture(autouse=True)
+def stub_openviking_httpx(monkeypatch):
+    mock_resp = MagicMock(status_code=200)
+    mock_resp.json.return_value = {}
+    httpx_stub = MagicMock()
+    httpx_stub.get.return_value = mock_resp
+    httpx_stub.post.return_value = mock_resp
+    monkeypatch.setattr(openviking, "_get_httpx", lambda: httpx_stub)
 
 
 def test_tool_search_sorts_by_raw_score_across_buckets():
@@ -76,15 +92,8 @@ def test_tool_add_resource_rejects_existing_local_file(tmp_path):
         "wait": True,
     }))
 
-    assert result["error"] == (
-        "Local resource paths are not allowed. "
-        "Use a public http(s), git, or ssh URL."
-    )
-    provider._client.upload_temp_file.assert_not_called()
-    provider._client.post.assert_not_called()
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
 
-
-def test_tool_add_resource_rejects_file_uri(tmp_path):
     sample = tmp_path / "sample.md"
     sample.write_text("# Local resource\n", encoding="utf-8")
     provider = OpenVikingMemoryProvider()
@@ -94,15 +103,7 @@ def test_tool_add_resource_rejects_file_uri(tmp_path):
         "reason": "file uri test",
     }))
 
-    assert result["error"] == (
-        "Local resource paths are not allowed. "
-        "Use a public http(s), git, or ssh URL."
-    )
-    provider._client.upload_temp_file.assert_not_called()
-    provider._client.post.assert_not_called()
-
-
-def test_tool_add_resource_rejects_existing_local_directory(tmp_path):
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
@@ -117,25 +118,59 @@ def test_tool_add_resource_rejects_existing_local_directory(tmp_path):
         "wait": True,
     }))
 
-    assert result["error"] == (
-        "Local resource paths are not allowed. "
-        "Use a public http(s), git, or ssh URL."
-    )
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
     provider._client.upload_temp_file.assert_not_called()
     provider._client.post.assert_not_called()
 
 
-def test_tool_add_resource_rejects_missing_local_path(tmp_path):
+def test_tool_add_resource_rejects_local_directory_before_add(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+    result = json.loads(provider._tool_add_resource({"url": str(docs)}))
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_not_called()
+    provider._client.post.assert_not_called()
+
+
+def test_tool_add_resource_rejects_local_directory_before_upload(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+    result = json.loads(provider._tool_add_resource({"url": str(docs)}))
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_not_called()
+    provider._client.post.assert_not_called()
+
+
+def test_tool_add_resource_rejects_missing_local_path_with_generic_local_path_error(tmp_path):
     missing = tmp_path / "missing.md"
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
 
     result = json.loads(provider._tool_add_resource({"url": str(missing)}))
 
-    assert result["error"] == (
-        "Local resource paths are not allowed. "
-        "Use a public http(s), git, or ssh URL."
-    )
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_not_called()
+    provider._client.post.assert_not_called()
+
+
+@pytest.mark.parametrize("url", [
+    "mailto:attacker@evil.com",
+    "ftp://internal-server/secret",
+    "secrets.txt",
+    "relative/path/to/file.md",
+    "../../../etc/passwd",
+])
+def test_tool_add_resource_rejects_non_allowlisted_schemes(url):
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+    result = json.loads(provider._tool_add_resource({"url": url}))
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
     provider._client.upload_temp_file.assert_not_called()
     provider._client.post.assert_not_called()
 
@@ -245,11 +280,7 @@ def test_viking_client_headers_include_bearer_when_api_key_set():
     assert headers["Authorization"] == "Bearer test-key"
 
 
-def test_viking_client_headers_send_tenant_when_default():
-    # account/user set to the literal string "default". OpenViking 0.3.x
-    # requires X-OpenViking-Account and X-OpenViking-User for ROOT API key
-    # requests to tenant-scoped APIs — omitting them causes
-    # INVALID_ARGUMENT errors even when account="default".
+def test_viking_client_headers_skip_legacy_default_tenant_values():
     client = _VikingClient(
         "https://example.com",
         api_key="test-key",
@@ -258,15 +289,13 @@ def test_viking_client_headers_send_tenant_when_default():
         agent="hermes",
     )
     headers = client._headers()
-    assert headers["X-OpenViking-Account"] == "default"
-    assert headers["X-OpenViking-User"] == "default"
+    assert "X-OpenViking-Account" not in headers
+    assert "X-OpenViking-User" not in headers
     assert headers["X-OpenViking-Agent"] == "hermes"
     assert headers["Authorization"] == "Bearer test-key"
 
 
-def test_viking_client_headers_send_tenant_when_empty_falls_back_to_default():
-    # Empty account/user strings fall back to "default" via the constructor.
-    # Headers are sent even for the default value — ROOT API keys need them.
+def test_viking_client_headers_skip_tenant_when_empty_falls_back_to_default():
     client = _VikingClient(
         "https://example.com",
         api_key="",
@@ -275,8 +304,8 @@ def test_viking_client_headers_send_tenant_when_empty_falls_back_to_default():
         agent="hermes",
     )
     headers = client._headers()
-    assert headers["X-OpenViking-Account"] == "default"
-    assert headers["X-OpenViking-User"] == "default"
+    assert "X-OpenViking-Account" not in headers
+    assert "X-OpenViking-User" not in headers
     assert "Authorization" not in headers
     assert "X-API-Key" not in headers
 
