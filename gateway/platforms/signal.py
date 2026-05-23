@@ -1442,16 +1442,22 @@ class SignalAdapter(BasePlatformAdapter):
     def _reactions_enabled(self, event: "MessageEvent" = None) -> bool:
         """Check if message reactions are enabled for this event.
 
-        Two gates:
-        1. SIGNAL_REACTIONS env var — set to false/0/no to disable globally.
-        2. DM allowlist — if SIGNAL_ALLOWED_USERS is set, only react to
-           messages from senders in that list.  This prevents unauthorized
-           contacts from seeing the 👀 reaction (which fires before run.py's
-           auth gate and would otherwise reveal that a bot is listening).
+        Signal processing hooks run before the gateway message handler.  When
+        the adapter is attached to a gateway runner, mirror the runner's full
+        authorization decision before emitting any outbound reaction; otherwise
+        an allowlist-denied message could still make the bot account react.
         """
         if os.getenv("SIGNAL_REACTIONS", "true").lower() in {"false", "0", "no"}:
             return False
         if event is not None:
+            auth_fn = getattr(getattr(self, "gateway_runner", None), "_is_user_authorized", None)
+            if callable(auth_fn):
+                try:
+                    return bool(auth_fn(event.source))
+                except Exception as e:
+                    logger.warning("Signal: reaction auth check failed: %s", e)
+                    return False
+
             sender = getattr(getattr(event, "source", None), "user_id", None)
             if sender and "*" not in self.dm_allow_from and sender not in self.dm_allow_from:
                 return False
