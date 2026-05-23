@@ -50,6 +50,8 @@ SUMMARY_PREFIX = (
     "config, etc.) may reflect work described here — avoid repeating it:"
 )
 LEGACY_SUMMARY_PREFIX = "[CONTEXT SUMMARY]:"
+_SUMMARY_PROVENANCE_KEY = "_hermes_context_summary"
+_SUMMARY_PROVENANCE_VALUE = "context_compressor_v1"
 
 # Minimum tokens for the summary output
 _MIN_SUMMARY_TOKENS = 2000
@@ -1086,8 +1088,11 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         return f"{SUMMARY_PREFIX}\n{text}" if text else SUMMARY_PREFIX
 
     @staticmethod
-    def _is_context_summary_content(content: Any) -> bool:
-        text = _content_text_for_contains(content).lstrip()
+    def _is_context_summary_message(message: Dict[str, Any]) -> bool:
+        """Return True only for handoff summaries emitted by this compressor."""
+        if message.get(_SUMMARY_PROVENANCE_KEY) != _SUMMARY_PROVENANCE_VALUE:
+            return False
+        text = _content_text_for_contains(message.get("content")).lstrip()
         return text.startswith(SUMMARY_PREFIX) or text.startswith(LEGACY_SUMMARY_PREFIX)
 
     @classmethod
@@ -1097,11 +1102,13 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         start: int,
         end: int,
     ) -> tuple[Optional[int], str]:
-        """Find the newest handoff summary inside a compression window."""
+        """Find the newest trusted handoff summary inside a compression window."""
         for idx in range(end - 1, start - 1, -1):
-            content = messages[idx].get("content")
-            if cls._is_context_summary_content(content):
-                return idx, cls._strip_summary_prefix(_content_text_for_contains(content))
+            message = messages[idx]
+            if cls._is_context_summary_message(message):
+                return idx, cls._strip_summary_prefix(
+                    _content_text_for_contains(message.get("content"))
+                )
         return None, ""
 
     # ------------------------------------------------------------------
@@ -1509,7 +1516,11 @@ The user has requested that this compaction PRIORITISE preserving all informatio
             )
 
         if not _merge_summary_into_tail:
-            compressed.append({"role": summary_role, "content": summary})
+            compressed.append({
+                "role": summary_role,
+                "content": summary,
+                _SUMMARY_PROVENANCE_KEY: _SUMMARY_PROVENANCE_VALUE,
+            })
 
         for i in range(compress_end, n_messages):
             msg = messages[i].copy()
@@ -1524,6 +1535,7 @@ The user has requested that this compaction PRIORITISE preserving all informatio
                     merged_prefix,
                     prepend=True,
                 )
+                msg[_SUMMARY_PROVENANCE_KEY] = _SUMMARY_PROVENANCE_VALUE
                 _merge_summary_into_tail = False
             compressed.append(msg)
 
