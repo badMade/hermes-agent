@@ -100,19 +100,16 @@ class _VikingClient:
             raise ImportError("httpx is required for OpenViking: pip install httpx")
 
     def _headers(self) -> dict:
-        # Always send tenant headers when account/user are configured.
-        # OpenViking 0.3.x requires X-OpenViking-Account and X-OpenViking-User
-        # for ROOT API key requests to tenant-scoped APIs — omitting them
-        # causes INVALID_ARGUMENT errors even when account="default".
-        # User-level keys can omit them (server derives tenancy from the key),
-        # but ROOT keys must always include them explicitly.
+        # Do not send legacy implicit tenant defaults with API-key auth.
+        # Remote OpenViking servers may derive tenancy from the Bearer key;
+        # an explicit "default" header can override that derived scope.
         h = {
             "Content-Type": "application/json",
             "X-OpenViking-Agent": self._agent,
         }
-        if self._account:
+        if self._account and self._account != "default":
             h["X-OpenViking-Account"] = self._account
-        if self._user:
+        if self._user and self._user != "default":
             h["X-OpenViking-User"] = self._user
         if self._api_key:
             h["X-API-Key"] = self._api_key
@@ -297,12 +294,13 @@ ADD_RESOURCE_SCHEMA = {
     "description": (
         "Add a remote URL to the OpenViking knowledge base. "
         "Remote resources must be public http(s), git, or ssh URLs. "
+        "Local filesystem paths and file:// URIs are not allowed. "
         "The system automatically parses, indexes, and generates summaries."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "url": {"type": "string", "description": "Remote URL to add."},
+            "url": {"type": "string", "description": "Remote URL to add (http(s), git, or ssh)."},
             "reason": {
                 "type": "string",
                 "description": "Why this resource is relevant (improves search).",
@@ -376,6 +374,7 @@ def _path_from_file_uri(uri: str) -> Path | str:
     if parsed.netloc not in ("", "localhost"):
         return f"Unsupported non-local file URI: {uri}"
     return Path(url2pathname(parsed.path)).expanduser()
+
 
 
 # ---------------------------------------------------------------------------
@@ -873,6 +872,10 @@ class OpenVikingMemoryProvider(MemoryProvider):
         url = args.get("url", "")
         if not url:
             return tool_error("url is required")
+        local_path_error = (
+            "Local filesystem paths are not allowed for viking_add_resource; "
+            "provide a remote URL instead."
+        )
 
         if args.get("to") and args.get("parent"):
             return tool_error("Cannot specify both 'to' and 'parent'")
@@ -883,15 +886,15 @@ class OpenVikingMemoryProvider(MemoryProvider):
                 payload[key] = args[key]
 
         parsed_url = urlparse(url)
-        local_file_uri = parsed_url.scheme == "file"
-        local_reference = (
-            _is_windows_absolute_path(url)
-            or _is_local_path_reference(url)
-            or (not parsed_url.scheme and Path(url).expanduser().exists())
-        )
-        if local_file_uri or local_reference:
+        if not _is_remote_resource_source(url):
+            if parsed_url.scheme == "file" or _is_windows_absolute_path(url) or not parsed_url.scheme:
+                return tool_error(
+                    "Local filesystem paths are not allowed for viking_add_resource; "
+                    "provide a remote URL instead."
+                )
             return tool_error(
-                "Local file/directory paths are not allowed in viking_add_resource; provide a remote URL."
+                f"Unsupported URL scheme '{parsed_url.scheme}'; "
+                "provide a remote http(s), git, or ssh URL."
             )
 
         payload["path"] = url
