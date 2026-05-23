@@ -50,6 +50,7 @@ from gateway.platforms.base import (
     SendResult,
     is_network_accessible,
 )
+from tools.url_safety import is_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +220,12 @@ def _normalize_multimodal_content(content: Any) -> Any:
                         "unsupported_content_type:Only image data URLs are supported. "
                         "Non-image data payloads are not supported."
                     )
-            elif not (lowered.startswith("http://") or lowered.startswith("https://")):
+            elif lowered.startswith("http://") or lowered.startswith("https://"):
+                if not is_safe_url(url_value):
+                    raise ValueError(
+                        "invalid_image_url:Image URLs must not target private or internal network addresses."
+                    )
+            else:
                 raise ValueError(
                     "invalid_image_url:Image inputs must use http(s) URLs or data:image/... URLs."
                 )
