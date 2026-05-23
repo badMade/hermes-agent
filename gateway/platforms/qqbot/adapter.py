@@ -74,9 +74,6 @@ from gateway.platforms.helpers import strip_markdown
 
 logger = logging.getLogger(__name__)
 
-_QQ_TRUSTED_MEDIA_HOSTS = ("multimedia.nt.qq.com.cn",)
-_QQ_MAX_ATTACHMENT_DOWNLOAD_BYTES = 25 * 1024 * 1024
-
 
 class QQCloseError(Exception):
     """Raised when QQ WebSocket closes with a specific code.
@@ -234,6 +231,10 @@ class QQAdapter(BasePlatformAdapter):
         self._interaction_callback: Optional[
             Callable[[InteractionEvent], Awaitable[None]]
         ] = None
+
+        # Suppress repeated "gateway_runner not attached" warnings after the
+        # first occurrence — one is enough to alert operators of a wiring gap.
+        self._warned_no_runner: bool = False
 
         # Default interaction dispatcher: routes approval-button clicks to
         # tools.approval.resolve_gateway_approval() and update-prompt clicks
@@ -1069,88 +1070,55 @@ class QQAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.error("Failed to write update response: %s", exc)
 
-    def _is_trusted_qq_media_url(self, url: str) -> bool:
-        """Return whether a URL is a QQ media host that may receive QQBot auth."""
-        try:
-            host = (urlparse(url).hostname or "").strip().lower().rstrip(".")
-        except Exception:
-            return False
-        return any(
-            host == trusted or host.endswith(f".{trusted}")
-            for trusted in _QQ_TRUSTED_MEDIA_HOSTS
-        )
 
     def _is_source_authorized_for_attachment_processing(self, source) -> bool:
-        """Check GatewayRunner authorization before any attachment network I/O."""
+        """Check gateway authorization before attachment network I/O."""
         runner = getattr(self, "gateway_runner", None)
         auth_fn = getattr(runner, "_is_user_authorized", None)
         if not callable(auth_fn):
-            return True
+            if not self._warned_no_runner:
+                logger.warning(
+                    "[%s] Blocking QQ attachment processing before gateway authorization: "
+                    "gateway runner is not attached",
+                    self._log_tag,
+                )
+                self._warned_no_runner = True
+            else:
+                logger.debug(
+                    "[%s] Blocking QQ attachment processing: gateway runner still not attached",
+                    self._log_tag,
+                )
+            return False
         try:
             return bool(auth_fn(source))
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "[%s] Attachment pre-auth check failed",
+                "[%s] Blocking QQ attachment processing after authorization check failed: %s",
                 self._log_tag,
-                exc_info=True,
+                exc,
             )
             return False
 
-    async def _handle_unauthorized_before_attachments(self, event: MessageEvent) -> None:
-        """Route the bare message through normal auth/pairing without fetching media."""
-        logger.warning(
-            "[%s] Skipping QQ attachment processing for unauthorized sender: %s",
-            self._log_tag,
-            event.source.user_id if event.source else "unknown",
-        )
-        await self.handle_message(event)
-
-    async def _download_limited_bytes(
+    async def _forward_message_without_attachments(
             self,
-            url: str,
             *,
-            headers: Dict[str, str],
-            context: str,
-    ) -> Optional[bytes]:
-        """Download a response body without exceeding the QQ attachment cap."""
-        if not self._http_client:
-            return None
-
-        async with self._http_client.stream(
-                "GET",
-                url,
-                timeout=30.0,
-                headers=headers,
-                follow_redirects=True,
-        ) as resp:
-            resp.raise_for_status()
-            content_length = resp.headers.get("content-length")
-            if content_length:
-                try:
-                    if int(content_length) > _QQ_MAX_ATTACHMENT_DOWNLOAD_BYTES:
-                        logger.warning(
-                            "[%s] Skipping %s download with content-length %s over %d bytes",
-                            self._log_tag,
-                            context,
-                            content_length,
-                            _QQ_MAX_ATTACHMENT_DOWNLOAD_BYTES,
-                        )
-                        return None
-                except ValueError:
-                    pass
-
-            data = bytearray()
-            async for chunk in resp.aiter_bytes():
-                data.extend(chunk)
-                if len(data) > _QQ_MAX_ATTACHMENT_DOWNLOAD_BYTES:
-                    logger.warning(
-                        "[%s] Skipping %s download larger than %d bytes",
-                        self._log_tag,
-                        context,
-                        _QQ_MAX_ATTACHMENT_DOWNLOAD_BYTES,
-                    )
-                    return None
-            return bytes(data)
+            source,
+            text: str,
+            raw_message: Dict[str, Any],
+            message_id: str,
+            timestamp: str,
+    ) -> None:
+        """Forward text-only metadata so gateway auth can reject or pair safely."""
+        await self.handle_message(MessageEvent(
+            source=source,
+            text=text,
+            message_type=MessageType.TEXT,
+            raw_message=raw_message,
+            message_id=message_id,
+            media_urls=[],
+            media_types=[],
+            timestamp=self._parse_qq_timestamp(timestamp),
+        ))
 
     async def _handle_c2c_message(
             self,
@@ -1168,6 +1136,11 @@ class QQAdapter(BasePlatformAdapter):
             return
 
         text = content
+        source = self.build_source(
+            chat_id=user_openid,
+            user_id=user_openid,
+            chat_type="dm",
+        )
         attachments_raw = d.get("attachments")
         logger.info(
             "[%s] C2C message: id=%s content=%r attachments=%s",
@@ -1192,20 +1165,14 @@ class QQAdapter(BasePlatformAdapter):
                         _att.get("filename", ""),
                     )
 
-        source = self.build_source(
-            chat_id=user_openid,
-            user_id=user_openid,
-            chat_type="dm",
-        )
-        if not self._is_source_authorized_for_attachment_processing(source):
-            await self._handle_unauthorized_before_attachments(MessageEvent(
+        if isinstance(attachments_raw, list) and attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
+            await self._forward_message_without_attachments(
                 source=source,
                 text=text,
-                message_type=MessageType.TEXT,
                 raw_message=d,
                 message_id=msg_id,
-                timestamp=self._parse_qq_timestamp(timestamp),
-            ))
+                timestamp=timestamp,
+            )
             return
 
         # Process all attachments uniformly (images, voice, files)
@@ -1276,25 +1243,24 @@ class QQAdapter(BasePlatformAdapter):
         ):
             return
 
-        # Strip the @bot mention prefix from content
-        text = self._strip_at_mention(content)
         source = self.build_source(
             chat_id=group_openid,
             user_id=str(author.get("member_openid", "")),
             chat_type="group",
         )
-        if not self._is_source_authorized_for_attachment_processing(source):
-            await self._handle_unauthorized_before_attachments(MessageEvent(
+        # Strip the @bot mention prefix from content
+        text = self._strip_at_mention(content)
+        attachments_raw = d.get("attachments")
+        if isinstance(attachments_raw, list) and attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
+            await self._forward_message_without_attachments(
                 source=source,
                 text=text,
-                message_type=MessageType.TEXT,
                 raw_message=d,
                 message_id=msg_id,
-                timestamp=self._parse_qq_timestamp(timestamp),
-            ))
+                timestamp=timestamp,
+            )
             return
-
-        att_result = await self._process_attachments(d.get("attachments"))
+        att_result = await self._process_attachments(attachments_raw)
         image_urls = att_result["image_urls"]
         image_media_types = att_result["image_media_types"]
         voice_transcripts = att_result["voice_transcripts"]
@@ -1363,26 +1329,25 @@ class QQAdapter(BasePlatformAdapter):
 
         member = d.get("member") if isinstance(d.get("member"), dict) else {}
         nick = str(member.get("nick", "")) or str(author.get("username", ""))
-
-        text = content
         source = self.build_source(
             chat_id=channel_id,
-            user_id=author_id,
+            user_id=str(author.get("id", "")),
             user_name=nick or None,
             chat_type="group",
         )
-        if not self._is_source_authorized_for_attachment_processing(source):
-            await self._handle_unauthorized_before_attachments(MessageEvent(
+
+        text = content
+        attachments_raw = d.get("attachments")
+        if isinstance(attachments_raw, list) and attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
+            await self._forward_message_without_attachments(
                 source=source,
                 text=text,
-                message_type=MessageType.TEXT,
                 raw_message=d,
                 message_id=msg_id,
-                timestamp=self._parse_qq_timestamp(timestamp),
-            ))
+                timestamp=timestamp,
+            )
             return
-
-        att_result = await self._process_attachments(d.get("attachments"))
+        att_result = await self._process_attachments(attachments_raw)
         image_urls = att_result["image_urls"]
         image_media_types = att_result["image_media_types"]
         voice_transcripts = att_result["voice_transcripts"]
@@ -1447,24 +1412,23 @@ class QQAdapter(BasePlatformAdapter):
             )
             return
 
-        text = content
         source = self.build_source(
             chat_id=guild_id,
             user_id=str(author.get("id", "")),
             chat_type="dm",
         )
-        if not self._is_source_authorized_for_attachment_processing(source):
-            await self._handle_unauthorized_before_attachments(MessageEvent(
+        text = content
+        attachments_raw = d.get("attachments")
+        if isinstance(attachments_raw, list) and attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
+            await self._forward_message_without_attachments(
                 source=source,
                 text=text,
-                message_type=MessageType.TEXT,
                 raw_message=d,
                 message_id=msg_id,
-                timestamp=self._parse_qq_timestamp(timestamp),
-            ))
+                timestamp=timestamp,
+            )
             return
-
-        att_result = await self._process_attachments(d.get("attachments"))
+        att_result = await self._process_attachments(attachments_raw)
         image_urls = att_result["image_urls"]
         image_media_types = att_result["image_media_types"]
         voice_transcripts = att_result["voice_transcripts"]
@@ -1752,14 +1716,17 @@ class QQAdapter(BasePlatformAdapter):
         if not is_safe_url(url):
             raise ValueError(f"Blocked unsafe URL: {url[:80]}")
 
+        if not self._http_client:
+            return None
+
         try:
-            data = await self._download_limited_bytes(
+            resp = await self._http_client.get(
                 url,
-                headers=self._qq_media_headers(url),
-                context="attachment",
+                timeout=30.0,
+                headers=self._qq_media_headers(),
             )
-            if data is None:
-                return None
+            resp.raise_for_status()
+            data = resp.content
         except Exception as exc:
             logger.debug(
                 "[%s] Download failed for %s: %s", self._log_tag, url[:80], exc
@@ -1799,13 +1766,14 @@ class QQAdapter(BasePlatformAdapter):
             return True
         return False
 
-    def _qq_media_headers(self, url: str) -> Dict[str, str]:
-        """Return Authorization headers only for trusted QQ media downloads.
+    def _qq_media_headers(self) -> Dict[str, str]:
+        """Return Authorization headers for QQ multimedia CDN downloads.
 
-        QQ multimedia URLs require the bot token, but arbitrary attachment URLs
-        must never receive that credential.
+        QQ's multimedia URLs (multimedia.nt.qq.com.cn) require the bot's
+        access token in an Authorization header, otherwise the download
+        returns a non-200 status.
         """
-        if self._access_token and self._is_trusted_qq_media_url(url):
+        if self._access_token:
             return {"Authorization": f"QQBot {self._access_token}"}
         return {}
 
@@ -1855,7 +1823,7 @@ class QQAdapter(BasePlatformAdapter):
                 logger.warning("[%s] STT: no HTTP client", self._log_tag)
                 return None
 
-            download_headers = self._qq_media_headers(download_url)
+            download_headers = self._qq_media_headers()
             logger.debug(
                 "[%s] STT: downloading voice from %s (pre_wav=%s, headers=%s)",
                 self._log_tag,
@@ -1863,17 +1831,19 @@ class QQAdapter(BasePlatformAdapter):
                 is_pre_wav,
                 bool(download_headers),
             )
-            audio_data = await self._download_limited_bytes(
+            resp = await self._http_client.get(
                 download_url,
+                timeout=30.0,
                 headers=download_headers,
-                context="voice",
+                follow_redirects=True,
             )
-            if audio_data is None:
-                return None
+            resp.raise_for_status()
+            audio_data = resp.content
             logger.debug(
-                "[%s] STT: downloaded %d bytes",
+                "[%s] STT: downloaded %d bytes, content_type=%s",
                 self._log_tag,
                 len(audio_data),
+                resp.headers.get("content-type", "unknown"),
             )
 
             if len(audio_data) < 10:
