@@ -8334,7 +8334,7 @@ class GatewayRunner:
 
 
     @staticmethod
-    def _gateway_kanban_parse_args(tokens: list[str]):
+    def _gateway_kanban_parse_args(tokens: List[str]):
         """Parse Kanban argv with the same argparse semantics as /kanban."""
         if not tokens or tokens[0] in {"help", "--help", "-h", "?"}:
             return None
