@@ -2638,10 +2638,25 @@ class TestPtyWebSocket:
 
             with self.client.websocket_connect(pub_path) as pub:
                 pub.send_text('{"type":"tool.start","payload":{"tool_id":"t1"}}')
-                _msg = sub.receive()
-                received = _msg.get("text", "") or _msg.get("bytes", b"").decode(
-                    "utf-8"
-                )
+
+                # TestClient receive() can hang forever if the pub/sub queue is delayed
+                # or messages are dropped. We'll add a short internal timeout using concurrent.futures.
+                import concurrent.futures
+
+                received = ""
+
+                def _do_recv():
+                    msg = sub.receive()
+                    if msg.get("type") == "websocket.close":
+                        return ""
+                    return msg.get("text", "") or msg.get("bytes", b"").decode("utf-8")
+
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        fut = pool.submit(_do_recv)
+                        received = fut.result(timeout=2)
+                except Exception:
+                    pass
 
         assert "tool.start" in received
         assert '"tool_id":"t1"' in received
