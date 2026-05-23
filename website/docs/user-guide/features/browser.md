@@ -434,9 +434,9 @@ When a CDP supervisor is active for the current session (typical for any session
 
 ### `browser_cdp`
 
-Restricted Chrome DevTools Protocol passthrough — an opt-in escape hatch for browser operations not covered by the other tools. Use for native dialog handling, iframe-scoped evaluation, or low-level inspection. Cookie access/mutation and CDP navigation methods are blocked; use `browser_navigate` for navigation so URL safety, redirect, and website policies are enforced.
+Raw Chrome DevTools Protocol passthrough — the escape hatch for browser operations not covered by the other tools. Use for native dialog handling, iframe-scoped evaluation, cookie/network control, or any CDP verb the agent needs.
 
-**Opt-in only.** Enable the `browser-cdp` toolset explicitly, and only when a CDP endpoint is reachable at session start — meaning `/browser connect` has attached to a running Chrome, or `browser.cdp_url` is set in `config.yaml`. The default browser toolset does not include this raw CDP escape hatch.
+**Only available when a CDP endpoint is reachable at session start** — meaning `/browser connect` has attached to a running Chrome, or `browser.cdp_url` is set in `config.yaml`. The default local agent-browser mode, Camofox, and cloud providers (Browserbase, Browser Use, Firecrawl) do not currently expose CDP to this tool — cloud providers have per-session CDP URLs but live-session routing is a follow-up.
 
 **CDP method reference:** https://chromedevtools.github.io/devtools-protocol/ — the agent can `web_extract` a specific method's page to look up parameters and return shape.
 
@@ -456,9 +456,11 @@ browser_cdp(method="Runtime.evaluate",
             params={"expression": "document.title", "returnByValue": true},
             target_id="<tabId>")
 
+# Get all cookies
+browser_cdp(method="Network.getAllCookies")
 ```
 
-Browser-level methods (`Target.*`, `Browser.*`, `Storage.*`) omit `target_id`. Page-level methods (`Page.*`, `Runtime.*`, `DOM.*`, `Emulation.*`) require a `target_id` from `Target.getTargets`. Cookie methods such as `Network.getAllCookies` / `Storage.getCookies` and navigation methods such as `Page.navigate` / `Target.createTarget` are blocked. Each stateless call is independent — sessions do not persist between calls.
+Browser-level methods (`Target.*`, `Browser.*`, `Storage.*`) omit `target_id`. Page-level methods (`Page.*`, `Runtime.*`, `DOM.*`, `Emulation.*`) require a `target_id` from `Target.getTargets`. Each stateless call is independent — sessions do not persist between calls.
 
 **Cross-origin iframes:** pass `frame_id` (from `browser_snapshot.frame_tree.children[]` where `is_oopif=true`) to route the CDP call through the supervisor's live session for that iframe. This is how `Runtime.evaluate` inside a cross-origin iframe works on Browserbase, where stateless CDP connections would hit signed-URL expiry. Example:
 

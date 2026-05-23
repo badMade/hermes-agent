@@ -1398,10 +1398,10 @@ def create_task(
                         int(max_retries) if max_retries is not None else None,
                     ),
                 )
-                if parents:
-                    conn.executemany(
+                for pid in parents:
+                    conn.execute(
                         "INSERT OR IGNORE INTO task_links (parent_id, child_id) VALUES (?, ?)",
-                        [(pid, task_id) for pid in parents],
+                        (pid, task_id),
                     )
                 _append_event(
                     conn,
