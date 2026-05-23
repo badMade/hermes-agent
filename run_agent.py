@@ -9828,16 +9828,19 @@ class AIAgent:
         #
         # Promote the already-sanitized streamed ``reasoning_text`` to
         # ``reasoning_content`` at write time, but ONLY when no prior branch
-        # already set it AND we actually captured reasoning text. This
-        # preserves every existing behavior:
+        # already set it, we actually captured reasoning text, and this is not
+        # a tool-call turn.  Tool-call turns without provider-native
+        # ``reasoning_content`` must keep the legacy shape so DeepSeek/Kimi
+        # replay can pad instead of forwarding another provider's private
+        # chain-of-thought (#15748). This preserves every existing behavior:
         #   - SDK-exposed ``reasoning_content`` (OpenAI/Moonshot/DeepSeek SDK)
         #     still wins.
-        #   - DeepSeek tool-call ""-pad (#15250) still fires.
+        #   - DeepSeek/Kimi tool-call pad (#15250, #17400) still fires.
         #   - Non-thinking turns with no reasoning leave the field absent,
         #     so ``_copy_reasoning_content_for_api``'s cross-provider leak
         #     guard (#15748) and ``reasoning``→``reasoning_content``
         #     promotion tiers still apply at replay time.
-        if "reasoning_content" not in msg and reasoning_text:
+        if "reasoning_content" not in msg and reasoning_text and not assistant_tool_calls:
             msg["reasoning_content"] = reasoning_text
 
         if hasattr(assistant_message, 'reasoning_details') and assistant_message.reasoning_details:
