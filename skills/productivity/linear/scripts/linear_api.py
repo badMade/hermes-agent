@@ -135,6 +135,8 @@ def _resolve_team_id(key_or_name: str) -> str | None:
 
 def _resolve_user_id(name: str) -> str | None:
     """Map a user name to UUID."""
+    if len(name) == 36 and name.count("-") == 4:
+        return name
     q = "query { users(first: 100) { nodes { id name displayName email } } }"
     users = gql(q).get("users", {}).get("nodes", [])
     nl = name.lower()
@@ -148,8 +150,25 @@ def _resolve_user_id(name: str) -> str | None:
     return None
 
 
+
+def _get_user_id_or_exit(name: str) -> str:
+    uid = _resolve_user_id(name)
+    if not uid:
+        sys.stderr.write(f"Assignee not found: {name}\n")
+        sys.exit(1)
+    return uid
+
+def _get_label_id_or_exit(name: str) -> str:
+    lid = _resolve_label_id(name)
+    if not lid:
+        sys.stderr.write(f"Label not found: {name}\n")
+        sys.exit(1)
+    return lid
+
 def _resolve_label_id(name: str) -> str | None:
     """Map a label name to UUID."""
+    if len(name) == 36 and name.count("-") == 4:
+        return name
     q = "query { issueLabels(first: 100) { nodes { id name } } }"
     labels = gql(q).get("issueLabels", {}).get("nodes", [])
     nl = name.lower()
@@ -263,20 +282,10 @@ def cmd_create_issue(args: argparse.Namespace) -> None:
         inp["parentId"] = args.parent
 
     if args.assignee:
-        uid = _resolve_user_id(args.assignee)
-        if uid:
-            inp["assigneeId"] = uid
-        else:
-            sys.stderr.write(f"Assignee not found: {args.assignee}\n")
-            sys.exit(1)
+        inp["assigneeId"] = _get_user_id_or_exit(args.assignee)
 
     if args.label:
-        lid = _resolve_label_id(args.label)
-        if lid:
-            inp["labelIds"] = [lid]
-        else:
-            sys.stderr.write(f"Label not found: {args.label}\n")
-            sys.exit(1)
+        inp["labelIds"] = [_get_label_id_or_exit(args.label)]
 
     q = """mutation($input: IssueCreateInput!) {
       issueCreate(input: $input) {
@@ -295,19 +304,9 @@ def cmd_update_issue(args: argparse.Namespace) -> None:
     if args.priority is not None:
         inp["priority"] = args.priority
     if getattr(args, "assignee", None):
-        uid = _resolve_user_id(args.assignee)
-        if uid:
-            inp["assigneeId"] = uid
-        else:
-            sys.stderr.write(f"Assignee not found: {args.assignee}\n")
-            sys.exit(1)
+        inp["assigneeId"] = _get_user_id_or_exit(args.assignee)
     if getattr(args, "label", None):
-        lid = _resolve_label_id(args.label)
-        if lid:
-            inp["labelIds"] = [lid]
-        else:
-            sys.stderr.write(f"Label not found: {args.label}\n")
-            sys.exit(1)
+        inp["labelIds"] = [_get_label_id_or_exit(args.label)]
     if not inp:
         sys.stderr.write("No update fields provided.\n")
         sys.exit(1)
