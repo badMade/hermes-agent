@@ -880,19 +880,22 @@ class SessionStore:
                 # still converge to a clean slate.
                 if entry.suspended:
                     reset_reason = "suspended"
-                elif entry.resume_pending:
-                    # Restart-interrupted session: preserve the session_id
-                    # and return the existing entry so the transcript
-                    # reloads intact.  ``resume_pending`` is cleared after
-                    # the NEXT successful turn completes (not here), which
-                    # means a re-interrupted retry keeps trying — the
-                    # stuck-loop counter handles terminal escalation.
-                    entry.updated_at = now
-                    self._save()
-                    return entry
                 else:
                     reset_reason = self._should_reset(entry, source)
+
                 if not reset_reason:
+                    if entry.resume_pending:
+                        # Restart-interrupted session: preserve the session_id
+                        # and return the existing entry so the transcript
+                        # reloads intact, but only while the configured reset
+                        # policy still considers the session valid.
+                        # ``resume_pending`` is cleared after the NEXT
+                        # successful turn completes (not here), which means a
+                        # re-interrupted retry keeps trying — the stuck-loop
+                        # counter handles terminal escalation.
+                        entry.updated_at = now
+                        self._save()
+                        return entry
                     entry.updated_at = now
                     self._save()
                     return entry
