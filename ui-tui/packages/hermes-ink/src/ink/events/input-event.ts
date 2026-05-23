@@ -48,7 +48,7 @@ function parseKey(keypress: ParsedKey): [Key, string] {
     tab: keypress.name === 'tab',
     backspace: keypress.name === 'backspace',
     delete: keypress.name === 'delete',
-    meta: Boolean(keypress.meta),
+    meta: keypress.meta,
     // Super (Cmd on macOS / Win key) — only arrives via kitty keyboard
     // protocol CSI u sequences. Distinct from meta (Alt/Option) so
     // bindings like cmd+c can be expressed separately from opt+c.
