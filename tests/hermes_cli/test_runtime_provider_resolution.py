@@ -1959,6 +1959,45 @@ class TestAzureFoundryResolution:
 # ──────────────────────────────────────────────────────────────────────────
 
 
+class TestAzureAnthropicExplicitBaseUrlValidation:
+    def _patch_common(self, monkeypatch):
+        monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
+        monkeypatch.setattr(rp, "_get_model_config", lambda: {})
+        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+
+    def test_explicit_azure_anthropic_accepts_azure_host(self, monkeypatch):
+        self._patch_common(monkeypatch)
+        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-key")
+
+        resolved = rp.resolve_runtime_provider(
+            requested="anthropic",
+            explicit_base_url="https://my-resource.services.ai.azure.com/anthropic",
+        )
+
+        assert resolved["source"] == "azure-explicit"
+        assert resolved["api_key"] == "azure-key"
+        assert resolved["base_url"] == "https://my-resource.services.ai.azure.com/anthropic"
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "https://attacker.example/azure.com/v1",
+            "https://azure.com.attacker.example/v1",
+        ],
+    )
+    def test_explicit_azure_anthropic_rejects_path_and_lookalike_hosts(
+        self, monkeypatch, base_url
+    ):
+        self._patch_common(monkeypatch)
+        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-secret")
+
+        with pytest.raises(rp.AuthError, match="untrusted explicit base_url"):
+            rp.resolve_runtime_provider(
+                requested="anthropic",
+                explicit_base_url=base_url,
+            )
+
+
 class TestAzureAnthropicEnvVarHint:
     _AZURE_URL = "https://my-resource.services.ai.azure.com/anthropic"
 
