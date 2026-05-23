@@ -1658,6 +1658,53 @@ class TestSendDiscordForumMedia:
         assert "warnings" in result
         assert any("not found" in w for w in result["warnings"])
 
+    def test_forum_non_regular_media_file_collected_as_warning(self, tmp_path, monkeypatch):
+        """Non-regular media paths are skipped before upload."""
+        monkeypatch.setattr(
+            "gateway.channel_directory.lookup_channel_type", lambda p, cid: "forum"
+        )
+
+        thread_resp = self._build_thread_resp()
+        session = MagicMock()
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock(return_value=None)
+        session.post = MagicMock(return_value=thread_resp)
+
+        media_dir = tmp_path / "not_a_file"
+        media_dir.mkdir()
+
+        with patch("aiohttp.ClientSession", return_value=session):
+            result = asyncio.run(
+                _send_discord("tok", "forum_ch", "hi", media_files=[(str(media_dir), False)])
+            )
+
+        assert result["success"] is True
+        assert any("regular file" in w for w in result.get("warnings", []))
+
+    def test_forum_oversize_media_file_collected_as_warning(self, tmp_path, monkeypatch):
+        """Forum uploads skip files that exceed the safety size limit."""
+        monkeypatch.setattr(
+            "gateway.channel_directory.lookup_channel_type", lambda p, cid: "forum"
+        )
+        monkeypatch.setattr("tools.send_message_tool._DISCORD_FORUM_MEDIA_MAX_BYTES", 4)
+
+        img = tmp_path / "big.png"
+        img.write_bytes(b"012345")
+
+        thread_resp = self._build_thread_resp()
+        session = MagicMock()
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock(return_value=None)
+        session.post = MagicMock(return_value=thread_resp)
+
+        with patch("aiohttp.ClientSession", return_value=session):
+            result = asyncio.run(
+                _send_discord("tok", "forum_ch", "hi", media_files=[(str(img), False)])
+            )
+
+        assert result["success"] is True
+        assert any("safety limit" in w for w in result.get("warnings", []))
+
 
 # ---------------------------------------------------------------------------
 # Tests for the process-local forum-probe cache
