@@ -1119,14 +1119,14 @@ class TestDeleteAndExport:
     def test_delete_session_treats_request_dump_globs_literally(self, db, tmp_path):
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
-        db.create_session(session_id="*", source="cli")
-        (sessions_dir / "request_dump_alpha_001.json").write_text("do not delete")
-        (sessions_dir / "request_dump_*_001.json").write_text("delete")
+        db.create_session(session_id="[a]", source="cli")
+        (sessions_dir / "request_dump_a_001.json").write_text("do not delete")
+        (sessions_dir / "request_dump_[a]_001.json").write_text("delete")
 
-        assert db.delete_session("*", sessions_dir=sessions_dir) is True
+        assert db.delete_session("[a]", sessions_dir=sessions_dir) is True
 
-        assert (sessions_dir / "request_dump_alpha_001.json").exists()
-        assert not (sessions_dir / "request_dump_*_001.json").exists()
+        assert (sessions_dir / "request_dump_a_001.json").exists()
+        assert not (sessions_dir / "request_dump_[a]_001.json").exists()
 
     def test_resolve_session_id_exact(self, db):
         db.create_session(session_id="20260315_092437_c9a6ff", source="cli")
