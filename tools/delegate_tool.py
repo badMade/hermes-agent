@@ -30,7 +30,7 @@ from concurrent.futures import (
 )
 from typing import Any, Dict, List, Optional
 
-from toolsets import TOOLSETS
+from toolsets import TOOLSETS, resolve_toolset
 from tools import file_state
 from tools.terminal_tool import set_approval_callback as _set_subagent_approval_cb
 from utils import base_url_hostname, is_truthy_value
@@ -462,8 +462,24 @@ def _is_mcp_toolset_name(name: str) -> bool:
     return bool(target and str(target).startswith("mcp-"))
 
 
+def _toolset_has_blocked_tools(toolset_name: str) -> bool:
+    """Return True when a toolset would grant any delegated-blocked tool."""
+    try:
+        return bool(set(resolve_toolset(toolset_name)) & DELEGATE_BLOCKED_TOOLS)
+    except Exception:
+        return False
+
+
+def _blocked_toolsets_for_role(role: str) -> List[str]:
+    """Return toolsets to subtract from the child after enabled resolution."""
+    blocked = ["clarify", "memory", "code_execution", "messaging"]
+    if role != "orchestrator":
+        blocked.append("delegation")
+    return blocked
+
+
 def _expand_parent_toolsets(parent_toolsets: set) -> set:
-    """Expand composite toolsets so individual toolset names are recognized.
+    """Expand composite toolsets so individual safe toolset names are recognized.
 
     When a parent uses a composite toolset like ``hermes-cli`` (which bundles
     all core tools), the child may request individual toolsets such as ``web``
@@ -471,8 +487,11 @@ def _expand_parent_toolsets(parent_toolsets: set) -> set:
     because ``"web" != "hermes-cli"``.
 
     This helper collects the tool names from each parent toolset, then adds
-    the names of any individual toolsets whose tools are a *subset* of the
-    parent's available tools.  The original parent toolset names are preserved.
+    the names of individual toolsets whose tools are a subset of the parent's
+    available tools. Toolsets that would grant delegated-blocked tools are not
+    expanded into the accepted set; those tools are subtracted again at child
+    construction time as a defense in depth for composite parent toolsets.
+    The original parent toolset names are preserved.
     """
     parent_tool_names: set = set()
     for ts_name in parent_toolsets:
@@ -485,7 +504,7 @@ def _expand_parent_toolsets(parent_toolsets: set) -> set:
 
     expanded = set(parent_toolsets)
     for ts_name, ts_def in TOOLSETS.items():
-        if ts_name in expanded:
+        if ts_name in expanded or _toolset_has_blocked_tools(ts_name):
             continue
         ts_tools = ts_def.get("tools", [])
         if ts_tools and set(ts_tools).issubset(parent_tool_names):
@@ -665,14 +684,17 @@ def _resolve_workspace_hint(parent_agent) -> Optional[str]:
 
 
 def _strip_blocked_tools(toolsets: List[str]) -> List[str]:
-    """Remove toolsets that contain only blocked tools."""
-    blocked_toolset_names = {
-        "delegation",
-        "clarify",
-        "memory",
-        "code_execution",
-    }
-    return [t for t in toolsets if t not in blocked_toolset_names]
+    """Remove toolsets that contain only delegated-blocked tools."""
+    kept = []
+    for toolset_name in toolsets:
+        try:
+            resolved_tools = set(resolve_toolset(toolset_name))
+        except Exception:
+            resolved_tools = set()
+        if resolved_tools and resolved_tools.issubset(DELEGATE_BLOCKED_TOOLS):
+            continue
+        kept.append(toolset_name)
+    return kept
 
 
 def _build_child_progress_callback(
@@ -1117,6 +1139,7 @@ def _build_child_agent(
         provider_sort=child_provider_sort,
         openrouter_min_coding_score=child_openrouter_min_coding_score,
         tool_progress_callback=child_progress_cb,
+        disabled_toolsets=_blocked_toolsets_for_role(effective_role),
         iteration_budget=None,  # fresh budget per subagent
     )
     child._print_fn = getattr(parent_agent, "_print_fn", None)
@@ -1428,7 +1451,6 @@ def _run_single_child(
     # hand us a MagicMock don't carry stable ids; skip registration then.
     _raw_sid = getattr(child, "_subagent_id", None)
     _subagent_id = _raw_sid if isinstance(_raw_sid, str) else None
-    child_task_id = None
     if _subagent_id:
         _raw_depth = getattr(child, "_delegate_depth", 1)
         _tui_depth = max(0, _raw_depth - 1) if isinstance(_raw_depth, int) else 0
@@ -1466,12 +1488,6 @@ def _run_single_child(
 
         child_task_id = _subagent_id or f"subagent-{task_index}-{_uuid.uuid4().hex[:8]}"
         parent_task_id = getattr(parent_agent, "_current_task_id", None)
-        from tools.terminal_tool import (
-            clear_task_container_alias,
-            register_task_container_alias,
-        )
-
-        register_task_container_alias(child_task_id, parent_task_id)
         wall_start = time.time()
         parent_reads_snapshot = (
             list(file_state.known_reads(parent_task_id)) if parent_task_id else []
@@ -1836,12 +1852,6 @@ def _run_single_child(
         _heartbeat_stop.set()
         _heartbeat_thread.join(timeout=5)
 
-        if child_task_id:
-            try:
-                clear_task_container_alias(child_task_id)
-            except Exception:
-                pass
-
         # Drop the TUI-facing registry entry.  Safe to call even if the
         # child was never registered (e.g. ID missing on test doubles).
         if _subagent_id:
@@ -1933,6 +1943,11 @@ def delegate_task(
 
     Returns JSON with results array, one entry per task.
     """
+    if acp_command is not None or acp_args is not None:
+        logger.debug(
+            "delegate_task: ignoring caller-supplied ACP transport override; "
+            "ACP child transports must come from trusted configuration"
+        )
     if parent_agent is None:
         return tool_error("delegate_task requires a parent agent context.")
 
@@ -1990,12 +2005,6 @@ def delegate_task(
     except ValueError as exc:
         return tool_error(str(exc))
 
-    if acp_command or acp_args:
-        logger.warning(
-            "Ignoring caller-supplied ACP command/args for delegate_task; "
-            "ACP delegation transport is controlled by trusted configuration only."
-        )
-
     # Normalize to task list
     max_children = _get_max_concurrent_children()
     recovered_tasks, tasks_error = _recover_tasks_from_json_string(tasks)
@@ -2023,6 +2032,17 @@ def delegate_task(
 
     if not task_list:
         return tool_error("No tasks provided.")
+
+    caller_acp_override = acp_command is not None or acp_args is not None or any(
+        isinstance(task, dict)
+        and ("acp_command" in task or "acp_args" in task)
+        for task in task_list
+    )
+    if caller_acp_override:
+        logger.warning(
+            "delegate_task: ignoring caller-supplied ACP command/args; "
+            "configure delegation.provider credentials instead"
+        )
 
     # Validate each task has a goal
     for i, task in enumerate(task_list):
@@ -2053,7 +2073,6 @@ def delegate_task(
     children = []
     try:
         for i, t in enumerate(task_list):
-            task_acp_args = t.get("acp_args") if "acp_args" in t else None
             # Per-task role beats top-level; normalise again so unknown
             # per-task values warn and degrade to leaf uniformly.
             effective_role = _normalize_role(t.get("role") or top_role)
@@ -2070,14 +2089,10 @@ def delegate_task(
                 override_base_url=creds["base_url"],
                 override_api_key=creds["api_key"],
                 override_api_mode=creds["api_mode"],
-                override_acp_command=t.get("acp_command")
-                or acp_command
-                or creds.get("command"),
-                override_acp_args=(
-                    task_acp_args
-                    if task_acp_args is not None
-                    else (acp_args if acp_args is not None else creds.get("args"))
-                ),
+                # ACP subprocess transports execute local commands, so only
+                # operator-configured provider credentials may select them.
+                override_acp_command=creds.get("command"),
+                override_acp_args=creds.get("args"),
                 role=effective_role,
             )
             # Override with correct parent tool names (before child construction mutated global)
@@ -2703,19 +2718,6 @@ DELEGATE_TASK_SCHEMA = {
                             "items": {"type": "string"},
                             "description": f"Toolsets for this specific task. Available: {_TOOLSET_LIST_STR}. Use 'web' for network access, 'terminal' for shell, 'browser' for web interaction.",
                         },
-                        "acp_command": {
-                            "type": "string",
-                            "description": (
-                                "Per-task ACP command override (e.g. 'copilot'). "
-                                "Overrides the top-level acp_command for this task only. "
-                                "Do NOT set unless the user explicitly told you an ACP CLI is installed."
-                            ),
-                        },
-                        "acp_args": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Per-task ACP args override. Leave empty unless acp_command is set.",
-                        },
                         "role": {
                             "type": "string",
                             "enum": ["leaf", "orchestrator"],
@@ -2733,28 +2735,6 @@ DELEGATE_TASK_SCHEMA = {
                 "type": "string",
                 "enum": ["leaf", "orchestrator"],
                 "description": "(rebuilt at get_definitions() time)",
-            },
-            "acp_command": {
-                "type": "string",
-                "description": (
-                    "Override ACP command for child agents (e.g. 'copilot'). "
-                    "When set, children use ACP subprocess transport instead of inheriting "
-                    "the parent's transport. Requires an ACP-compatible CLI "
-                    "(currently GitHub Copilot CLI via 'copilot --acp --stdio'). "
-                    "See agent/copilot_acp_client.py for the implementation. "
-                    "IMPORTANT: Do NOT set this unless the user has explicitly told you "
-                    "a specific ACP-compatible CLI is installed and configured. "
-                    "Leave empty to use the parent's default transport (Hermes subagents)."
-                ),
-            },
-            "acp_args": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": (
-                    "Arguments for the ACP command (default: ['--acp', '--stdio']). "
-                    "Only used when acp_command is set. "
-                    "Leave empty unless acp_command is explicitly provided."
-                ),
             },
         },
         "required": [],
@@ -2775,8 +2755,6 @@ registry.register(
         toolsets=args.get("toolsets"),
         tasks=args.get("tasks"),
         max_iterations=args.get("max_iterations"),
-        acp_command=args.get("acp_command"),
-        acp_args=args.get("acp_args"),
         role=args.get("role"),
         parent_agent=kw.get("parent_agent"),
     ),

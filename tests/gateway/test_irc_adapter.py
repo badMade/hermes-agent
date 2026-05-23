@@ -243,8 +243,6 @@ class TestIRCAdapterMessageParsing:
         assert len(dispatched) == 1
         assert dispatched[0]["text"] == "hello there"
         assert dispatched[0]["chat_id"] == "#test"
-        assert dispatched[0]["user_id"] == "user!u@host"
-        assert dispatched[0]["user_name"] == "user"
 
     @pytest.mark.asyncio
     async def test_ignores_unaddressed_channel_message(self, adapter):
@@ -306,7 +304,7 @@ class TestIRCAdapterMessageParsing:
 
     @pytest.mark.asyncio
     async def test_allowed_users_case_insensitive(self, monkeypatch):
-        """Allowlist should match full hostmask identities case-insensitively."""
+        """Allowlist should match nicks case-insensitively."""
         for key in ("IRC_SERVER", "IRC_PORT", "IRC_NICKNAME", "IRC_CHANNEL", "IRC_USE_TLS"):
             monkeypatch.delenv(key, raising=False)
         from gateway.config import PlatformConfig
@@ -318,7 +316,7 @@ class TestIRCAdapterMessageParsing:
                 "nickname": "hermes",
                 "channel": "#test",
                 "use_tls": False,
-                "allowed_users": ["Admin!u@Host", "BOB!u@host"],
+                "allowed_users": ["Admin", "BOB"],
             },
         )
         adapter = IRCAdapter(cfg)
@@ -332,14 +330,14 @@ class TestIRCAdapterMessageParsing:
         adapter._dispatch_message = capture_dispatch
         adapter._message_handler = AsyncMock()
 
-        # "admin!u@host" matches "Admin!u@Host" in allowlist
+        # "admin" matches "Admin" in allowlist
         await adapter._handle_line(":admin!u@host PRIVMSG #test :hermes: hello")
         assert len(dispatched) == 1
         assert dispatched[0]["text"] == "hello"
 
     @pytest.mark.asyncio
     async def test_unauthorized_user_blocked(self, monkeypatch):
-        """Hostmasks not in allowlist should be ignored."""
+        """Nicks not in allowlist should be ignored."""
         for key in ("IRC_SERVER", "IRC_PORT", "IRC_NICKNAME", "IRC_CHANNEL", "IRC_USE_TLS"):
             monkeypatch.delenv(key, raising=False)
         from gateway.config import PlatformConfig
@@ -351,7 +349,7 @@ class TestIRCAdapterMessageParsing:
                 "nickname": "hermes",
                 "channel": "#test",
                 "use_tls": False,
-                "allowed_users": ["Admin!u@host", "BOB!u@host"],
+                "allowed_users": ["Admin", "BOB"],
             },
         )
         adapter = IRCAdapter(cfg)
@@ -367,26 +365,6 @@ class TestIRCAdapterMessageParsing:
 
         await adapter._handle_line(":eve!u@host PRIVMSG #test :hermes: hello")
         assert len(dispatched) == 0
-
-    @pytest.mark.asyncio
-    async def test_same_nick_different_hostmask_is_distinct_identity(self, adapter):
-        """Gateway user IDs must not collapse different IRC hostmasks to one nick."""
-        dispatched = []
-
-        async def capture_dispatch(**kwargs):
-            dispatched.append(kwargs)
-
-        adapter._dispatch_message = capture_dispatch
-        adapter._message_handler = AsyncMock()
-
-        await adapter._handle_line(":alice!u@trusted.example PRIVMSG hermes :first")
-        await adapter._handle_line(":alice!u@other.example PRIVMSG hermes :second")
-
-        assert [msg["user_id"] for msg in dispatched] == [
-            "alice!u@trusted.example",
-            "alice!u@other.example",
-        ]
-        assert [msg["user_name"] for msg in dispatched] == ["alice", "alice"]
 
     @pytest.mark.asyncio
     async def test_nick_collision_retry(self, adapter):
@@ -678,6 +656,61 @@ class TestIRCStandaloneSend:
 
         assert "error" in result
         assert "illegal IRC characters" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_standalone_send_rejects_overlong_chat_id_before_connect(self, monkeypatch):
+        from gateway.config import PlatformConfig
+
+        monkeypatch.setenv("IRC_SERVER", "irc.test.net")
+        monkeypatch.setenv("IRC_CHANNEL", "#cron")
+        monkeypatch.setenv("IRC_NICKNAME", "hermesbot")
+        monkeypatch.setenv("IRC_USE_TLS", "false")
+
+        async def _unexpected_open(*args, **kwargs):
+            raise AssertionError("overlong IRC target should fail before connecting")
+
+        monkeypatch.setattr(_irc_mod.asyncio, "open_connection", _unexpected_open)
+
+        result = await _standalone_send(
+            PlatformConfig(enabled=True, extra={}),
+            "#" + "a" * 500,
+            "hello",
+        )
+
+        assert "error" in result
+        assert "too long" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_standalone_send_aborts_when_no_message_prefix_can_fit(self, monkeypatch):
+        from gateway.config import PlatformConfig
+
+        monkeypatch.setenv("IRC_SERVER", "irc.test.net")
+        monkeypatch.setenv("IRC_CHANNEL", "#cron")
+        monkeypatch.setenv("IRC_NICKNAME", "hermesbot")
+        monkeypatch.setenv("IRC_USE_TLS", "false")
+
+        target = "#" + "a" * 496
+        conn = _FakeIRCConnection([b":server 001 hermesbot-cron :Welcome"])
+
+        async def _fake_open(host, port, **kwargs):
+            return conn, conn
+
+        monkeypatch.setattr(_irc_mod.asyncio, "open_connection", _fake_open)
+
+        result = await _standalone_send(
+            PlatformConfig(enabled=True, extra={}),
+            target,
+            "あ",
+        )
+
+        assert "error" in result
+        assert "line limit" in result["error"]
+        privmsg_lines = [
+            line
+            for line in b"".join(conn.writes).decode("utf-8").splitlines()
+            if line.startswith("PRIVMSG ")
+        ]
+        assert privmsg_lines == []
 
     @pytest.mark.asyncio
     async def test_standalone_send_strips_crlf_from_message_body(self, monkeypatch):

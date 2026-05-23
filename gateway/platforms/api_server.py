@@ -50,6 +50,12 @@ from gateway.platforms.base import (
     SendResult,
     is_network_accessible,
 )
+from gateway.proxy_scope_auth import (
+    PROXY_SCOPE_SIGNATURE_HEADER,
+    PROXY_SCOPE_TIMESTAMP_HEADER,
+    get_proxy_scope_key,
+    verify_proxy_scope_signature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +67,11 @@ MAX_REQUEST_BYTES = 10_000_000  # 10 MB — accommodates long agent conversation
 CHAT_COMPLETIONS_SSE_KEEPALIVE_SECONDS = 30.0
 MAX_NORMALIZED_TEXT_LENGTH = 65_536  # 64 KB cap for normalized content parts
 MAX_CONTENT_LIST_SIZE = 1_000  # Max items when content is an array
+
+
+def _constant_time_equal(left: str, right: str) -> bool:
+    """Compare text secrets without rejecting non-ASCII values."""
+    return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
 def _coerce_port(value: Any, default: int = DEFAULT_PORT) -> int:
@@ -700,7 +711,7 @@ class APIServerAdapter(BasePlatformAdapter):
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
-            if hmac.compare_digest(token, self._api_key):
+            if _constant_time_equal(token, self._api_key):
                 return None  # Auth OK
 
         return web.json_response(
@@ -815,6 +826,8 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_start_callback=None,
         tool_complete_callback=None,
         gateway_session_key: Optional[str] = None,
+        origin_platform: Optional[str] = None,
+        enabled_toolsets_override: Optional[list] = None,
     ) -> Any:
         """
         Create an AIAgent instance using the gateway's runtime config.
@@ -840,13 +853,22 @@ class APIServerAdapter(BasePlatformAdapter):
         model = _resolve_gateway_model()
 
         user_config = _load_gateway_config()
-        enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
+        platform = origin_platform or "api_server"
+        if enabled_toolsets_override is not None:
+            enabled_toolsets = list(enabled_toolsets_override)
+        else:
+            enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
 
         max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
 
         # Load fallback provider chain so the API server platform has the
         # same fallback behaviour as Telegram/Discord/Slack (fixes #4954).
         fallback_model = GatewayRunner._load_fallback_model()
+
+        # API clients may omit X-Hermes-Session-Key.  In that case, use the
+        # request/transcript session_id as the internal long-term-memory scope so
+        # cwd-based Honcho defaults cannot merge unrelated API conversations.
+        effective_gateway_session_key = gateway_session_key or session_id
 
         agent = AIAgent(
             model=model,
@@ -857,7 +879,7 @@ class APIServerAdapter(BasePlatformAdapter):
             ephemeral_system_prompt=ephemeral_system_prompt or None,
             enabled_toolsets=enabled_toolsets,
             session_id=session_id,
-            platform="api_server",
+            platform=platform,
             stream_delta_callback=stream_delta_callback,
             tool_progress_callback=tool_progress_callback,
             tool_start_callback=tool_start_callback,
@@ -865,7 +887,7 @@ class APIServerAdapter(BasePlatformAdapter):
             session_db=self._ensure_session_db(),
             fallback_model=fallback_model,
             reasoning_config=reasoning_config,
-            gateway_session_key=gateway_session_key,
+            gateway_session_key=effective_gateway_session_key,
         )
         return agent
 
@@ -999,6 +1021,34 @@ class APIServerAdapter(BasePlatformAdapter):
 
         stream = body.get("stream", False)
 
+        proxy_scope = body.get("hermes_proxy_scope")
+        origin_platform = None
+        enabled_toolsets_override = None
+        if proxy_scope is not None:
+            if not isinstance(proxy_scope, dict):
+                return web.json_response(_openai_error("Invalid hermes_proxy_scope"), status=400)
+            if not verify_proxy_scope_signature(
+                proxy_scope,
+                get_proxy_scope_key(),
+                request.headers.get(PROXY_SCOPE_TIMESTAMP_HEADER),
+                request.headers.get(PROXY_SCOPE_SIGNATURE_HEADER),
+            ):
+                return web.json_response(
+                    _openai_error("hermes_proxy_scope requires trusted gateway proxy authentication"),
+                    status=403,
+                )
+            raw_platform = proxy_scope.get("origin_platform")
+            if raw_platform is not None:
+                origin_platform = str(raw_platform).strip()
+                if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", origin_platform):
+                    return web.json_response(_openai_error("Invalid hermes_proxy_scope.origin_platform"), status=400)
+            raw_toolsets = proxy_scope.get("enabled_toolsets")
+            if raw_toolsets is not None:
+                if not isinstance(raw_toolsets, list) or not all(isinstance(ts, str) for ts in raw_toolsets):
+                    return web.json_response(_openai_error("Invalid hermes_proxy_scope.enabled_toolsets"), status=400)
+                enabled_toolsets_override = [ts for ts in raw_toolsets if ts]
+
+
         # Extract system message (becomes ephemeral system prompt layered ON TOP of core)
         system_prompt = None
         conversation_messages: List[Dict[str, str]] = []
@@ -1065,8 +1115,9 @@ class APIServerAdapter(BasePlatformAdapter):
                     ),
                     status=403,
                 )
-            # Sanitize: reject control characters that could enable header injection.
-            if re.search(r'[\r\n\x00]', provided_session_id):
+            # Accept only server-generated session IDs (api-<16 hex chars>).
+            # Rejects path traversal, control characters, and any non-server value.
+            if not re.fullmatch(r'api-[0-9a-f]{16}', provided_session_id):
                 return web.json_response(
                     {"error": {"message": "Invalid session ID", "type": "invalid_request_error"}},
                     status=400,
@@ -1075,6 +1126,12 @@ class APIServerAdapter(BasePlatformAdapter):
             try:
                 db = self._ensure_session_db()
                 if db is not None:
+                    session_record = db.get_session(session_id)
+                    if session_record is not None and session_record.get("source") != "api_server":
+                        return web.json_response(
+                            {"error": {"message": "Session not found", "type": "invalid_request_error"}},
+                            status=404,
+                        )
                     history = db.get_messages_as_conversation(session_id)
             except Exception as e:
                 logger.warning("Failed to load session history for %s: %s", session_id, e)
@@ -1178,6 +1235,8 @@ class APIServerAdapter(BasePlatformAdapter):
                 tool_complete_callback=_on_tool_complete,
                 agent_ref=agent_ref,
                 gateway_session_key=gateway_session_key,
+                origin_platform=origin_platform,
+                enabled_toolsets_override=enabled_toolsets_override,
             ))
 
             return await self._write_sse_chat_completion(
@@ -1194,6 +1253,8 @@ class APIServerAdapter(BasePlatformAdapter):
                 ephemeral_system_prompt=system_prompt,
                 session_id=session_id,
                 gateway_session_key=gateway_session_key,
+                origin_platform=origin_platform,
+                enabled_toolsets_override=enabled_toolsets_override,
             )
 
         idempotency_key = request.headers.get("Idempotency-Key")
@@ -1792,18 +1853,24 @@ class APIServerAdapter(BasePlatformAdapter):
             _batch_buf: List[str] = []
             _batch_timer: Optional[asyncio.Task] = None
             _batch_lock = asyncio.Lock()
+            _batch_error: Optional[BaseException] = None
+            _batch_error_sentinel = object()
 
             async def _batch_flush_after(delay: float) -> None:
                 """Wait delay seconds, then flush accumulated text deltas."""
+                nonlocal _batch_error, _batch_timer
                 try:
                     await asyncio.sleep(delay)
+                    # Clear timer reference BEFORE flush so new deltas
+                    # can start a fresh timer while we emit
+                    _batch_timer = None
+                    await _flush_batch()
                 except asyncio.CancelledError:
                     return
-                # Clear timer reference BEFORE flush so new deltas
-                # can start a fresh timer while we emit
-                nonlocal _batch_buf, _batch_timer
-                _batch_timer = None
-                await _flush_batch()
+                except Exception as exc:
+                    _batch_timer = None
+                    _batch_error = exc
+                    stream_q.put(_batch_error_sentinel)
 
             async def _flush_batch() -> None:
                 """Emit a single SSE delta for all accumulated text."""
@@ -1824,6 +1891,10 @@ class APIServerAdapter(BasePlatformAdapter):
                         while True:
                             try:
                                 item = stream_q.get_nowait()
+                                if item is _batch_error_sentinel:
+                                    if _batch_error is not None:
+                                        raise _batch_error
+                                    break
                                 if item is None:
                                     break
                                 await _dispatch(item)
@@ -1835,6 +1906,11 @@ class APIServerAdapter(BasePlatformAdapter):
                         await response.write(b": keepalive\n\n")
                         last_activity = time.monotonic()
                     continue
+
+                if item is _batch_error_sentinel:
+                    if _batch_error is not None:
+                        raise _batch_error
+                    break
 
                 if item is None:  # EOS sentinel
                     # Cancel pending timer and flush remaining batched text
@@ -2695,6 +2771,8 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_complete_callback=None,
         agent_ref: Optional[list] = None,
         gateway_session_key: Optional[str] = None,
+        origin_platform: Optional[str] = None,
+        enabled_toolsets_override: Optional[list] = None,
     ) -> tuple:
         """
         Create an agent and run a conversation in a thread executor.
@@ -2718,6 +2796,8 @@ class APIServerAdapter(BasePlatformAdapter):
                 tool_start_callback=tool_start_callback,
                 tool_complete_callback=tool_complete_callback,
                 gateway_session_key=gateway_session_key,
+                origin_platform=origin_platform,
+                enabled_toolsets_override=enabled_toolsets_override,
             )
             if agent_ref is not None:
                 agent_ref[0] = agent
@@ -2891,7 +2971,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         run_id = f"run_{uuid.uuid4().hex}"
         session_id = body.get("session_id") or stored_session_id or run_id
-        approval_session_key = gateway_session_key or session_id or run_id
+        approval_session_key = f"api_run:{run_id}"
         ephemeral_system_prompt = instructions
         loop = asyncio.get_running_loop()
         q: "asyncio.Queue[Optional[Dict]]" = asyncio.Queue()
