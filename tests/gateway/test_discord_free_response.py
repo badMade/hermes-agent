@@ -338,6 +338,27 @@ async def test_discord_reply_message_skips_auto_thread(adapter, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_discord_free_response_channel_skips_auto_thread_by_default(adapter, monkeypatch):
+    """Free-response channel messages should stay in one channel session by default."""
+    monkeypatch.delenv("DISCORD_AUTO_THREAD", raising=False)
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_FREE_RESPONSE_CHANNELS", "123")
+
+    adapter._auto_create_thread = AsyncMock()
+
+    message = make_message(channel=FakeTextChannel(channel_id=123), content="hello without mention")
+
+    await adapter._handle_message(message)
+
+    adapter._auto_create_thread.assert_not_awaited()
+    adapter.handle_message.assert_awaited_once()
+    event = adapter.handle_message.await_args.args[0]
+    assert event.source.chat_id == "123"
+    assert event.source.chat_type == "group"
+    assert event.source.thread_id is None
+
+
+@pytest.mark.asyncio
 async def test_discord_auto_thread_can_be_disabled(adapter, monkeypatch):
     """Setting auto_thread to false skips thread creation."""
     monkeypatch.setenv("DISCORD_AUTO_THREAD", "false")
