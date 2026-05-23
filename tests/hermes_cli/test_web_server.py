@@ -2157,6 +2157,28 @@ class TestPluginAPIAuth:
 
     def test_plugin_route_requires_auth(self):
         """Plugin API routes should return 401 without a valid session token."""
+        # Add the route directly to the app for the test
+        from hermes_cli.web_server import app
+        from fastapi import APIRouter
+        router = APIRouter()
+        @router.get("/board")
+        async def get_board(): return {"status": "ok"}
+
+        # We need to insert it before the SPA route /{full_path:path}
+        spa_route = None
+        for i, r in enumerate(app.routes):
+            if hasattr(r, "path") and r.path == "/{full_path:path}":
+                spa_route = app.routes.pop(i)
+                break
+
+        app.include_router(router, prefix="/api/plugins/kanban")
+        if spa_route:
+            app.routes.append(spa_route)
+
+        # Recreate clients since routes changed
+        from starlette.testclient import TestClient
+        self.client = TestClient(app)
+
         # Use a known plugin route (kanban board)
         resp = self.client.get("/api/plugins/kanban/board")
         assert resp.status_code == 401
@@ -2169,6 +2191,31 @@ class TestPluginAPIAuth:
         external dependencies. With a valid token the handler should run
         (200); without one the middleware should 401 before the handler.
         """
+        # Add the route directly to the app for the test
+        from hermes_cli.web_server import app
+        from fastapi import APIRouter
+        router = APIRouter()
+        @router.get("/scan-status")
+        async def scan_status(): return {"status": "ok"}
+
+        # We need to insert it before the SPA route /{full_path:path}
+        spa_route = None
+        for i, r in enumerate(app.routes):
+            if hasattr(r, "path") and r.path == "/{full_path:path}":
+                spa_route = app.routes.pop(i)
+                break
+
+        app.include_router(router, prefix="/api/plugins/hermes-achievements")
+        if spa_route:
+            app.routes.append(spa_route)
+
+        # Recreate clients since routes changed
+        from starlette.testclient import TestClient
+        from hermes_cli.web_server import _SESSION_HEADER_NAME, _SESSION_TOKEN
+        self.client = TestClient(app)
+        self.auth_client = TestClient(app)
+        self.auth_client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
+
         # Without auth: middleware blocks before reaching the handler.
         resp = self.client.get("/api/plugins/hermes-achievements/scan-status")
         assert resp.status_code == 401
@@ -2181,6 +2228,28 @@ class TestPluginAPIAuth:
 
     def test_plugin_post_requires_auth(self):
         """Plugin POST routes should return 401 without a valid session token."""
+        # Add the route directly to the app for the test
+        from hermes_cli.web_server import app
+        from fastapi import APIRouter
+        router = APIRouter()
+        @router.post("/tasks")
+        async def tasks_post(): return {"status": "ok"}
+
+        # We need to insert it before the SPA route /{full_path:path}
+        spa_route = None
+        for i, r in enumerate(app.routes):
+            if hasattr(r, "path") and r.path == "/{full_path:path}":
+                spa_route = app.routes.pop(i)
+                break
+
+        app.include_router(router, prefix="/api/plugins/kanban")
+        if spa_route:
+            app.routes.append(spa_route)
+
+        # Recreate clients since routes changed
+        from starlette.testclient import TestClient
+        self.client = TestClient(app)
+
         resp = self.client.post("/api/plugins/kanban/tasks", json={"title": "test"})
         assert resp.status_code == 401
 
@@ -2191,6 +2260,28 @@ class TestPluginAPIAuth:
         kanban task edits — explicitly cover it so a future middleware
         regression that whitelists non-GET methods can't sneak through.
         """
+        # Add the route directly to the app for the test
+        from hermes_cli.web_server import app
+        from fastapi import APIRouter
+        router = APIRouter()
+        @router.patch("/tasks/{task_id}")
+        async def tasks_patch(): return {"status": "ok"}
+
+        # We need to insert it before the SPA route /{full_path:path}
+        spa_route = None
+        for i, r in enumerate(app.routes):
+            if hasattr(r, "path") and r.path == "/{full_path:path}":
+                spa_route = app.routes.pop(i)
+                break
+
+        app.include_router(router, prefix="/api/plugins/kanban")
+        if spa_route:
+            app.routes.append(spa_route)
+
+        # Recreate clients since routes changed
+        from starlette.testclient import TestClient
+        self.client = TestClient(app)
+
         resp = self.client.patch(
             "/api/plugins/kanban/tasks/t_fake",
             json={"title": "renamed"},
