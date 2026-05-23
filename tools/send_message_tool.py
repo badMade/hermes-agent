@@ -398,6 +398,7 @@ def _handle_send(args):
                 home = HomeChannel(platform=platform, chat_id=wx_home, name="Weixin Home")
         if home:
             chat_id = home.chat_id
+            thread_id = getattr(home, "thread_id", None)
             used_home_channel = True
         else:
             return json.dumps({
