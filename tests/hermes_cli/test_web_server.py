@@ -2477,7 +2477,13 @@ class TestPtyWebSocket:
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline:
                 try:
-                    frame = conn.receive_bytes()
+                    msg = conn.receive()
+                    if "bytes" in msg:
+                        frame = msg["bytes"]
+                    elif "text" in msg:
+                        frame = msg["text"].encode()
+                    else:
+                        break
                 except Exception:
                     break
                 if frame:
@@ -2501,7 +2507,16 @@ class TestPtyWebSocket:
 
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline:
-                frame = conn.receive_bytes()
+                try:
+                    msg = conn.receive()
+                    if "bytes" in msg:
+                        frame = msg["bytes"]
+                    elif "text" in msg:
+                        frame = msg["text"].encode()
+                    else:
+                        break
+                except Exception:
+                    break
                 if frame:
                     buf += frame
                 if b"round-trip-payload" in buf:
@@ -2538,7 +2553,16 @@ class TestPtyWebSocket:
 
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline:
-                frame = conn.receive_bytes()
+                try:
+                    msg = conn.receive()
+                    if "bytes" in msg:
+                        frame = msg["bytes"]
+                    elif "text" in msg:
+                        frame = msg["text"].encode()
+                    else:
+                        break
+                except Exception:
+                    break
                 if frame:
                     buf += frame
                 if b"99" in buf and b"41" in buf:
