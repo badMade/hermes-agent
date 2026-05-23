@@ -14328,12 +14328,26 @@ class AIAgent:
                 continue
 
             if restart_with_length_continuation:
-                # Progressively boost the output token budget on each retry.
-                # Retry 1 → 2× base, retry 2 → 3× base, capped at 32 768.
-                # Applies to all providers via _ephemeral_max_output_tokens.
-                _boost_base = self.max_tokens if self.max_tokens else 4096
-                _boost = _boost_base * (length_continue_retries + 1)
-                self._ephemeral_max_output_tokens = min(_boost, 32768)
+                # Respect explicit operator caps: when max_tokens is configured,
+                # never boost above that value during length continuation.
+                if self.max_tokens is not None:
+                    self._ephemeral_max_output_tokens = self.max_tokens
+                else:
+                    # Progressively boost the output token budget on each retry.
+                    # Retry 1 → 2× base, retry 2 → 3× base.
+                    #
+                    # Base should mirror provider defaults so continuations don't
+                    # accidentally lower the default output budget on the retry.
+                    if "integrate.api.nvidia.com" in self._base_url_lower:
+                        _boost_base = 16384
+                    elif self._is_qwen_portal():
+                        _boost_base = 65536
+                    else:
+                        _boost_base = 4096
+                    _boost = _boost_base * (length_continue_retries + 1)
+                    # Keep legacy 32k ceiling, but never below provider default.
+                    _boost_cap = max(32768, _boost_base)
+                    self._ephemeral_max_output_tokens = min(_boost, _boost_cap)
                 continue
 
             # Guard: if all retries exhausted without a successful response
