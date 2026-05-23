@@ -1119,11 +1119,11 @@ DEFAULT_CONFIG = {
         "base_url": "",    # direct OpenAI-compatible endpoint for subagents
         "api_key": "",     # API key for delegation.base_url (falls back to OPENAI_API_KEY)
         # When delegate_task narrows child toolsets explicitly, preserve any
-        # MCP toolsets the parent already has enabled. On by default so
-        # narrowing (e.g. toolsets=["web","browser"]) expresses "I want these
-        # extras" without silently stripping MCP tools the parent already has.
-        # Set to false for strict intersection.
-        "inherit_mcp_toolsets": True,
+        # MCP toolsets the parent already has enabled. Off by default so an
+        # explicit narrowed toolset list remains a strict least-privilege
+        # boundary. Set to true only when delegated workers should keep MCP
+        # tools already available to the parent.
+        "inherit_mcp_toolsets": False,
         "max_iterations": 50,  # per-subagent iteration cap (each subagent gets its own budget,
                                # independent of the parent's max_iterations)
         "child_timeout_seconds": 600,  # wall-clock timeout for each child agent (floor 30s,
