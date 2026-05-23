@@ -1721,6 +1721,15 @@ class TestTruncateToolCallArgsJson:
         # ensure_ascii=False keeps CJK intact rather than emitting \uXXXX
         assert "非德满" in out
 
+    def test_deeply_nested_json_falls_back_without_crashing(self):
+        import json as _json
+        shrink = self._helper()
+        nested = "x" * 501
+        for _ in range(1100):
+            nested = [nested]
+        payload = _json.dumps({"command": "true", "junk": nested})
+        assert shrink(payload) == payload
+
     def test_pass3_emits_valid_json_for_downstream_provider(self):
         """End-to-end: Pass 3 must never produce the exact failure payload
         that caused the 400 loop (unterminated string, missing brace)."""
