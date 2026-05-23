@@ -5764,7 +5764,9 @@ class GatewayRunner:
                     "QQBot: aiohttp/httpx missing or QQ_APP_ID/QQ_CLIENT_SECRET not configured"
                 )
                 return None
-            return QQAdapter(config)
+            adapter = QQAdapter(config)
+            adapter.gateway_runner = self
+            return adapter
 
         elif platform == Platform.YUANBAO:
             from gateway.platforms.yuanbao import YuanbaoAdapter, WEBSOCKETS_AVAILABLE
