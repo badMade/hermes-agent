@@ -202,7 +202,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
                cli_only=True, args_hint="<path>"),
     CommandDef("update", "Update Hermes Agent to the latest version", "Info",
                gateway_only=True),
-    CommandDef("debug", "Upload debug report (system info + logs) and get shareable links", "Info"),
+    CommandDef("debug", "Upload debug report (system info + logs) and get shareable links", "Info",
+               cli_only=True),
 
     # Exit
     CommandDef("quit", "Exit the CLI", "Exit",
@@ -295,36 +296,6 @@ GATEWAY_KNOWN_COMMANDS: frozenset[str] = frozenset(
 )
 
 
-def resolve_gateway_command_name(name: str | None) -> str | None:
-    """Return the canonical gateway command name for built-ins or plugins.
-
-    Telegram exposes plugin commands with hyphens converted to underscores, but
-    gateway policy hooks and plugin dispatch use the registered plugin name.
-    Resolve the Telegram-safe alias back to the registered name before access
-    checks, hook emission, and dispatch.
-    """
-    if not name:
-        return None
-    clean = str(name).strip().lower().lstrip("/")
-    if not clean:
-        return None
-
-    cmd_def = resolve_command(clean)
-    if cmd_def and clean in GATEWAY_KNOWN_COMMANDS:
-        return cmd_def.name
-    if clean in GATEWAY_KNOWN_COMMANDS:
-        return clean
-
-    plugin_entries = _iter_plugin_command_entries()
-    for plugin_name, _description, _args_hint in plugin_entries:
-        if plugin_name == clean:
-            return plugin_name
-    for plugin_name, _description, _args_hint in plugin_entries:
-        if _sanitize_telegram_name(plugin_name) == clean:
-            return plugin_name
-    return None
-
-
 def is_gateway_known_command(name: str | None) -> bool:
     """Return True if ``name`` resolves to a gateway-dispatchable slash command.
 
@@ -335,7 +306,14 @@ def is_gateway_known_command(name: str | None) -> bool:
     ``command:<name>`` hooks — plugin commands get the same lifecycle
     events as built-ins.
     """
-    return resolve_gateway_command_name(name) is not None
+    if not name:
+        return False
+    if name in GATEWAY_KNOWN_COMMANDS:
+        return True
+    for plugin_name, _description, _args_hint in _iter_plugin_command_entries():
+        if plugin_name == name:
+            return True
+    return False
 
 
 # Commands with explicit Level-2 running-agent handlers in gateway/run.py.

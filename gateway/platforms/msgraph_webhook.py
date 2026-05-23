@@ -85,11 +85,12 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
         return raw if raw.startswith("/") else f"/{raw}"
 
     @staticmethod
-    def _build_receipt_key(notification: Dict[str, Any]) -> Optional[str]:
+    def _build_receipt_key(notification: Dict[str, Any]) -> str:
         explicit_id = str(notification.get("id") or "").strip()
         if explicit_id:
             return f"id:{explicit_id}"
-        return None
+        payload = json.dumps(notification, sort_keys=True).encode("utf-8")
+        return f"sha1:{sha1(payload).hexdigest()}"
 
     @staticmethod
     def _normalize_resource_value(resource: str) -> str:
@@ -133,6 +134,15 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
         self._notification_scheduler = scheduler
 
     async def connect(self) -> bool:
+        if self._client_state is None:
+            message = (
+                "msgraph_webhook requires a non-empty client_state secret; "
+                "set MSGRAPH_WEBHOOK_CLIENT_STATE or platforms.msgraph_webhook.extra.client_state"
+            )
+            logger.error("[msgraph_webhook] %s", message)
+            self._set_fatal_error("missing_client_state", message, retryable=False)
+            return False
+
         app = web.Application()
         app.router.add_get(self._health_path, self._handle_health)
         app.router.add_get(self._webhook_path, self._handle_validation)
@@ -238,11 +248,10 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
                 continue
 
             receipt_key = self._build_receipt_key(notification)
-            if receipt_key is not None:
-                if self._has_seen_receipt(receipt_key):
-                    duplicates += 1
-                    continue
-                self._remember_receipt(receipt_key)
+            if self._has_seen_receipt(receipt_key):
+                duplicates += 1
+                continue
+            self._remember_receipt(receipt_key)
 
             accepted += 1
             self._accepted_count += 1
@@ -310,7 +319,7 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
         """
         expected = self._client_state
         if expected is None:
-            return True
+            return False
         provided = self._string_or_none(notification.get("clientState"))
         if provided is None:
             return False
@@ -329,9 +338,9 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
     def _build_message_event(
         self,
         notification: Dict[str, Any],
-        receipt_key: Optional[str],
+        receipt_key: str,
     ) -> MessageEvent:
-        message_id = receipt_key or f"sha1:{sha1(json.dumps(notification, sort_keys=True).encode('utf-8')).hexdigest()}"
+        message_id = receipt_key
         source = self.build_source(
             chat_id=f"msgraph:{notification.get('subscriptionId', 'unknown')}",
             chat_name="msgraph/webhook",

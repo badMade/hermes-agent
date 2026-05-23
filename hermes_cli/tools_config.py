@@ -106,6 +106,36 @@ def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
     return allowed is None or platform in allowed
 
 
+def _implicit_default_off_toolsets(platform: str) -> Set[str]:
+    """Default-off toolsets that should be suppressed for ``platform``.
+
+    This only applies to configurable toolsets that are valid on the target
+    platform.
+    """
+    configurable_keys = {ts_key for ts_key, _, _ in CONFIGURABLE_TOOLSETS}
+    # Dedicated Home Assistant sessions should keep the homeassistant toolset
+    # enabled by default on that platform.
+    platform_defaults = {"homeassistant"} if platform == "homeassistant" else set()
+    return {
+        ts_key
+        for ts_key in _DEFAULT_OFF_TOOLSETS
+        if (
+            ts_key in configurable_keys
+            and _toolset_allowed_for_platform(ts_key, platform)
+            and ts_key not in platform_defaults
+        )
+    }
+    """Toolsets treated as opt-in when inferring enabled sets.
+
+    ``homeassistant`` is the only default-off toolset that remains on by
+    default for its own dedicated platform.
+    """
+    default_off = set(_DEFAULT_OFF_TOOLSETS)
+    if platform == "homeassistant":
+        default_off.discard("homeassistant")
+    return default_off
+
+
 def _get_effective_configurable_toolsets():
     """Return CONFIGURABLE_TOOLSETS + any plugin-provided toolsets.
 
@@ -975,6 +1005,11 @@ def _parse_enabled_flag(value, default: bool = True) -> bool:
     return default
 
 
+_LEGACY_PLATFORM_TOOLSET_ALIASES = {
+    "qqbot": ("qq",),
+}
+
+
 def _get_platform_tools(
     config: dict,
     platform: str,
@@ -986,6 +1021,13 @@ def _get_platform_tools(
 
     platform_toolsets = config.get("platform_toolsets") or {}
     toolset_names = platform_toolsets.get(platform)
+    if toolset_names is None:
+        legacy_platforms = _LEGACY_PLATFORM_TOOLSET_ALIASES.get(platform, ())
+        for legacy_platform in legacy_platforms:
+            legacy_toolset_names = platform_toolsets.get(legacy_platform)
+            if isinstance(legacy_toolset_names, list):
+                toolset_names = legacy_toolset_names
+                break
 
     has_explicit_platform_toolsets = isinstance(toolset_names, list)
     if not has_explicit_platform_toolsets:

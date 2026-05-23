@@ -46,6 +46,17 @@ class TestMSGraphWebhookConfig:
         assert Platform.MSGRAPH_WEBHOOK in config.platforms
         assert Platform.MSGRAPH_WEBHOOK in config.get_connected_platforms()
 
+    def test_env_enable_without_client_state_is_not_connected(self, monkeypatch):
+        config = GatewayConfig()
+
+        monkeypatch.setenv("MSGRAPH_WEBHOOK_ENABLED", "true")
+
+        _apply_env_overrides(config)
+
+        platform_config = config.platforms[Platform.MSGRAPH_WEBHOOK]
+        assert platform_config.enabled is True
+        assert Platform.MSGRAPH_WEBHOOK not in config.get_connected_platforms()
+
     def test_env_overrides_apply_to_existing_msgraph_webhook_platform(self, monkeypatch):
         config = GatewayConfig(
             platforms={Platform.MSGRAPH_WEBHOOK: PlatformConfig(enabled=True, extra={})}
@@ -166,6 +177,38 @@ class TestMSGraphNotifications:
         assert scheduled == []
 
     @pytest.mark.anyio
+    async def test_missing_client_state_rejects_notification(self):
+        adapter = _make_adapter(client_state="")
+        scheduled: list[tuple[dict, object]] = []
+
+        async def _capture(notification, event):
+            scheduled.append((notification, event))
+
+        adapter.set_notification_scheduler(_capture)
+        payload = {
+            "value": [
+                {
+                    "id": "notif-no-client-state",
+                    "resource": "communications/onlineMeetings/meeting-2",
+                }
+            ]
+        }
+
+        resp = await adapter._handle_notification(_FakeRequest(json_payload=payload))
+        assert resp.status == 403
+
+        await asyncio.sleep(0.05)
+
+        assert scheduled == []
+
+    @pytest.mark.anyio
+    async def test_connect_requires_client_state_secret(self):
+        adapter = _make_adapter(client_state="")
+
+        assert await adapter.connect() is False
+        assert adapter.fatal_error_code == "missing_client_state"
+
+    @pytest.mark.anyio
     async def test_client_state_compare_is_timing_safe(self, monkeypatch):
         """Ensure hmac.compare_digest is used for clientState comparison."""
         import hmac
@@ -233,7 +276,7 @@ class TestMSGraphNotifications:
         assert len(scheduled) == 1
 
     @pytest.mark.anyio
-    async def test_notifications_without_id_are_not_deduped(self):
+    async def test_notifications_without_id_are_deduped_by_content_hash(self):
         adapter = _make_adapter()
         scheduled: list[tuple[dict, object]] = []
 
@@ -261,7 +304,9 @@ class TestMSGraphNotifications:
 
         await asyncio.sleep(0.05)
 
-        assert len(scheduled) == 2
+        assert adapter._duplicate_count == 1
+        assert len(scheduled) == 1
+        assert scheduled[0][1].message_id.startswith("sha1:")
 
     @pytest.mark.anyio
     async def test_resource_patterns_accept_leading_slash(self):

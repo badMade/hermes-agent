@@ -76,6 +76,9 @@ def test_cleared_subagent_alias_collapses_to_default_again():
 
 
 def test_rl_task_with_override_keeps_its_own_id():
+    # RL / benchmark pattern: register a per-task image, then the task_id
+    # must survive ``_resolve_container_task_id`` so the rollout lands in
+    # its own sandbox.
     terminal_tool.register_task_env_overrides(
         "tb2-task-fix-git", {"docker_image": "tb2:fix-git", "cwd": "/app"}
     )
@@ -88,34 +91,25 @@ def test_rl_task_with_override_keeps_its_own_id():
         terminal_tool.clear_task_env_overrides("tb2-task-fix-git")
 
 
-def test_cleared_override_preserves_non_subagent_task_id():
+def test_cleared_override_collapses_again():
     terminal_tool.register_task_env_overrides("tb2-x", {"docker_image": "x:y"})
     assert terminal_tool._resolve_container_task_id("tb2-x") == "tb2-x"
     terminal_tool.clear_task_env_overrides("tb2-x")
-    assert terminal_tool._resolve_container_task_id("tb2-x") == "tb2-x"
+    assert terminal_tool._resolve_container_task_id("tb2-x") == "default"
 
 
-def test_get_active_env_reads_aliased_parent_container_from_subagent_id():
+def test_get_active_env_reads_shared_container_from_subagent_id():
+    """``get_active_env`` must see the shared ``"default"`` sandbox when
+    called with a subagent's task_id, so the agent loop's turn-budget
+    enforcement reads the real env (not None) during delegation."""
     sentinel = object()
-    terminal_tool._active_environments["gateway-session-1"] = sentinel
-    terminal_tool.register_task_container_alias("sa-7-cafe", "gateway-session-1")
+    terminal_tool._active_environments["default"] = sentinel
     try:
-        assert terminal_tool.get_active_env("sa-7-cafe") is sentinel
+        assert terminal_tool.get_active_env("subagent-7-cafe") is sentinel
+        assert terminal_tool.get_active_env(None) is sentinel
+        assert terminal_tool.get_active_env("default") is sentinel
     finally:
-        terminal_tool._active_environments.pop("gateway-session-1", None)
-
-
-def test_get_active_env_keeps_distinct_gateway_sessions():
-    session_a = object()
-    session_b = object()
-    terminal_tool._active_environments["gateway-session-a"] = session_a
-    terminal_tool._active_environments["gateway-session-b"] = session_b
-    try:
-        assert terminal_tool.get_active_env("gateway-session-a") is session_a
-        assert terminal_tool.get_active_env("gateway-session-b") is session_b
-    finally:
-        terminal_tool._active_environments.pop("gateway-session-a", None)
-        terminal_tool._active_environments.pop("gateway-session-b", None)
+        terminal_tool._active_environments.pop("default", None)
 
 
 def test_get_active_env_honours_rl_override():
@@ -125,6 +119,8 @@ def test_get_active_env_honours_rl_override():
     terminal_tool._active_environments["rl-42"] = rl_env
     terminal_tool.register_task_env_overrides("rl-42", {"docker_image": "x"})
     try:
+        # With an override registered, lookup returns the task's own env,
+        # not the shared "default" one.
         assert terminal_tool.get_active_env("rl-42") is rl_env
     finally:
         terminal_tool.clear_task_env_overrides("rl-42")
