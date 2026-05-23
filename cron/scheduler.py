@@ -85,6 +85,34 @@ def _resolve_cron_enabled_toolsets(job: dict, cfg: dict) -> list[str] | None:
         )
         return None
 
+
+def _resolve_cron_mcp_server_names(
+    enabled_toolsets: list[str] | None,
+    cfg: dict,
+) -> set[str] | None:
+    """Return MCP servers allowed by the resolved cron tool policy.
+
+    ``None`` preserves the legacy full-toolset fallback when cron toolset
+    resolution fails. Otherwise, cron may only start globally enabled MCP
+    servers whose names survived ``_resolve_cron_enabled_toolsets``.
+    """
+    if enabled_toolsets is None:
+        return None
+
+    enabled_names = {str(name) for name in enabled_toolsets}
+    mcp_servers = (cfg or {}).get("mcp_servers") or {}
+    if not isinstance(mcp_servers, dict):
+        return set()
+
+    return {
+        str(name)
+        for name, server_cfg in mcp_servers.items()
+        if str(name) in enabled_names
+        and isinstance(server_cfg, dict)
+        and str(server_cfg.get("enabled", True)).strip().lower() not in {"0", "false", "no", "off"}
+    }
+
+
 # Valid delivery platforms — used to validate user-supplied platform names
 # in cron delivery targets, preventing env var enumeration via crafted names.
 _KNOWN_DELIVERY_PLATFORMS = frozenset({
@@ -1044,26 +1072,9 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             logger.error("Job '%s': %s", job_id, err)
             return False, "", "", err
 
-        # Apply workdir if configured — lets scripts use predictable relative
-        # paths. For no_agent jobs this is just the subprocess cwd (not an
-        # agent TERMINAL_CWD bridge).
-        _job_workdir = (job.get("workdir") or "").strip() or None
-        _prior_cwd = None
-        if _job_workdir and Path(_job_workdir).is_dir():
-            _prior_cwd = os.getcwd()
-            try:
-                os.chdir(_job_workdir)
-            except OSError:
-                _prior_cwd = None
-
-        try:
-            ok, output = _run_job_script(script_path)
-        finally:
-            if _prior_cwd is not None:
-                try:
-                    os.chdir(_prior_cwd)
-                except OSError:
-                    pass
+        # no_agent scripts already run as child processes via _run_job_script();
+        # never chdir the scheduler process for a per-job workdir.
+        ok, output = _run_job_script(script_path)
 
         now_iso = _hermes_now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1241,16 +1252,9 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
     for _var_name, _var_value in _cron_context_vars:
         _VAR_MAP[_var_name].set(_var_value)
 
-    # Per-job working directory.  When set (and validated at create/update
-    # time), we point TERMINAL_CWD at it so:
-    #   - build_context_files_prompt() picks up AGENTS.md / CLAUDE.md /
-    #     .cursorrules from the job's project dir, AND
-    #   - the terminal, file, and code-exec tools run commands from there.
-    #
-    # tick() serializes workdir-jobs outside the parallel pool, so mutating
-    # os.environ["TERMINAL_CWD"] here is safe for those jobs.  For workdir-less
-    # jobs we leave TERMINAL_CWD untouched — preserves the original behaviour
-    # (skip_context_files=True, tools use whatever cwd the scheduler has).
+    # Per-job working directory. Use a ContextVar-backed TERMINAL_CWD
+    # override so this cron job sees its project cwd without exposing that
+    # cwd to unrelated gateway/API sessions in the same process.
     _job_workdir = (job.get("workdir") or "").strip() or None
     if _job_workdir and not Path(_job_workdir).is_dir():
         # Directory was removed between create-time validation and now.  Log
@@ -1260,9 +1264,10 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             job_id, _job_workdir,
         )
         _job_workdir = None
-    _prior_terminal_cwd = os.environ.get("TERMINAL_CWD", "_UNSET_")
+    _terminal_cwd_token = None
     if _job_workdir:
-        os.environ["TERMINAL_CWD"] = _job_workdir
+        from gateway.session_context import set_terminal_cwd
+        _terminal_cwd_token = set_terminal_cwd(_job_workdir)
         logger.info("Job '%s': using workdir %s", job_id, _job_workdir)
 
     try:
@@ -1405,26 +1410,26 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             except Exception as e:
                 logger.debug("Job '%s': failed to load credential pool for %s: %s", job_id, runtime_provider, e)
 
-        # Initialize MCP servers so configured mcp_servers are available to
-        # the agent's tool registry before AIAgent is constructed. Without
-        # this, cron jobs never saw any MCP tools — only the gateway / CLI
-        # paths called discover_mcp_tools() at startup. Idempotent: subsequent
-        # ticks short-circuit on already-connected servers inside
-        # register_mcp_servers(). Non-fatal on failure: a broken MCP server
-        # shouldn't kill an otherwise-working cron job. See #4219.
-        try:
-            from tools.mcp_tool import discover_mcp_tools
-            _mcp_tools = discover_mcp_tools()
-            if _mcp_tools:
-                logger.info(
-                    "Job '%s': %d MCP tool(s) available",
-                    job_id, len(_mcp_tools),
+        cron_enabled_toolsets = _resolve_cron_enabled_toolsets(job, _cfg)
+        cron_mcp_server_names = _resolve_cron_mcp_server_names(cron_enabled_toolsets, _cfg)
+
+        # Initialize only MCP servers allowed by cron's resolved tool policy
+        # before AIAgent is constructed. This preserves MCP availability for
+        # cron while honoring platform_toolsets.cron no_mcp/allowlist settings.
+        if cron_mcp_server_names is None or cron_mcp_server_names:
+            try:
+                from tools.mcp_tool import discover_mcp_tools
+                _mcp_tools = discover_mcp_tools(allowed_server_names=cron_mcp_server_names)
+                if _mcp_tools:
+                    logger.info(
+                        "Job '%s': %d MCP tool(s) available",
+                        job_id, len(_mcp_tools),
+                    )
+            except Exception as _mcp_exc:
+                logger.warning(
+                    "Job '%s': MCP initialization failed (non-fatal): %s",
+                    job_id, _mcp_exc,
                 )
-        except Exception as _mcp_exc:
-            logger.warning(
-                "Job '%s': MCP initialization failed (non-fatal): %s",
-                job_id, _mcp_exc,
-            )
 
         agent = AIAgent(
             model=model,
@@ -1444,7 +1449,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             providers_order=pr.get("order"),
             provider_sort=pr.get("sort"),
             openrouter_min_coding_score=(_cfg.get("openrouter") or {}).get("min_coding_score"),
-            enabled_toolsets=_resolve_cron_enabled_toolsets(job, _cfg),
+            enabled_toolsets=cron_enabled_toolsets,
             disabled_toolsets=["cronjob", "messaging", "clarify"],
             quiet_mode=True,
             # Cron jobs should always inherit the user's SOUL.md identity from
@@ -1617,14 +1622,11 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         return False, output, "", error_msg
 
     finally:
-        # Restore TERMINAL_CWD to whatever it was before this job ran.  We
-        # only ever mutate it when the job has a workdir; see the setup block
-        # at the top of run_job for the serialization guarantee.
-        if _job_workdir:
-            if _prior_terminal_cwd == "_UNSET_":
-                os.environ.pop("TERMINAL_CWD", None)
-            else:
-                os.environ["TERMINAL_CWD"] = _prior_terminal_cwd
+        # Restore this job's session-scoped cwd override without mutating
+        # process-global os.environ.
+        if _terminal_cwd_token is not None:
+            from gateway.session_context import reset_terminal_cwd
+            reset_terminal_cwd(_terminal_cwd_token)
         # Clean up ContextVar session/delivery state for this job.
         clear_session_vars(_ctx_tokens)
         for _var_name, _ in _cron_context_vars:
@@ -1773,10 +1775,8 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                 mark_job_run(job["id"], False, str(e))
                 return False
 
-        # Partition due jobs: those with a per-job workdir mutate
-        # os.environ["TERMINAL_CWD"] inside run_job, which is process-global —
-        # so they MUST run sequentially to avoid corrupting each other.  Jobs
-        # without a workdir leave env untouched and stay parallel-safe.
+        # Partition due jobs to preserve the original scheduling behavior for
+        # workdir jobs. Their cwd is now session-scoped rather than process-global.
         workdir_jobs = [j for j in due_jobs if (j.get("workdir") or "").strip()]
         parallel_jobs = [j for j in due_jobs if not (j.get("workdir") or "").strip()]
 
