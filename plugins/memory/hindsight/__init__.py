@@ -52,6 +52,7 @@ _DEFAULT_LOCAL_URL = "http://localhost:8888"
 _MIN_CLIENT_VERSION = "0.4.22"
 _DEFAULT_TIMEOUT = 120  # seconds — cloud API can take 30-40s per request
 _DEFAULT_IDLE_TIMEOUT = 300  # seconds — Hindsight embedded daemon default
+_DEFAULT_RETAIN_QUEUE_MAXSIZE = 64
 # Mirrors hindsight-integrations/openclaw — Hindsight 0.5.0 added
 # `update_mode='append'` semantics on retain (vectorize-io/hindsight#932).
 # Without it, reusing a stable session-scoped document_id silently
@@ -601,7 +602,7 @@ class HindsightMemoryProvider(MemoryProvider):
         # thread drains sequentially. Avoids spawning ad-hoc threads that
         # can race the interpreter shutdown and emit "cannot schedule new
         # futures after interpreter shutdown" / "Unclosed client session".
-        self._retain_queue: queue.Queue = queue.Queue()
+        self._retain_queue: queue.Queue = queue.Queue(maxsize=_DEFAULT_RETAIN_QUEUE_MAXSIZE)
         self._writer_thread: threading.Thread | None = None
         self._shutting_down = threading.Event()
         self._atexit_registered = False
@@ -1040,6 +1041,58 @@ class HindsightMemoryProvider(MemoryProvider):
             return
         self._atexit_registered = True
         atexit.register(self._atexit_shutdown)
+
+    def _unregister_atexit(self) -> None:
+        """Release the atexit callback's bound-method reference."""
+        if not self._atexit_registered:
+            return
+        try:
+            atexit.unregister(self._atexit_shutdown)
+        except Exception:
+            pass
+        self._atexit_registered = False
+
+    def _drop_pending_retain_jobs(self) -> int:
+        """Discard queued retain closures and mark them complete."""
+        dropped = 0
+        while True:
+            try:
+                self._retain_queue.get_nowait()
+            except queue.Empty:
+                return dropped
+            self._retain_queue.task_done()
+            dropped += 1
+
+    def _enqueue_retain_job(self, job) -> bool:
+        """Queue a retain job without allowing unbounded transcript retention."""
+        if self._shutting_down.is_set():
+            return False
+        self._ensure_writer()
+        self._register_atexit()
+        try:
+            self._retain_queue.put_nowait(job)
+            return True
+        except queue.Full:
+            dropped = self._drop_pending_retain_jobs()
+            logger.warning(
+                "Hindsight retain queue full; dropped %d pending retain(s)",
+                dropped,
+            )
+            try:
+                self._retain_queue.put_nowait(job)
+                return True
+            except queue.Full:
+                logger.warning("Hindsight retain queue still full; dropping latest retain")
+                return False
+
+    def _clear_retained_state(self) -> None:
+        """Drop per-session transcript state after provider shutdown."""
+        self._drop_pending_retain_jobs()
+        self._session_turns = []
+        self._turn_counter = 0
+        self._turn_index = 0
+        with self._prefetch_lock:
+            self._prefetch_result = ""
 
     def _atexit_shutdown(self) -> None:
         if self._shutting_down.is_set():
@@ -1540,9 +1593,7 @@ class HindsightMemoryProvider(MemoryProvider):
             )
             logger.debug("Hindsight retain succeeded")
 
-        self._ensure_writer()
-        self._register_atexit()
-        self._retain_queue.put(_do_retain)
+        self._enqueue_retain_job(_do_retain)
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         if self._memory_mode == "context":
@@ -1724,10 +1775,8 @@ class HindsightMemoryProvider(MemoryProvider):
             # two threads on aretain_batch against the same document, and
             # keeps shutdown's drain semantics intact. Skip enqueue if
             # shutdown has already fired — the writer is draining/gone.
-            if old_turns_to_flush and not self._shutting_down.is_set():
-                self._ensure_writer()
-                self._register_atexit()
-                self._retain_queue.put(_flush)
+            if not self._shutting_down.is_set():
+                self._enqueue_retain_job(_flush)
 
         # 2. Drain any in-flight prefetch from the old session and drop
         # its cached result so the new session doesn't see stale recall.
@@ -1762,7 +1811,17 @@ class HindsightMemoryProvider(MemoryProvider):
         writer = self._writer_thread
         if writer is not None and writer.is_alive():
             try:
-                self._retain_queue.put(_WRITER_SENTINEL)
+                self._retain_queue.put_nowait(_WRITER_SENTINEL)
+            except queue.Full:
+                dropped = self._drop_pending_retain_jobs()
+                logger.warning(
+                    "Hindsight retain queue full during shutdown; dropped %d pending retain(s)",
+                    dropped,
+                )
+                try:
+                    self._retain_queue.put_nowait(_WRITER_SENTINEL)
+                except Exception:
+                    pass
             except Exception:
                 pass
             writer.join(timeout=10.0)
@@ -1799,6 +1858,8 @@ class HindsightMemoryProvider(MemoryProvider):
             except Exception:
                 pass
             self._client = None
+        self._unregister_atexit()
+        self._clear_retained_state()
         # The module-global background event loop (_loop / _loop_thread)
         # is intentionally NOT stopped here. It is shared across every
         # HindsightMemoryProvider instance in the process — the plugin
