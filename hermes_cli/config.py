@@ -477,6 +477,11 @@ def _ensure_hermes_home_managed(home: Path):
 DEFAULT_CONFIG = {
     "model": "",
     "providers": {},
+    "acp": {
+        # ACP clients can provide MCP server definitions per session. Stdio
+        # transports execute local commands, so only operator config can opt in.
+        "allow_client_stdio_mcp_servers": False,
+    },
     "fallback_providers": [],
     "credential_pool_strategies": {},
     "toolsets": ["hermes-cli"],
@@ -2551,6 +2556,14 @@ OPTIONAL_ENV_VARS = {
     "GATEWAY_PROXY_KEY": {
         "description": "Bearer token for authenticating with the remote Hermes API server (proxy mode). Must match the API_SERVER_KEY on the remote host.",
         "prompt": "Remote API server auth key",
+        "url": None,
+        "password": True,
+        "category": "messaging",
+        "advanced": True,
+    },
+    "GATEWAY_PROXY_SCOPE_KEY": {
+        "description": "Shared secret used to sign hermes_proxy_scope metadata sent from the gateway proxy to the API server. Must match on both ends to allow the proxy to forward platform and toolset context.",
+        "prompt": "Gateway proxy scope signing key",
         "url": None,
         "password": True,
         "category": "messaging",
