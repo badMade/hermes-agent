@@ -328,6 +328,8 @@ class SessionDB:
     _WRITE_RETRY_MAX_S = 0.150   # 150ms
     # Attempt a PASSIVE WAL checkpoint every N successful writes.
     _CHECKPOINT_EVERY_N_WRITES = 50
+    # Keep CJK LIKE fallback SQL below SQLite expression/variable limits.
+    _CJK_LIKE_MAX_TOKENS = 250
 
     def __init__(self, db_path: Path = None):
         self.db_path = db_path or DEFAULT_DB_PATH
@@ -1719,7 +1721,10 @@ class SessionDB:
         return session_id
 
     def get_messages_as_conversation(
-        self, session_id: str, include_ancestors: bool = False
+        self,
+        session_id: str,
+        include_ancestors: bool = False,
+        source: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Load messages in the OpenAI conversation format (role + content dicts).
@@ -1731,13 +1736,24 @@ class SessionDB:
 
         with self._lock:
             placeholders = ",".join("?" for _ in session_ids)
-            rows = self._conn.execute(
-                "SELECT role, content, tool_call_id, tool_calls, tool_name, "
-                "finish_reason, reasoning, reasoning_content, reasoning_details, "
-                "codex_reasoning_items, codex_message_items "
-                f"FROM messages WHERE session_id IN ({placeholders}) ORDER BY timestamp, id",
-                tuple(session_ids),
-            ).fetchall()
+            if source is None:
+                rows = self._conn.execute(
+                    "SELECT role, content, tool_call_id, tool_calls, tool_name, "
+                    "finish_reason, reasoning, reasoning_content, reasoning_details, "
+                    "codex_reasoning_items, codex_message_items "
+                    f"FROM messages WHERE session_id IN ({placeholders}) ORDER BY timestamp, id",
+                    tuple(session_ids),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT m.role, m.content, m.tool_call_id, m.tool_calls, m.tool_name, "
+                    "m.finish_reason, m.reasoning, m.reasoning_content, m.reasoning_details, "
+                    "m.codex_reasoning_items, m.codex_message_items "
+                    "FROM messages m JOIN sessions s ON s.id = m.session_id "
+                    f"WHERE m.session_id IN ({placeholders}) AND s.source = ? "
+                    "ORDER BY m.timestamp, m.id",
+                    (*session_ids, source),
+                ).fetchall()
 
         messages = []
         for row in rows:
@@ -2064,10 +2080,15 @@ class SessionDB:
                 # For multi-token OR queries (e.g. "广西 OR 桂林 OR 漓江"),
                 # build one LIKE condition per non-operator token so each term
                 # is matched independently (#20494).
-                non_op_tokens = [
+                raw_tokens = [
                     t for t in raw_query.split()
                     if t.upper() not in {"AND", "OR", "NOT"}
                 ] or [raw_query]
+                # Deduplicate and cap attacker-controlled tokens so the
+                # fallback cannot exceed SQLite expression/variable limits.
+                non_op_tokens = list(dict.fromkeys(raw_tokens))[
+                    :self._CJK_LIKE_MAX_TOKENS
+                ]
                 token_clauses = []
                 like_params: list = []
                 for tok in non_op_tokens:
@@ -2103,8 +2124,13 @@ class SessionDB:
                 # instr() for snippet uses first search token
                 like_params = [non_op_tokens[0]] + like_params
                 with self._lock:
-                    like_cursor = self._conn.execute(like_sql, like_params)
-                    matches = [dict(row) for row in like_cursor.fetchall()]
+                    try:
+                        like_cursor = self._conn.execute(like_sql, like_params)
+                        like_rows = like_cursor.fetchall()
+                    except sqlite3.OperationalError:
+                        matches = []
+                    else:
+                        matches = [dict(row) for row in like_rows]
         else:
             with self._lock:
                 try:
@@ -2998,4 +3024,3 @@ class SessionDB:
                 (error[:500], session_id),
             )
         self._execute_write(_do)
-
