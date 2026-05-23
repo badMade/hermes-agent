@@ -292,15 +292,15 @@ REMEMBER_SCHEMA = {
 ADD_RESOURCE_SCHEMA = {
     "name": "viking_add_resource",
     "description": (
-        "Add a remote URL or local file/directory to the OpenViking knowledge base. "
+        "Add a remote URL to the OpenViking knowledge base. "
         "Remote resources must be public http(s), git, or ssh URLs. "
-        "Local files are automatically uploaded to OpenViking before indexing. "
+        "Local filesystem paths and file:// URIs are not allowed. "
         "The system automatically parses, indexes, and generates summaries."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "url": {"type": "string", "description": "Remote URL or local file/directory path to add."},
+            "url": {"type": "string", "description": "Remote URL to add (http(s), git, or ssh)."},
             "reason": {
                 "type": "string",
                 "description": "Why this resource is relevant (improves search).",
@@ -897,18 +897,12 @@ class OpenVikingMemoryProvider(MemoryProvider):
         else:
             source_path = Path(url).expanduser()
 
-        cleanup_path: Optional[Path] = None
-        try:
-            if source_path is not None:
-                return tool_error(local_path_error)
-            else:
-                payload["path"] = url
+        if source_path is not None:
+            return tool_error(local_path_error)
 
-            resp = self._client.post("/api/v1/resources", payload)
-            result = resp.get("result", {})
-        finally:
-            if cleanup_path:
-                cleanup_path.unlink(missing_ok=True)
+        payload["path"] = url
+        resp = self._client.post("/api/v1/resources", payload)
+        result = resp.get("result", {})
 
         return json.dumps({
             "status": "added",
