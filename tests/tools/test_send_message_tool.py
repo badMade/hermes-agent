@@ -1605,6 +1605,8 @@ class TestSendDiscordForumMedia:
         # Multipart form, not JSON
         assert post_calls[0]["kwargs"].get("data") is not None
         assert post_calls[0]["kwargs"].get("json") is None
+        payload = post_calls[0]["kwargs"]["data"]._fields[0][2]
+        assert '"allowed_mentions": {"parse": ["users"], "replied_user": true}' in payload
 
     def test_forum_without_media_still_json_only(self, tmp_path, monkeypatch):
         """Forum + no media → JSON POST (no multipart overhead)."""
@@ -1633,6 +1635,11 @@ class TestSendDiscordForumMedia:
         # JSON path, no multipart
         assert post_calls[0]["kwargs"].get("json") is not None
         assert post_calls[0]["kwargs"].get("data") is None
+        allowed = post_calls[0]["kwargs"]["json"]["message"]["allowed_mentions"]
+        assert allowed["replied_user"] is True
+        assert "users" in allowed["parse"]
+        assert "everyone" not in allowed["parse"]
+        assert "roles" not in allowed["parse"]
 
     def test_forum_missing_media_file_collected_as_warning(self, tmp_path, monkeypatch):
         """Missing media files produce warnings but the thread is still created."""

@@ -1041,6 +1041,35 @@ def _probe_is_forum_cached(chat_id: str) -> Optional[bool]:
     return _DISCORD_CHANNEL_TYPE_PROBE_CACHE.get(str(chat_id))
 
 
+def _discord_allowed_mentions_payload() -> dict:
+    """Return Discord REST ``allowed_mentions`` with safe defaults.
+
+    Mirrors gateway Discord adapter defaults: block @everyone/@here and role
+    pings by default, while allowing user mentions and replied-user pings.
+    """
+
+    def _b(name: str, default: bool) -> bool:
+        raw = os.getenv(name, "").strip().lower()
+        if not raw:
+            return default
+        return raw in ("true", "1", "yes", "on")
+
+    allow_everyone = _b("DISCORD_ALLOW_MENTION_EVERYONE", False)
+    allow_roles = _b("DISCORD_ALLOW_MENTION_ROLES", False)
+    allow_users = _b("DISCORD_ALLOW_MENTION_USERS", True)
+    allow_replied_user = _b("DISCORD_ALLOW_MENTION_REPLIED_USER", True)
+
+    parse = []
+    if allow_everyone:
+        parse.append("everyone")
+    if allow_roles:
+        parse.append("roles")
+    if allow_users:
+        parse.append("users")
+
+    return {"parse": parse, "replied_user": allow_replied_user}
+
+
 async def _send_discord(token, chat_id, message, thread_id=None, media_files=None):
     """Send a single message via Discord REST API (no websocket client needed).
 
@@ -1134,7 +1163,7 @@ async def _send_discord(token, chat_id, message, thread_id=None, media_files=Non
                             {"id": str(idx), "filename": os.path.basename(path)}
                             for idx, path in enumerate(valid_media)
                         ]
-                        starter_message = {"content": message, "attachments": attachments_meta}
+                        starter_message = {"content": message, "allowed_mentions": _discord_allowed_mentions_payload(), "attachments": attachments_meta}
                         payload_json = json.dumps({"name": thread_name, "message": starter_message})
 
                         form = aiohttp.FormData()
@@ -1166,7 +1195,7 @@ async def _send_discord(token, chat_id, message, thread_id=None, media_files=Non
                             headers=json_headers,
                             json={
                                 "name": thread_name,
-                                "message": {"content": message},
+                                "message": {"content": message, "allowed_mentions": _discord_allowed_mentions_payload()},
                             },
                             **_req_kw,
                         ) as resp:
