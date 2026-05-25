@@ -1,0 +1,44 @@
+name: Compute Self-Heal Schedule
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  compute-schedule:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: uv pip install ruamel.yaml
+
+      - name: Run schedule compute
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/compute_schedule.py
+
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: self-heal-schedule
+          title: "[Self-Heal Schedule] Update cadence"
+          body: |
+            Self-Heal Schedule Update.
+          labels: "automation,self-heal"
+          commit-message: "[Self-Heal Schedule] Update cadence"
+          delete-branch: true
