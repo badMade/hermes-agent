@@ -3313,12 +3313,9 @@ async def events_ws(ws: WebSocket) -> None:
         await ws.close(code=4400)
         return
 
-    # Register the subscriber in the same critical section as accept().
-    # This guarantees websocket_connect() only returns after the channel
-    # subscription is live, avoiding a connect/publish race where the first
-    # broadcast can be dropped.
+    await ws.accept()
+
     async with _event_lock:
-        await ws.accept()
         _event_channels.setdefault(channel, set()).add(ws)
 
     try:
@@ -4229,7 +4226,21 @@ def _mount_plugin_api_routes():
             if router is None:
                 _log.warning("Plugin %s api file has no 'router' attribute", plugin["name"])
                 continue
-            app.include_router(router, prefix=f"/api/plugins/{plugin['name']}")
+            # Insert route at the top to avoid shadowing by the SPA catch-all
+            for route in router.routes:
+                if hasattr(route, "path"):
+                    new_path = f"/api/plugins/{plugin['name']}{route.path}"
+                    from fastapi.routing import APIRoute
+                    if isinstance(route, APIRoute):
+                        app.router.routes.insert(0, APIRoute(
+                            new_path,
+                            route.endpoint,
+                            methods=route.methods,
+                            name=route.name,
+                            include_in_schema=route.include_in_schema,
+                        ))
+                    else:
+                        _log.warning(f"Skipping non-APIRoute in plugin {plugin['name']}")
             _log.info("Mounted plugin API routes: /api/plugins/%s/", plugin["name"])
         except Exception as exc:
             _log.warning("Failed to load plugin %s API routes: %s", plugin["name"], exc)
