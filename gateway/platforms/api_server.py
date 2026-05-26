@@ -3267,6 +3267,8 @@ class APIServerAdapter(BasePlatformAdapter):
         finally:
             task = self._active_run_tasks.get(run_id)
             status = self._run_statuses.get(run_id) or {}
+            # A stream can briefly exist before its background task is registered,
+            # so only clean up once the run is terminal and the task is gone/done.
             if (task is None or task.done()) and status.get("status") in {"completed", "failed", "cancelled"}:
                 self._run_streams.pop(run_id, None)
                 self._run_streams_created.pop(run_id, None)
