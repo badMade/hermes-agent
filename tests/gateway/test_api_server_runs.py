@@ -178,7 +178,7 @@ class TestStartRun:
                 assert first.status == 202
                 run_id = (await first.json())["run_id"]
 
-                agent_ready.wait(timeout=3.0)
+                await asyncio.get_running_loop().run_in_executor(None, agent_ready.wait, 3.0)
                 await asyncio.sleep(0.1)
 
                 events_resp = await cli.get(f"/v1/runs/{run_id}/events")
