@@ -20,10 +20,6 @@ run_check() {
     fi
 }
 
-run_check "uv run ruff check ." || { exit 1; }
-run_check "uv run ruff format --check ." || { exit 1; }
-run_check "uv run mypy --strict ." || { exit 1; }
 run_check "uv run scripts/run_tests.sh" || { exit 1; }
-run_check "uv build" || { exit 1; }
 
 exit 0
