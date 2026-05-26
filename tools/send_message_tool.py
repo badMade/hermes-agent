@@ -1611,13 +1611,13 @@ async def _send_matrix(token, extra, chat_id, message):
         # Build message payload with optional HTML formatted_body.
         payload = {"msgtype": "m.text", "body": message}
         try:
-            import markdown as _md
-            html = _md.markdown(message, extensions=["fenced_code", "tables"])
-            # Convert h1-h6 to bold for Element X compatibility.
-            html = re.sub(r"<h[1-6]>(.*?)</h[1-6]>", r"<strong>\1</strong>", html)
-            payload["format"] = "org.matrix.custom.html"
-            payload["formatted_body"] = html
-        except ImportError:
+            from gateway.platforms.matrix import MatrixAdapter
+
+            html = MatrixAdapter._markdown_to_html_fallback(message)
+            if html and html != message:
+                payload["format"] = "org.matrix.custom.html"
+                payload["formatted_body"] = html
+        except Exception:
             pass
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:

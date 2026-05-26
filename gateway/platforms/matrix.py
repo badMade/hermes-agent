@@ -2632,24 +2632,8 @@ class MatrixAdapter(BasePlatformAdapter):
         italic, strikethrough, links, blockquotes, lists, and horizontal
         rules — everything the Matrix HTML spec allows.
         """
-        try:
-            import markdown as _md
-
-            md = _md.Markdown(
-                extensions=["fenced_code", "tables", "nl2br", "sane_lists"],
-            )
-            if "html_block" in md.preprocessors:
-                md.preprocessors.deregister("html_block")
-
-            html = md.convert(text)
-            md.reset()
-
-            if html.count("<p>") == 1:
-                html = html.replace("<p>", "").replace("</p>", "")
-            return html
-        except ImportError:
-            pass
-
+        # Always use the hardened fallback converter. The Python-Markdown path
+        # can emit raw inline HTML and unsafe link schemes in formatted_body.
         return self._markdown_to_html_fallback(text)
 
     # ------------------------------------------------------------------
