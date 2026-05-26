@@ -24,6 +24,7 @@ except ModuleNotFoundError:
     pass
 
 import logging
+import shlex
 import os
 import shutil
 import sys
@@ -10785,7 +10786,7 @@ class HermesCLI:
             print("Resume this session with:")
             print(f"  hermes --resume {self.session_id}")
             if session_title:
-                print(f"  hermes -c \"{session_title}\"")
+                print(f"  hermes -c {shlex.quote(session_title)}")
             print()
             print(f"Session:        {self.session_id}")
             if session_title:
