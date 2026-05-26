@@ -192,6 +192,35 @@ class TestStartRun:
 
                 await cli.post(f"/v1/runs/{run_id}/stop")
 
+    @pytest.mark.asyncio
+    async def test_unconsumed_run_events_buffer_is_bounded(self, adapter):
+        app = _create_runs_app(adapter)
+        adapter._RUN_STREAM_MAX_EVENTS = 8
+        async with TestClient(TestServer(app)) as cli:
+            with patch.object(adapter, "_create_agent") as mock_create:
+                mock_agent, agent_ready, _ = _make_slow_agent()
+                mock_create.return_value = mock_agent
+
+                first = await cli.post("/v1/runs", json={"input": "first"})
+                assert first.status == 202
+                run_id = (await first.json())["run_id"]
+
+                await asyncio.get_running_loop().run_in_executor(None, agent_ready.wait, 3.0)
+                await asyncio.sleep(0.1)
+
+                event_cb = adapter._make_run_event_callback(run_id, asyncio.get_running_loop())
+                for i in range(64):
+                    event_cb("tool.started", tool_name=f"t{i}", preview="x")
+
+                await asyncio.sleep(0.1)
+                q = adapter._run_streams[run_id]
+                assert q.qsize() <= adapter._RUN_STREAM_MAX_EVENTS
+                buffered = [q.get_nowait() for _ in range(q.qsize())]
+                buffered_tools = [event["tool"] for event in buffered if isinstance(event, dict) and event.get("event") == "tool.started"]
+                assert buffered_tools == [f"t{i}" for i in range(56, 64)]
+
+                await cli.post(f"/v1/runs/{run_id}/stop")
+
     async def test_start_requires_auth(self, auth_adapter):
         app = _create_runs_app(auth_adapter)
         async with TestClient(TestServer(app)) as cli:

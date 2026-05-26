@@ -2846,6 +2846,7 @@ class APIServerAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     _MAX_CONCURRENT_RUNS = 10  # Prevent unbounded resource allocation
+    _RUN_STREAM_MAX_EVENTS = 512  # Bounded per-run SSE buffer (drop-oldest policy)
     _RUN_STREAM_TTL = 300  # seconds before orphaned runs are swept
     _RUN_STATUS_TTL = 3600  # seconds to retain terminal run status for polling
 
@@ -2876,7 +2877,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if q is None:
                 return
             try:
-                loop.call_soon_threadsafe(q.put_nowait, event)
+                loop.call_soon_threadsafe(self._enqueue_run_stream_event, run_id, event)
             except Exception:
                 pass
 
@@ -2909,6 +2910,25 @@ class APIServerAdapter(BasePlatformAdapter):
             # _thinking and subagent_progress are intentionally not forwarded
 
         return _callback
+
+    def _enqueue_run_stream_event(self, run_id: str, event: Optional[Dict[str, Any]]) -> None:
+        """Queue a run SSE event with bounded buffering (drop oldest on overflow)."""
+        q = self._run_streams.get(run_id)
+        if q is None:
+            return
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            try:
+                q.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+        except Exception:
+            pass
 
     async def _handle_runs(self, request: "web.Request") -> "web.Response":
         """POST /v1/runs — start an agent run, return run_id immediately."""
@@ -2993,7 +3013,7 @@ class APIServerAdapter(BasePlatformAdapter):
         approval_session_key = f"api_run:{run_id}"
         ephemeral_system_prompt = instructions
         loop = asyncio.get_running_loop()
-        q: "asyncio.Queue[Optional[Dict]]" = asyncio.Queue()
+        q: "asyncio.Queue[Optional[Dict]]" = asyncio.Queue(maxsize=self._RUN_STREAM_MAX_EVENTS)
         created_at = time.time()
         self._run_streams[run_id] = q
         self._run_streams_created[run_id] = created_at
@@ -3006,7 +3026,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if delta is None:
                 return
             try:
-                loop.call_soon_threadsafe(q.put_nowait, {
+                loop.call_soon_threadsafe(self._enqueue_run_stream_event, run_id, {
                     "event": "message.delta",
                     "run_id": run_id,
                     "timestamp": time.time(),
@@ -3107,7 +3127,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 # block below never fires — issue #15561).
                 if isinstance(result, dict) and result.get("failed"):
                     error_msg = result.get("error") or "agent run failed"
-                    q.put_nowait({
+                    self._enqueue_run_stream_event(run_id, {
                         "event": "run.failed",
                         "run_id": run_id,
                         "timestamp": time.time(),
@@ -3121,7 +3141,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     )
                 else:
                     final_response = result.get("final_response", "") if isinstance(result, dict) else ""
-                    q.put_nowait({
+                    self._enqueue_run_stream_event(run_id, {
                         "event": "run.completed",
                         "run_id": run_id,
                         "timestamp": time.time(),
@@ -3142,7 +3162,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     last_event="run.cancelled",
                 )
                 try:
-                    q.put_nowait({
+                    self._enqueue_run_stream_event(run_id, {
                         "event": "run.cancelled",
                         "run_id": run_id,
                         "timestamp": time.time(),
@@ -3159,7 +3179,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     last_event="run.failed",
                 )
                 try:
-                    q.put_nowait({
+                    self._enqueue_run_stream_event(run_id, {
                         "event": "run.failed",
                         "run_id": run_id,
                         "timestamp": time.time(),
@@ -3181,7 +3201,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     pass
                 # Sentinel: signal SSE stream to close
                 try:
-                    q.put_nowait(None)
+                    self._enqueue_run_stream_event(run_id, None)
                 except Exception:
                     pass
                 self._active_run_agents.pop(run_id, None)
