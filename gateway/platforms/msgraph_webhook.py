@@ -323,7 +323,16 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
         provided = self._string_or_none(notification.get("clientState"))
         if provided is None:
             return False
-        return hmac.compare_digest(provided, expected)
+        try:
+            return hmac.compare_digest(
+                provided.encode("utf-8"),
+                expected.encode("utf-8"),
+            )
+        except UnicodeEncodeError:
+            # Lone surrogates (e.g. JSON "\ud800") cannot be UTF-8-encoded.
+            # Treat any unencodable clientState as an auth failure rather than
+            # letting the exception propagate as a 500.
+            return False
 
     def _has_seen_receipt(self, receipt_key: str) -> bool:
         return receipt_key in self._seen_receipts
