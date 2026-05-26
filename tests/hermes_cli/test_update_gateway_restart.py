@@ -1150,7 +1150,6 @@ class TestFindGatewayPidsExclude:
 
 
 # ---------------------------------------------------------------------------
-<<<<<<< HEAD
 
 
 class TestDetachedProfileGatewayRestartEnv:
@@ -1166,8 +1165,6 @@ class TestDetachedProfileGatewayRestartEnv:
             "/venv/bin/python",
             "-m",
             "hermes_cli.main",
-            "--profile",
-            "default",
             "gateway",
             "run",
             "--replace",
@@ -1231,8 +1228,7 @@ class TestDetachedProfileGatewayRestartEnv:
         assert "env=os.environ.copy()" in cmd[2]
 
 
-=======
->>>>>>> fff93d5380c0ca5c30f611c1a8a151015ad5aff2
+
 # Gateway mode writes exit code before restart (#8300)
 # ---------------------------------------------------------------------------
 

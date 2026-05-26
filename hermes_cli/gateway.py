@@ -561,12 +561,8 @@ def find_profile_gateway_processes(
 
 def _gateway_run_args_for_profile(profile: str) -> list[str]:
     args = [get_python_path(), "-m", "hermes_cli.main"]
-<<<<<<< HEAD
-    args.extend(["--profile", profile])
-=======
     if profile != "default":
         args.extend(["--profile", profile])
->>>>>>> fff93d5380c0ca5c30f611c1a8a151015ad5aff2
     args.extend(["gateway", "run", "--replace"])
     return args
 
@@ -663,11 +659,7 @@ def launch_detached_profile_gateway_restart(profile: str, old_pid: int) -> bool:
             )
         else:
             _popen_kwargs["start_new_session"] = True
-<<<<<<< HEAD
         subprocess.Popen(cmd, env=os.environ.copy(), **_popen_kwargs)
-=======
-        subprocess.Popen(cmd, **_popen_kwargs)
->>>>>>> fff93d5380c0ca5c30f611c1a8a151015ad5aff2
         """
     ).strip()
 
@@ -675,7 +667,6 @@ def launch_detached_profile_gateway_restart(profile: str, old_pid: int) -> bool:
         # Same platform-aware detach for the watcher process itself — so
         # closing the user's terminal doesn't kill the watcher.
         subprocess.Popen(
-<<<<<<< HEAD
             [
                 sys.executable,
                 "-c",
@@ -686,11 +677,6 @@ def launch_detached_profile_gateway_restart(profile: str, old_pid: int) -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=_profile_gateway_restart_env(profile),
-=======
-            [sys.executable, "-c", watcher, str(old_pid), *_gateway_run_args_for_profile(profile)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
->>>>>>> fff93d5380c0ca5c30f611c1a8a151015ad5aff2
             **windows_detach_popen_kwargs(),
         )
     except OSError:
