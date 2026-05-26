@@ -1844,9 +1844,10 @@ class TestPluginAPIAuth:
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
-        from hermes_cli.web_server import _get_dashboard_plugins, _mount_plugin_api_routes
-        _get_dashboard_plugins(force_rescan=True)
-        _mount_plugin_api_routes()
+        if not any(getattr(r, "path", "").startswith("/api/plugins/hermes-achievements") for r in app.routes):
+            from hermes_cli.web_server import _get_dashboard_plugins, _mount_plugin_api_routes
+            _get_dashboard_plugins(force_rescan=True)
+            _mount_plugin_api_routes()
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
