@@ -1088,7 +1088,7 @@ export function selectionClipboardText(
     return null
   }
 
-  return mask ? text.replace(/[^\n]/g, mask[0] ?? '*') : text
+  return mask ? text.replace(/[^\r\n]/g, mask[0] ?? '*') : text
 }
 
 export function decideRightClickAction(
