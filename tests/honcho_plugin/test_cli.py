@@ -154,3 +154,34 @@ class TestCmdStatus:
         out = capsys.readouterr().out
         assert "FAILED (Invalid API key)" in out
         assert "Connection... OK" not in out
+
+
+class TestCmdSetup:
+    def test_workspace_default_uses_active_host_key_for_new_profile(self, monkeypatch):
+        import plugins.memory.honcho.cli as honcho_cli
+
+        cfg = {}
+        prompts = []
+
+        monkeypatch.setattr(honcho_cli, "_read_config", lambda: cfg)
+        monkeypatch.setattr(honcho_cli, "_local_config_path", lambda: __import__("pathlib").Path("/tmp/honcho.json"))
+        monkeypatch.setattr(honcho_cli, "_config_path", lambda: __import__("pathlib").Path("/tmp/honcho.json"))
+        monkeypatch.setattr(honcho_cli, "_ensure_sdk_installed", lambda: True)
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes.coder")
+        monkeypatch.setattr(honcho_cli, "_write_config", lambda new_cfg: None)
+        monkeypatch.setattr(honcho_cli, "_copy_api_key_to_local_env", lambda _cfg: None)
+        monkeypatch.setattr(honcho_cli, "_write_diagnostic_hints", lambda _cfg: None)
+
+        def _prompt(label, default="", secret=False):
+            prompts.append((label, default))
+            if label == "Cloud or local?":
+                return "cloud"
+            if label == "Honcho API key (leave blank to keep current)":
+                return "test-key"
+            return default
+
+        monkeypatch.setattr(honcho_cli, "_prompt", _prompt)
+
+        honcho_cli.cmd_setup(SimpleNamespace())
+
+        assert ("Workspace ID", "hermes.coder") in prompts
