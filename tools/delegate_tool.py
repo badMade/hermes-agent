@@ -1106,6 +1106,10 @@ def _build_child_agent(
     child_providers_order = getattr(parent_agent, "providers_order", None)
     child_provider_sort = getattr(parent_agent, "provider_sort", None)
     child_openrouter_min_coding_score = getattr(parent_agent, "openrouter_min_coding_score", None)
+    # For provider overrides, detect OpenRouter only from the override target.
+    # If we fell back to effective_base_url here, a non-OpenRouter override with
+    # no override base URL would inherit the parent's OpenRouter URL and
+    # incorrectly preserve parent OpenRouter routing filters.
     openrouter_detection_base_url = (
         override_base_url if override_provider else effective_base_url
     )
