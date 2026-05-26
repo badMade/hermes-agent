@@ -1172,6 +1172,45 @@ class TestDelegationProviderIntegration(unittest.TestCase):
 
     @patch("tools.delegate_tool._load_config")
     @patch("tools.delegate_tool._resolve_delegation_credentials")
+    def test_non_openrouter_provider_override_without_base_url_clears_parent_filters(
+        self, mock_creds, mock_cfg
+    ):
+        """Provider override should clear OpenRouter filters even without override base URL."""
+        mock_cfg.return_value = {"max_iterations": 45, "provider": "anthropic"}
+        mock_creds.return_value = {
+            "model": "claude-3-5-sonnet-latest",
+            "provider": "anthropic",
+            "base_url": None,
+            "api_key": "sk-ant-key",
+            "api_mode": "anthropic_messages",
+        }
+        parent = _make_mock_parent(depth=0)
+        parent.providers_allowed = ["anthropic/claude-3.5-sonnet"]
+        parent.providers_ignored = ["openai/gpt-4o-mini"]
+        parent.providers_order = ["google/gemini-2.5-pro"]
+        parent.provider_sort = "price"
+
+        with patch("run_agent.AIAgent") as MockAgent:
+            mock_child = MagicMock()
+            mock_child.run_conversation.return_value = {
+                "final_response": "done",
+                "completed": True,
+                "api_calls": 1,
+            }
+            MockAgent.return_value = mock_child
+
+            delegate_task(goal="Non-OpenRouter provider no base URL test", parent_agent=parent)
+
+            _, kwargs = MockAgent.call_args
+            self.assertEqual(kwargs["provider"], "anthropic")
+            # base_url may still inherit from parent (OpenRouter); filters must still clear.
+            self.assertIsNone(kwargs["providers_allowed"])
+            self.assertIsNone(kwargs["providers_ignored"])
+            self.assertIsNone(kwargs["providers_order"])
+            self.assertIsNone(kwargs["provider_sort"])
+
+    @patch("tools.delegate_tool._load_config")
+    @patch("tools.delegate_tool._resolve_delegation_credentials")
     def test_direct_endpoint_credentials_reach_child_agent(self, mock_creds, mock_cfg):
         mock_cfg.return_value = {
             "max_iterations": 45,
