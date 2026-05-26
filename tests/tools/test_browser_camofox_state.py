@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 
 def _load_module():
     from tools import browser_camofox_state as state
@@ -58,3 +56,22 @@ class TestCamofoxConfigDefaults:
 
         browser_cfg = DEFAULT_CONFIG["browser"]
         assert browser_cfg["camofox"]["managed_persistence"] is False
+
+
+class TestCamofoxIdentitySecret:
+    def test_secret_file_is_created_and_reused(self, tmp_path):
+        state = _load_module()
+        with patch.object(state, "get_hermes_home", return_value=tmp_path):
+            first = state.get_camofox_identity("task-1")
+            secret_path = state.get_camofox_state_dir() / state.CAMOFOX_SECRET_FILE
+            assert secret_path.exists()
+            second = state.get_camofox_identity("task-1")
+            assert first == second
+
+    def test_secret_differs_across_profiles(self, tmp_path):
+        state = _load_module()
+        with patch.object(state, "get_hermes_home", return_value=tmp_path / "a"):
+            a = state.get_camofox_identity("task-1")
+        with patch.object(state, "get_hermes_home", return_value=tmp_path / "b"):
+            b = state.get_camofox_identity("task-1")
+        assert a["user_id"] != b["user_id"]
