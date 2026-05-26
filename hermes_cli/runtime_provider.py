@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +45,16 @@ def _loopback_hostname(host: str) -> bool:
 _AZURE_ENDPOINT_DOMAINS = ("openai.azure.com", "services.ai.azure.com")
 
 
+def _has_https_scheme(base_url: str) -> bool:
+    raw = (base_url or "").strip()
+    if not raw:
+        return False
+    parsed = urlparse(raw if "://" in raw else f"//{raw}")
+    return parsed.scheme.lower() == "https"
+
+
 def _is_azure_endpoint(base_url: str) -> bool:
-    return any(
+    return _has_https_scheme(base_url) and any(
         base_url_host_matches(base_url, domain)
         for domain in _AZURE_ENDPOINT_DOMAINS
     )
