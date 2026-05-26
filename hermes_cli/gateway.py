@@ -567,7 +567,6 @@ def _gateway_run_args_for_profile(profile: str) -> list[str]:
     return args
 
 
-<<<<<<< HEAD
 def _profile_gateway_restart_env(profile: str) -> dict[str, str]:
     """Build a clean environment for a detached profile gateway restart."""
     from hermes_cli.profiles import get_profile_dir
@@ -599,8 +598,6 @@ def _profile_gateway_restart_env(profile: str) -> dict[str, str]:
     return env
 
 
-=======
->>>>>>> fff93d5380c0ca5c30f611c1a8a151015ad5aff2
 def launch_detached_profile_gateway_restart(profile: str, old_pid: int) -> bool:
     """Relaunch a manually-run profile gateway after its current PID exits."""
     if old_pid <= 0:
