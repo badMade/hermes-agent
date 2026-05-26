@@ -84,6 +84,33 @@ def _make_store(tmp_path):
     return SessionStore(sessions_dir=tmp_path, config=GatewayConfig())
 
 
+def test_resume_pending_does_not_bypass_idle_reset_policy(tmp_path, monkeypatch):
+    """Crash-recovery resume markers must not outlive reset policy windows."""
+    start = datetime(2026, 1, 1, 12, 0, 0)
+    monkeypatch.setattr("gateway.session._now", lambda: start)
+
+    config = GatewayConfig(
+        default_reset_policy=SessionResetPolicy(mode="idle", idle_minutes=1)
+    )
+    store = SessionStore(sessions_dir=tmp_path, config=config)
+    source = _make_source()
+    entry = store.get_or_create_session(source)
+
+    marked = store.suspend_recently_active(max_age_seconds=120)
+    assert marked == 1
+    assert store._entries[entry.session_key].resume_pending is True
+
+    monkeypatch.setattr(
+        "gateway.session._now", lambda: start + timedelta(minutes=2)
+    )
+    resumed = store.get_or_create_session(source)
+
+    assert resumed.session_id != entry.session_id
+    assert resumed.was_auto_reset is True
+    assert resumed.auto_reset_reason == "idle"
+    assert resumed.resume_pending is False
+
+
 def _build_agent_history(history: list) -> list:
     """Mirror gateway/run.py's ``history → agent_history`` conversion.
 
