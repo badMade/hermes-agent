@@ -2903,7 +2903,7 @@ class APIServerAdapter(BasePlatformAdapter):
             return key_err
 
         # Enforce concurrency limit
-        if len(self._run_streams) >= self._MAX_CONCURRENT_RUNS:
+        if len(self._active_run_tasks) >= self._MAX_CONCURRENT_RUNS:
             return web.json_response(
                 _openai_error(f"Too many concurrent runs (max {self._MAX_CONCURRENT_RUNS})", code="rate_limit_exceeded"),
                 status=429,
@@ -3246,8 +3246,8 @@ class APIServerAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.debug("[api_server] SSE stream error for run %s: %s", run_id, exc)
         finally:
-            self._run_streams.pop(run_id, None)
-            self._run_streams_created.pop(run_id, None)
+            # Keep run accounting tied to task lifecycle (not SSE client lifecycle).
+            pass
 
         return response
 
@@ -3388,6 +3388,9 @@ class APIServerAdapter(BasePlatformAdapter):
                 if now - created_at > self._RUN_STREAM_TTL
             ]
             for run_id in stale:
+                task = self._active_run_tasks.get(run_id)
+                if task is not None and not task.done():
+                    continue
                 logger.debug("[api_server] sweeping orphaned run %s", run_id)
                 try:
                     from tools.approval import unregister_gateway_notify

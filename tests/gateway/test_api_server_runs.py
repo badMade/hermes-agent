@@ -166,6 +166,33 @@ class TestStartRun:
         assert adapter._run_statuses == {}
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_disconnect_does_not_free_concurrency_slot(self, adapter):
+        app = _create_runs_app(adapter)
+        adapter._MAX_CONCURRENT_RUNS = 1
+        async with TestClient(TestServer(app)) as cli:
+            with patch.object(adapter, "_create_agent") as mock_create:
+                mock_agent, agent_ready, _ = _make_slow_agent()
+                mock_create.return_value = mock_agent
+
+                first = await cli.post("/v1/runs", json={"input": "first"})
+                assert first.status == 202
+                run_id = (await first.json())["run_id"]
+
+                agent_ready.wait(timeout=3.0)
+                await asyncio.sleep(0.1)
+
+                events_resp = await cli.get(f"/v1/runs/{run_id}/events")
+                assert events_resp.status == 200
+                events_resp.close()
+
+                await asyncio.sleep(0.2)
+
+                second = await cli.post("/v1/runs", json={"input": "second"})
+                assert second.status == 429
+
+                await cli.post(f"/v1/runs/{run_id}/stop")
+
     async def test_start_requires_auth(self, auth_adapter):
         app = _create_runs_app(auth_adapter)
         async with TestClient(TestServer(app)) as cli:
