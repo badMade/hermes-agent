@@ -3660,6 +3660,31 @@ class TelegramAdapter(BasePlatformAdapter):
             yield getattr(message, "text", None) or "", getattr(message, "entities", None) or []
             yield getattr(message, "caption", None) or "", getattr(message, "caption_entities", None) or []
 
+        def _entity_text(source_text: str, entity) -> str:
+            parse_entity = getattr(message, "parse_entity", None)
+            if callable(parse_entity):
+                try:
+                    return parse_entity(entity) or ""
+                except Exception:
+                    logger.debug("[%s] Failed to parse Telegram entity", self.name, exc_info=True)
+
+            offset = int(getattr(entity, "offset", -1))
+            length = int(getattr(entity, "length", 0))
+            if offset < 0 or length <= 0:
+                return ""
+
+            # Telegram entity offsets/lengths are UTF-16 code units, not
+            # Python code points. Decode the corresponding UTF-16 byte span so
+            # non-BMP characters before an entity cannot shift extraction onto
+            # unrelated text.
+            encoded = source_text.encode("utf-16-le")
+            start = offset * 2
+            end = start + length * 2
+            try:
+                return encoded[start:end].decode("utf-16-le")
+            except UnicodeDecodeError:
+                return ""
+
         # Telegram parses mentions server-side and emits MessageEntity objects
         # (type=mention for @username, type=text_mention for @FirstName targeting
         # a user without a public username). Only those entities are authoritative —
@@ -3670,11 +3695,7 @@ class TelegramAdapter(BasePlatformAdapter):
             for entity in entities:
                 entity_type = str(getattr(entity, "type", "")).split(".")[-1].lower()
                 if entity_type == "mention" and expected:
-                    offset = int(getattr(entity, "offset", -1))
-                    length = int(getattr(entity, "length", 0))
-                    if offset < 0 or length <= 0:
-                        continue
-                    if source_text[offset:offset + length].strip().lower() == expected:
+                    if _entity_text(source_text, entity).strip().lower() == expected:
                         return True
                 elif entity_type == "text_mention":
                     user = getattr(entity, "user", None)
@@ -3690,11 +3711,9 @@ class TelegramAdapter(BasePlatformAdapter):
                     # autocomplete produces in groups, so dropping it at the
                     # mention gate would break /new, /reset, /help, ... for
                     # every group that has ``require_mention`` enabled (#15415).
-                    offset = int(getattr(entity, "offset", -1))
-                    length = int(getattr(entity, "length", 0))
-                    if offset < 0 or length <= 0:
+                    command_text = _entity_text(source_text, entity)
+                    if not command_text:
                         continue
-                    command_text = source_text[offset:offset + length]
                     at_index = command_text.find("@")
                     if at_index < 0:
                         continue
