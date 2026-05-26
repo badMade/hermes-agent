@@ -306,7 +306,9 @@ def _handle_send(args):
             from gateway.channel_directory import resolve_channel_name
             resolved = resolve_channel_name(platform_name, target_ref)
             if resolved:
-                chat_id, thread_id, _ = _parse_target_ref(platform_name, resolved)
+                parsed_chat_id, parsed_thread_id, _ = _parse_target_ref(platform_name, resolved)
+                chat_id = parsed_chat_id or resolved
+                thread_id = parsed_thread_id
             else:
                 return json.dumps({
                     "error": f"Could not resolve '{target_ref}' on {platform_name}. "
