@@ -149,6 +149,14 @@ def test_group_messages_can_require_direct_trigger_via_config():
     assert adapter_no_mention._should_process_message(_group_message("/status"), is_command=True) is True
 
 
+def test_env_require_mention_overrides_platform_extra(monkeypatch):
+    adapter = _make_adapter(require_mention=False)
+    monkeypatch.setenv("TELEGRAM_REQUIRE_MENTION", "true")
+
+    assert adapter._telegram_require_mention() is True
+    assert adapter._should_process_message(_group_message("hello everyone")) is False
+
+
 def test_free_response_chats_bypass_mention_requirement():
     adapter = _make_adapter(require_mention=True, free_response_chats=["-200"])
 
