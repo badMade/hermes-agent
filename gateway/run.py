@@ -5356,6 +5356,7 @@ class GatewayRunner:
         user_id = source.user_id
         if not user_id:
             return False
+        team_id = (source.guild_id or "").strip() if source.platform == Platform.SLACK else ""
 
         platform_env_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
@@ -5448,7 +5449,10 @@ class GatewayRunner:
 
         # Check pairing store (always checked, regardless of allowlists)
         platform_name = source.platform.value if source.platform else ""
-        if self.pairing_store.is_approved(platform_name, user_id):
+        pairing_check_ids = [user_id]
+        if team_id:
+            pairing_check_ids.insert(0, f"{team_id}:{user_id}")
+        if any(self.pairing_store.is_approved(platform_name, uid) for uid in pairing_check_ids):
             return True
 
         # Check platform-specific and global allowlists
@@ -5522,6 +5526,8 @@ class GatewayRunner:
             return True
 
         check_ids = {user_id}
+        if team_id:
+            check_ids.add(f"{team_id}:{user_id}")
         if "@" in user_id:
             check_ids.add(user_id.split("@")[0])
 
