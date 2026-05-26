@@ -2,43 +2,73 @@ name: Compute Self-Heal Schedule
 
 on:
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 0 * * 0" # Runs weekly
   workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: compute-schedule-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  compute-schedule:
+  compute:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-
-      - name: Setup python
-        uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          python-version: "3.12"
+          persist-credentials: false
 
-      - name: Install deps
-        run: uv pip install ruamel.yaml
+      - name: Setup uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
 
-      - name: Run schedule compute
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Compute new schedule
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/compute_schedule.py
+        run: scripts/compute_schedule.py
+
+      - name: Check for meaningful diff
+        id: diff
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_diff=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_diff=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for duplicate open PRs
+        id: check_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COUNT=$(gh pr list --label "self-heal" --state open --json number --jq 'length')
+          if [ "$COUNT" -gt 0 ]; then
+            echo "duplicate=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c
+        if: >
+          steps.diff.outputs.has_diff == 'true' &&
+          steps.check_pr.outputs.duplicate == 'false'
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update self-heal schedule"
           branch: self-heal-schedule
+          delete-branch: true
           title: "[Self-Heal Schedule] Update cadence"
           body: |
-            Self-Heal Schedule Update.
-          labels: "automation,self-heal"
-          commit-message: "[Self-Heal Schedule] Update cadence"
-          delete-branch: true
+            This PR updates the Self-Heal schedule based on recent project telemetry.
+            Link to context: see Claude chat.
+          labels: |
+            automation
+            self-heal
