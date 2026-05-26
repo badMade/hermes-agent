@@ -22,6 +22,30 @@ class TestGetDistribution:
     def test_unknown_returns_none(self):
         assert get_distribution("nonexistent") is None
 
+
+    def test_file_not_found_error(self):
+        # The file does not exist, so it should handle FileNotFoundError and return None
+        assert get_distribution("nonexistent_distribution_file.json") is None
+
+    def test_loads_from_valid_json_file(self, tmp_path):
+        import json
+        file_path = tmp_path / "test_dist.json"
+        data = {"description": "A test dist", "toolsets": {"web": 100}}
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+        dist = get_distribution(str(file_path))
+        assert dist is not None
+        assert dist["description"] == "A test dist"
+        assert dist["toolsets"]["web"] == 100
+
+    def test_invalid_json_file(self, tmp_path):
+        file_path = tmp_path / "invalid_dist.json"
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write("{invalid json")
+
+        assert get_distribution(str(file_path)) is None
+
     def test_all_named_distributions_exist(self):
         expected = [
             "default", "image_gen", "research", "science", "development",
