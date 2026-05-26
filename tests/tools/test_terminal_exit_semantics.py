@@ -147,6 +147,10 @@ class TestInterpretExitCode:
     def test_empty_command(self):
         assert _interpret_exit_code("", 1) is None
 
+    def test_large_leading_whitespace_does_not_break_parsing(self):
+        cmd = " " * 50000 + "nonexistent_command"
+        assert _interpret_exit_code(cmd, 127) is None
+
     def test_only_env_vars(self):
         """Command with only env var assignments, no actual command."""
         assert _interpret_exit_code("FOO=bar", 1) is None
