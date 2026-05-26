@@ -2129,6 +2129,11 @@ class TestPtyWebSocket:
     def _setup(self, monkeypatch, _isolate_hermes_home):
         from starlette.testclient import TestClient
 
+        try:
+            import ptyprocess
+        except ImportError:
+            pytest.skip("ptyprocess not installed")
+
         import hermes_cli.web_server as ws
 
         # Avoid exec'ing the actual TUI in tests: every test below installs
@@ -2214,11 +2219,15 @@ class TestPtyWebSocket:
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline:
                 try:
-                    frame = conn.receive_bytes()
+                    frame = conn.receive()
+                    if frame.get("type") == "websocket.disconnect":
+                        break
+                    if frame.get("bytes"):
+                        buf += frame["bytes"]
+                    if frame.get("text"):
+                        buf += frame["text"].encode()
                 except Exception:
                     break
-                if frame:
-                    buf += frame
                 if b"hermes-ws-ok" in buf:
                     break
             assert b"hermes-ws-ok" in buf
@@ -2238,9 +2247,16 @@ class TestPtyWebSocket:
 
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline:
-                frame = conn.receive_bytes()
-                if frame:
-                    buf += frame
+                try:
+                    frame = conn.receive()
+                    if frame.get("type") == "websocket.disconnect":
+                        break
+                    if frame.get("bytes"):
+                        buf += frame["bytes"]
+                    if frame.get("text"):
+                        buf += frame["text"].encode()
+                except Exception:
+                    break
                 if b"round-trip-payload" in buf:
                     break
             assert b"round-trip-payload" in buf
@@ -2275,9 +2291,16 @@ class TestPtyWebSocket:
 
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline:
-                frame = conn.receive_bytes()
-                if frame:
-                    buf += frame
+                try:
+                    frame = conn.receive()
+                    if frame.get("type") == "websocket.disconnect":
+                        break
+                    if frame.get("bytes"):
+                        buf += frame["bytes"]
+                    if frame.get("text"):
+                        buf += frame["text"].encode()
+                except Exception:
+                    break
                 if b"99" in buf and b"41" in buf:
                     break
             assert b"99" in buf and b"41" in buf
