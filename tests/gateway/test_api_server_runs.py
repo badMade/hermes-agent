@@ -166,7 +166,6 @@ class TestStartRun:
         assert adapter._run_statuses == {}
 
     @pytest.mark.asyncio
-    @pytest.mark.asyncio
     async def test_disconnect_does_not_free_concurrency_slot(self, adapter):
         app = _create_runs_app(adapter)
         adapter._MAX_CONCURRENT_RUNS = 1
