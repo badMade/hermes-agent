@@ -2308,6 +2308,19 @@ class SessionDB:
         self._execute_write(_do)
 
     @staticmethod
+    def _safe_session_file_path(sessions_dir: Path, filename: str) -> Optional[Path]:
+        """Return a cleanup target only when it remains below sessions_dir."""
+        root = sessions_dir.resolve(strict=False)
+        if Path(filename).is_absolute():
+            return None
+        candidate = root / filename
+        try:
+            candidate.parent.resolve(strict=False).relative_to(root)
+        except (OSError, ValueError):
+            return None
+        return candidate
+
+    @staticmethod
     def _remove_session_files(sessions_dir: Optional[Path], session_id: str) -> None:
         """Remove on-disk transcript files for a session.
 
@@ -2318,15 +2331,25 @@ class SessionDB:
         """
         if sessions_dir is None:
             return
+        sessions_dir = Path(sessions_dir)
         for suffix in (".json", ".jsonl"):
-            p = sessions_dir / f"{session_id}{suffix}"
+            p = SessionDB._safe_session_file_path(sessions_dir, f"{session_id}{suffix}")
+            if p is None:
+                continue
             try:
                 p.unlink(missing_ok=True)
             except OSError:
                 pass
-        # request_dump files use session_id as a prefix component
+        # request_dump files use session_id as a prefix component. Iterate direct
+        # children instead of globbing untrusted text so metacharacters stay literal.
+        request_dump_prefix = f"request_dump_{session_id}_"
         try:
-            for p in sessions_dir.glob(f"request_dump_{session_id}_*.json"):
+            for p in sessions_dir.iterdir():
+                if not (
+                    p.name.startswith(request_dump_prefix)
+                    and p.name.endswith(".json")
+                ):
+                    continue
                 try:
                     p.unlink(missing_ok=True)
                 except OSError:
