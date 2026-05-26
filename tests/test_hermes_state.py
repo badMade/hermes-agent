@@ -979,6 +979,27 @@ class TestCJKSearchFallback:
         assert "s2" in session_ids, "漓江/旅游 terms not matched"
         assert "s3" not in session_ids, "unrelated message must not match"
 
+    def test_cjk_repeated_short_token_or_query_does_not_raise(self, db):
+        """Repeated short-token OR queries stay within SQLite limits."""
+        db.create_session(session_id="s1", source="cli")
+        db.append_message("s1", role="user", content="广西旅游攻略")
+
+        query = " OR ".join(["广西"] * 1000)
+        results = db.search_messages(query)
+
+        assert {r["session_id"] for r in results} == {"s1"}
+
+    def test_cjk_distinct_short_token_or_query_does_not_raise(self, db):
+        """Distinct short-token OR queries beyond the cap stay safe."""
+        db.create_session(session_id="s1", source="cli")
+        tokens = [f"测{chr(0x4E00 + i)}" for i in range(300)]
+        db.append_message("s1", role="user", content=f"{tokens[0]}旅游攻略")
+
+        query = " OR ".join(tokens)
+        results = db.search_messages(query)
+
+        assert {r["session_id"] for r in results} == {"s1"}
+
     def test_cjk_short_token_or_query_preserves_filters(self, db):
         """Source filter applies correctly in the short-token LIKE path (#20494)."""
         db.create_session(session_id="s1", source="cli")
@@ -1072,6 +1093,61 @@ class TestDeleteAndExport:
 
     def test_delete_nonexistent(self, db):
         assert db.delete_session("nope") is False
+
+    def test_delete_session_removes_transcript_files(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        db.create_session(session_id="s1", source="cli")
+        (sessions_dir / "s1.json").write_text("{}")
+        (sessions_dir / "s1.jsonl").write_text("{}\n")
+        (sessions_dir / "request_dump_s1_001.json").write_text("{}")
+
+        assert db.delete_session("s1", sessions_dir=sessions_dir) is True
+
+        assert not (sessions_dir / "s1.json").exists()
+        assert not (sessions_dir / "s1.jsonl").exists()
+        assert not (sessions_dir / "request_dump_s1_001.json").exists()
+
+    def test_delete_session_rejects_path_traversal_cleanup(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        outside_dir = tmp_path / "outside"
+        sessions_dir.mkdir()
+        outside_dir.mkdir()
+        malicious_id = "../outside/victim"
+        db.create_session(session_id=malicious_id, source="cli")
+        (outside_dir / "victim.json").write_text("do not delete")
+        (outside_dir / "victim.jsonl").write_text("do not delete")
+
+        assert db.delete_session(malicious_id, sessions_dir=sessions_dir) is True
+
+        assert (outside_dir / "victim.json").exists()
+        assert (outside_dir / "victim.jsonl").exists()
+
+    def test_delete_session_rejects_absolute_path_cleanup(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        outside_dir = tmp_path / "outside"
+        sessions_dir.mkdir()
+        outside_dir.mkdir()
+        victim = outside_dir / "victim"
+        malicious_id = str(victim)
+        db.create_session(session_id=malicious_id, source="cli")
+        (outside_dir / "victim.json").write_text("do not delete")
+
+        assert db.delete_session(malicious_id, sessions_dir=sessions_dir) is True
+
+        assert (outside_dir / "victim.json").exists()
+
+    def test_delete_session_treats_request_dump_globs_literally(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        db.create_session(session_id="[a]", source="cli")
+        (sessions_dir / "request_dump_a_001.json").write_text("do not delete")
+        (sessions_dir / "request_dump_[a]_001.json").write_text("delete")
+
+        assert db.delete_session("[a]", sessions_dir=sessions_dir) is True
+
+        assert (sessions_dir / "request_dump_a_001.json").exists()
+        assert not (sessions_dir / "request_dump_[a]_001.json").exists()
 
     def test_resolve_session_id_exact(self, db):
         db.create_session(session_id="20260315_092437_c9a6ff", source="cli")
@@ -1174,6 +1250,26 @@ class TestPruneSessions:
         assert pruned == 1
         assert db.get_session("old_cli") is None
         assert db.get_session("old_tg") is not None
+
+    def test_prune_sessions_rejects_path_traversal_cleanup(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        outside_dir = tmp_path / "outside"
+        sessions_dir.mkdir()
+        outside_dir.mkdir()
+        malicious_id = "../outside/pruned"
+        db.create_session(session_id=malicious_id, source="cli")
+        db.end_session(malicious_id, end_reason="done")
+        db._conn.execute(
+            "UPDATE sessions SET started_at = ? WHERE id = ?",
+            (time.time() - 200 * 86400, malicious_id),
+        )
+        db._conn.commit()
+        (outside_dir / "pruned.jsonl").write_text("do not delete")
+
+        pruned = db.prune_sessions(older_than_days=90, sessions_dir=sessions_dir)
+
+        assert pruned == 1
+        assert (outside_dir / "pruned.jsonl").exists()
 
     def test_prune_with_multilevel_chain(self, db):
         """Pruning old sessions orphans newer children instead of crashing on FK."""
@@ -2990,4 +3086,3 @@ class TestFTS5ToolCallMigration:
             assert version == 11
         finally:
             session_db.close()
-
