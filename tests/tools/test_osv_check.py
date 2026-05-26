@@ -51,6 +51,10 @@ class TestParseNpmPackage:
         assert _parse_npm_package("react@latest") == ("react", None)
 
 
+    def test_direct_url_skipped(self):
+        assert _parse_npm_package("https://user:token@example.com/private.tgz") == (None, None)
+
+
 class TestParsePypiPackage:
     def test_simple(self):
         assert _parse_pypi_package("requests") == ("requests", None)
@@ -63,6 +67,9 @@ class TestParsePypiPackage:
 
     def test_extras_no_version(self):
         assert _parse_pypi_package("mcp[cli]") == ("mcp", None)
+
+    def test_direct_reference_skipped(self):
+        assert _parse_pypi_package("git+https://oauth2:token@gitlab.example/org/private-mcp") == (None, None)
 
 
 class TestParsePackageFromArgs:
@@ -125,6 +132,15 @@ class TestCheckPackageForMalware:
         """Non-npx/uvx commands are skipped entirely."""
         result = check_package_for_malware("node", ["server.js"])
         assert result is None
+
+    def test_uvx_direct_reference_skips_query(self):
+        with patch("tools.osv_check.urllib.request.urlopen") as mock_url:
+            result = check_package_for_malware(
+                "uvx",
+                ["--from", "git+https://oauth2:STARTUP_SECRET_TOKEN@gitlab.example/org/private-mcp", "mcp-server"],
+            )
+        assert result is None
+        mock_url.assert_not_called()
 
     def test_uvx_pypi(self):
         """uvx commands check PyPI ecosystem."""

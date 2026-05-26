@@ -16,6 +16,7 @@ import os
 import re
 import urllib.request
 from typing import Optional, Tuple
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,8 @@ def _parse_package_from_args(
 
 def _parse_npm_package(token: str) -> Tuple[Optional[str], Optional[str]]:
     """Parse npm package: @scope/name@version or name@version."""
+    if _looks_like_direct_reference(token):
+        return None, None
     if token.startswith("@"):
         # Scoped: @scope/name@version
         match = re.match(r"^(@[^/]+/[^@]+)(?:@(.+))?$", token)
@@ -121,11 +124,32 @@ def _parse_npm_package(token: str) -> Tuple[Optional[str], Optional[str]]:
 
 def _parse_pypi_package(token: str) -> Tuple[Optional[str], Optional[str]]:
     """Parse PyPI package: name==version or name[extras]==version."""
+    if _looks_like_direct_reference(token):
+        return None, None
     # Strip extras: name[extra1,extra2]==version
     match = re.match(r"^([a-zA-Z0-9._-]+)(?:\[[^\]]*\])?(?:==(.+))?$", token)
     if match:
         return match.group(1), match.group(2)
     return token, None
+
+
+def _looks_like_direct_reference(token: str) -> bool:
+    """Return True for direct URL/VCS/local refs that should never be sent to OSV."""
+    if not token:
+        return False
+
+    lower = token.lower()
+    if lower.startswith(("git+", "git://", "file:", "ssh://")):
+        return True
+
+    parsed = urlparse(token)
+    if parsed.scheme and parsed.scheme not in {"npm"}:
+        return True
+
+    if any(marker in lower for marker in ("://", "@http", "@https")):
+        return True
+
+    return False
 
 
 def _query_osv(
