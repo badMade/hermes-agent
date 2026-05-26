@@ -91,23 +91,39 @@ class TestIsContainer:
     def test_detects_cgroup_docker(self, monkeypatch, tmp_path):
         """/proc/1/cgroup containing 'docker' triggers detection."""
         import builtins
+
         self._reset_cache(monkeypatch)
         monkeypatch.setattr(os.path, "exists", lambda p: False)
         cgroup_file = tmp_path / "cgroup"
         cgroup_file.write_text("12:memory:/docker/abc123\n")
         _real_open = builtins.open
-        monkeypatch.setattr("builtins.open", lambda p, *a, **kw: _real_open(str(cgroup_file), *a, **kw) if p == "/proc/1/cgroup" else _real_open(p, *a, **kw))
+        monkeypatch.setattr(
+            "builtins.open",
+            lambda p, *a, **kw: (
+                _real_open(str(cgroup_file), *a, **kw)
+                if p == "/proc/1/cgroup"
+                else _real_open(p, *a, **kw)
+            ),
+        )
         assert is_container() is True
 
     def test_negative_case(self, monkeypatch, tmp_path):
         """Returns False on a regular Linux host."""
         import builtins
+
         self._reset_cache(monkeypatch)
         monkeypatch.setattr(os.path, "exists", lambda p: False)
         cgroup_file = tmp_path / "cgroup"
         cgroup_file.write_text("12:memory:/\n")
         _real_open = builtins.open
-        monkeypatch.setattr("builtins.open", lambda p, *a, **kw: _real_open(str(cgroup_file), *a, **kw) if p == "/proc/1/cgroup" else _real_open(p, *a, **kw))
+        monkeypatch.setattr(
+            "builtins.open",
+            lambda p, *a, **kw: (
+                _real_open(str(cgroup_file), *a, **kw)
+                if p == "/proc/1/cgroup"
+                else _real_open(p, *a, **kw)
+            ),
+        )
         assert is_container() is False
 
     def test_caches_result(self, monkeypatch):
@@ -171,3 +187,22 @@ class TestParseReasoningEffort:
         """
         documented = {"minimal", "low", "medium", "high", "xhigh"}
         assert documented.issubset(set(VALID_REASONING_EFFORTS))
+
+
+class TestIsTermux:
+    """Tests for is_termux() environment detection."""
+
+    def test_prefix_not_in_environ(self, monkeypatch):
+        """Returns False if PREFIX is not in os.environ."""
+        monkeypatch.delenv("PREFIX", raising=False)
+        assert hermes_constants.is_termux() is False
+
+    def test_prefix_does_not_contain_termux(self, monkeypatch):
+        """Returns False if PREFIX is set but does not contain com.termux."""
+        monkeypatch.setenv("PREFIX", "/usr/local/bin")
+        assert hermes_constants.is_termux() is False
+
+    def test_prefix_contains_termux(self, monkeypatch):
+        """Returns True if PREFIX contains com.termux."""
+        monkeypatch.setenv("PREFIX", "/data/data/com.termux/files/usr")
+        assert hermes_constants.is_termux() is True
