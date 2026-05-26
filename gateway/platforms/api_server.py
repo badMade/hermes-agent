@@ -3265,8 +3265,11 @@ class APIServerAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.debug("[api_server] SSE stream error for run %s: %s", run_id, exc)
         finally:
-            # Keep run accounting tied to task lifecycle (not SSE client lifecycle).
-            pass
+            task = self._active_run_tasks.get(run_id)
+            status = self._run_statuses.get(run_id) or {}
+            if (task is None or task.done()) and status.get("status") in {"completed", "failed", "cancelled"}:
+                self._run_streams.pop(run_id, None)
+                self._run_streams_created.pop(run_id, None)
 
         return response
 

@@ -331,6 +331,8 @@ class TestRunEvents:
                 # Should contain run.completed
                 assert "run.completed" in body
                 assert "Hello!" in body
+                assert run_id not in adapter._run_streams
+                assert run_id not in adapter._run_streams_created
 
 
 
