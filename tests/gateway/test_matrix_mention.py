@@ -280,6 +280,34 @@ async def test_require_mention_default_ignores_unmentioned(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_require_mention_unmentioned_media_skips_download(monkeypatch):
+    """Unmentioned group media must be dropped before any media download occurs."""
+    monkeypatch.delenv("MATRIX_REQUIRE_MENTION", raising=False)
+    monkeypatch.delenv("MATRIX_FREE_RESPONSE_ROOMS", raising=False)
+    monkeypatch.delenv("MATRIX_AUTO_THREAD", raising=False)
+
+    adapter = _make_adapter()
+    adapter._client = MagicMock()
+    adapter._client.download_media = AsyncMock(return_value=b"img")
+    event = SimpleNamespace(
+        sender="@alice:example.org",
+        event_id="$evt_media1",
+        room_id="!room1:example.org",
+        timestamp=int(time.time() * 1000),
+        content={
+            "msgtype": "m.image",
+            "body": "photo.png",
+            "url": "mxc://example.org/abc123",
+            "info": {"mimetype": "image/png"},
+        },
+    )
+
+    await adapter._on_room_message(event)
+    adapter._client.download_media.assert_not_awaited()
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_require_mention_default_processes_mentioned(monkeypatch):
     """Default: messages with mention are processed, mention stripped."""
     monkeypatch.delenv("MATRIX_REQUIRE_MENTION", raising=False)
