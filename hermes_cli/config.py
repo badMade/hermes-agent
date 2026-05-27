@@ -141,9 +141,6 @@ _EXTRA_ENV_KEYS = frozenset({
     "HERMES_LANGFUSE_SAMPLE_RATE",
     "HERMES_LANGFUSE_MAX_CHARS",
     "HERMES_LANGFUSE_DEBUG",
-    "LANGFUSE_PUBLIC_KEY",
-    "LANGFUSE_SECRET_KEY",
-    "LANGFUSE_BASE_URL",
 })
 import yaml
 
@@ -544,6 +541,11 @@ DEFAULT_CONFIG = {
         # default is 1800s) plus runtime slack.  Set to 0 to disable the
         # gate and restore pre-fix behaviour (always inject).
         "gateway_auto_continue_freshness": 3600,
+        # Maximum number of pending /queue turns retained per gateway
+        # session. This bounds memory retention and downstream LLM/tool cost
+        # from repeated authorized queue requests while preserving FIFO
+        # behavior for normal use. Values below 1 are clamped to 1.
+        "gateway_queue_max_depth": 25,
         # How user-attached images are presented to the main model on each turn.
         #   "auto"   — attach natively when the active model reports
         #              supports_vision=True AND the user hasn't explicitly
@@ -1124,11 +1126,11 @@ DEFAULT_CONFIG = {
         "base_url": "",    # direct OpenAI-compatible endpoint for subagents
         "api_key": "",     # API key for delegation.base_url (falls back to OPENAI_API_KEY)
         # When delegate_task narrows child toolsets explicitly, preserve any
-        # MCP toolsets the parent already has enabled. On by default so
-        # narrowing (e.g. toolsets=["web","browser"]) expresses "I want these
-        # extras" without silently stripping MCP tools the parent already has.
-        # Set to false for strict intersection.
-        "inherit_mcp_toolsets": True,
+        # MCP toolsets the parent already has enabled. Off by default so an
+        # explicit narrowed toolset list remains a strict least-privilege
+        # boundary. Set to true only when delegated workers should keep MCP
+        # tools already available to the parent.
+        "inherit_mcp_toolsets": False,
         "max_iterations": 50,  # per-subagent iteration cap (each subagent gets its own budget,
                                # independent of the parent's max_iterations)
         "child_timeout_seconds": 600,  # wall-clock timeout for each child agent (floor 30s,
@@ -1228,6 +1230,9 @@ DEFAULT_CONFIG = {
         # Archive a skill (move to skills/.archive/) after this many days
         # without use. Archived skills are recoverable — no auto-deletion.
         "archive_after_days": 90,
+        # Maximum LLM/tool turns for the background review fork. Values above
+        # the built-in hard cap are clamped to keep background spend bounded.
+        "review_max_iterations": 100,
         # Pre-run backup: before every real curator pass (dry-run is
         # skipped), snapshot ~/.hermes/skills/ into
         # ~/.hermes/skills/.curator_backups/<utc-iso>/skills.tar.gz so the
@@ -2214,6 +2219,30 @@ OPTIONAL_ENV_VARS = {
     },
     "HERMES_LANGFUSE_BASE_URL": {
         "description": "Langfuse server URL (default: https://cloud.langfuse.com)",
+        "prompt": "Langfuse server URL (leave empty for cloud.langfuse.com)",
+        "url": None,
+        "password": False,
+        "category": "tool",
+        "advanced": True,
+    },
+    "LANGFUSE_PUBLIC_KEY": {
+        "description": "Langfuse project public key (standard SDK variable)",
+        "prompt": "Langfuse public key",
+        "url": "https://cloud.langfuse.com",
+        "password": False,
+        "category": "tool",
+        "advanced": True,
+    },
+    "LANGFUSE_SECRET_KEY": {
+        "description": "Langfuse project secret key (standard SDK variable)",
+        "prompt": "Langfuse secret key",
+        "url": "https://cloud.langfuse.com",
+        "password": True,
+        "category": "tool",
+        "advanced": True,
+    },
+    "LANGFUSE_BASE_URL": {
+        "description": "Langfuse server URL (standard SDK variable)",
         "prompt": "Langfuse server URL (leave empty for cloud.langfuse.com)",
         "url": None,
         "password": False,
