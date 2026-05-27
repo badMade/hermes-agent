@@ -885,6 +885,95 @@ class TestIncomingDocumentHandling:
         assert msg_event.message_type == MessageType.PHOTO
 
     @pytest.mark.asyncio
+    async def test_unauthorized_slack_connect_file_is_not_resolved_or_downloaded(self, adapter):
+        """Unauthorized users must not trigger Slack Connect file resolution."""
+
+        class Runner:
+            def __init__(self):
+                self.sources = []
+
+            def _is_user_authorized(self, source):
+                self.sources.append(source)
+                return False
+
+            async def handle(self, event):  # pragma: no cover - only used as bound owner
+                return None
+
+        runner = Runner()
+        adapter._message_handler = runner.handle
+        adapter._app.client.files_info = AsyncMock(return_value={
+            "ok": True,
+            "file": {
+                "id": "F_STUB",
+                "mimetype": "image/png",
+                "name": "remote.png",
+                "url_private_download": "https://files.slack.com/remote.png",
+                "size": 123,
+            },
+        })
+        event = self._make_event(files=[{
+            "id": "F_STUB",
+            "file_access": "check_file_info",
+        }])
+
+        with (
+            patch.object(adapter, "_resolve_user_name", new=AsyncMock(return_value="blocked")),
+            patch.object(adapter, "_download_slack_file", new_callable=AsyncMock) as dl,
+        ):
+            await adapter._handle_slack_message(event)
+
+        adapter._app.client.files_info.assert_not_awaited()
+        dl.assert_not_awaited()
+        adapter.handle_message.assert_awaited_once()
+        msg_event = adapter.handle_message.await_args.args[0]
+        assert msg_event.media_urls == []
+        assert runner.sources[0].user_id == "U_USER"
+
+    @pytest.mark.asyncio
+    async def test_authorized_slack_connect_file_is_resolved_and_downloaded(self, adapter):
+        """Authorized Slack Connect file stubs still use files.info then download."""
+
+        class Runner:
+            def _is_user_authorized(self, source):
+                return True
+
+            async def handle(self, event):  # pragma: no cover - only used as bound owner
+                return None
+
+        adapter._message_handler = Runner().handle
+        adapter._app.client.files_info = AsyncMock(return_value={
+            "ok": True,
+            "file": {
+                "id": "F_STUB",
+                "mimetype": "image/png",
+                "name": "remote.png",
+                "url_private_download": "https://files.slack.com/remote.png",
+                "size": 123,
+            },
+        })
+        event = self._make_event(files=[{
+            "id": "F_STUB",
+            "file_access": "check_file_info",
+        }])
+
+        with (
+            patch.object(adapter, "_resolve_user_name", new=AsyncMock(return_value="allowed")),
+            patch.object(adapter, "_download_slack_file", new_callable=AsyncMock) as dl,
+        ):
+            dl.return_value = "/tmp/remote.png"
+            await adapter._handle_slack_message(event)
+
+        adapter._app.client.files_info.assert_awaited_once_with(file="F_STUB")
+        dl.assert_awaited_once_with(
+            "https://files.slack.com/remote.png",
+            ".png",
+            team_id="",
+        )
+        msg_event = adapter.handle_message.await_args.args[0]
+        assert msg_event.message_type == MessageType.PHOTO
+        assert msg_event.media_urls == ["/tmp/remote.png"]
+
+    @pytest.mark.asyncio
     async def test_download_failure_is_surfaced_in_message_text(self, adapter):
         """Attachment download failures (401/403/HTML-body/etc.) should be
         translated into a user-facing `[Slack attachment notice]` block so
@@ -1877,11 +1966,35 @@ class TestReactions:
 
         adapter._app.client.reactions_add.assert_not_called()
         adapter._app.client.reactions_remove.assert_not_called()
+        assert "1234567890.000004" not in adapter._reacting_message_ids
 
     @pytest.mark.asyncio
     async def test_reactions_enabled_by_default(self, adapter):
         """SLACK_REACTIONS defaults to true (matches existing behavior)."""
         assert adapter._reactions_enabled() is True
+
+    @pytest.mark.asyncio
+    async def test_reaction_tracking_is_bounded_for_unprocessed_messages(self, adapter):
+        """DM reaction tracking should evict old IDs even if processing hooks never run."""
+        adapter._app.client.users_info = AsyncMock(return_value={
+            "user": {"profile": {"display_name": "Tyler"}}
+        })
+        adapter._reacting_message_ids.max_size = 3
+
+        for i in range(5):
+            await adapter._handle_slack_message({
+                "text": f"queued {i}",
+                "user": "U_USER",
+                "channel": "C123",
+                "channel_type": "im",
+                "ts": f"1234567890.00000{i}",
+            })
+
+        assert len(adapter._reacting_message_ids) == 3
+        assert "1234567890.000000" not in adapter._reacting_message_ids
+        assert "1234567890.000001" not in adapter._reacting_message_ids
+        assert "1234567890.000002" in adapter._reacting_message_ids
+        assert "1234567890.000004" in adapter._reacting_message_ids
 
 
 # ---------------------------------------------------------------------------
@@ -2810,6 +2923,7 @@ class TestSlackReplyToText:
         (e.g. cron summary), reply_to_text must carry the parent's text."""
         adapter._channel_team = {}  # primary workspace only
         adapter._team_bot_user_ids = {}
+        adapter.config.extra["allow_bots"] = "all"
 
         # Mock conversations_replies to return a bot-posted parent
         adapter._app.client.conversations_replies = AsyncMock(return_value={
@@ -2847,6 +2961,40 @@ class TestSlackReplyToText:
         # gateway can inject it when not already in the session history.
         assert msg_event.reply_to_text is not None
         assert "メール要約" in msg_event.reply_to_text
+
+    @pytest.mark.asyncio
+    async def test_slack_reply_to_text_excludes_bot_parent_by_default(self, adapter):
+        """Slack reply context must respect allow_bots for bot-authored parents."""
+        adapter._channel_team = {}
+        adapter._team_bot_user_ids = {}
+        adapter._app.client.conversations_replies = AsyncMock(return_value={
+            "messages": [
+                {
+                    "ts": "1000.0",
+                    "bot_id": "B_CRON",
+                    "text": "Cron prompt injection",
+                },
+                {"ts": "1000.5", "user": "U_USER", "text": "details"},
+            ]
+        })
+
+        event = {
+            "text": "details",
+            "user": "U_USER",
+            "channel": "D123",
+            "channel_type": "im",
+            "ts": "1000.5",
+            "thread_ts": "1000.0",
+        }
+
+        with patch.object(
+            adapter, "_resolve_user_name", new=AsyncMock(return_value="Alice")
+        ):
+            await adapter._handle_slack_message(event)
+
+        msg_event = adapter.handle_message.call_args[0][0]
+        assert msg_event.reply_to_text is None
+        assert "Cron prompt injection" not in msg_event.text
 
     @pytest.mark.asyncio
     async def test_slack_reply_to_text_none_for_top_level_message(self, adapter):
@@ -3121,8 +3269,8 @@ class TestSlashEphemeralAck:
         assert ("C_H", "U_H") in adapter._slash_command_contexts
 
     @pytest.mark.asyncio
-    async def test_freeform_hermes_question_does_not_stash_context(self, adapter):
-        """Free-form /hermes <question> must NOT route agent reply ephemeral."""
+    async def test_freeform_hermes_question_stashes_context(self, adapter):
+        """Free-form /hermes <question> routes agent reply ephemerally."""
         command = {
             "command": "/hermes",
             "text": "what's the weather",
@@ -3137,8 +3285,9 @@ class TestSlashEphemeralAck:
         # Free-form text — not a command
         assert event.message_type == MessageType.TEXT
         assert event.text == "what's the weather"
-        # Context must NOT be stashed — agent reply should be public
-        assert len(adapter._slash_command_contexts) == 0
+        # Context is stashed so the slash reply replaces the private ack instead
+        # of posting the answer publicly to the channel.
+        assert ("C_FREE", "U_FREE") in adapter._slash_command_contexts
 
     @pytest.mark.asyncio
     async def test_concurrent_users_same_channel_isolates_contexts(self, adapter):
