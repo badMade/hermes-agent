@@ -106,7 +106,7 @@ class TestGrepExcludesHiddenDirs:
         cmd = [
             "grep", "-rnH", "--exclude-dir=.*", "ignore", str(searchable_tree)
         ]
-        result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
         # Should NOT find the injection text in .hub/index-cache/catalog.json
         assert ".hub" not in result.stdout
         assert "catalog.json" not in result.stdout
