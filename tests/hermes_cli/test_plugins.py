@@ -271,7 +271,7 @@ class TestPluginDiscovery:
     ):
         """Nix entry-point packages are discovered without adding them to sys.path."""
         hermes_home = tmp_path / "hermes_test"
-        (hermes_home / "config.yaml").parent.mkdir(parents=True)
+        (hermes_home / "config.yaml").parent.mkdir(parents=True, exist_ok=True)
         (hermes_home / "config.yaml").write_text(
             yaml.safe_dump({"plugins": {"enabled": []}})
         )
@@ -293,7 +293,7 @@ class TestPluginDiscovery:
     def test_enabled_nix_entrypoint_path_is_importable(self, tmp_path, monkeypatch):
         """An enabled Nix entry-point plugin is added to sys.path at load time."""
         hermes_home = tmp_path / "hermes_test"
-        (hermes_home / "config.yaml").parent.mkdir(parents=True)
+        (hermes_home / "config.yaml").parent.mkdir(parents=True, exist_ok=True)
         (hermes_home / "config.yaml").write_text(
             yaml.safe_dump({"plugins": {"enabled": ["nix_ep_plugin"]}})
         )
