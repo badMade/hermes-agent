@@ -1,5 +1,7 @@
 """Tests for acp_adapter.tools — tool kind mapping and ACP content building."""
 
+import json
+
 import pytest
 
 from acp_adapter.tools import (
@@ -433,6 +435,30 @@ class TestBuildToolComplete:
         assert "timeout" in text
         assert result.raw_output is None
 
+    def test_build_tool_complete_for_web_extract_error_truncates_metadata(self):
+        long_title = "t" * 120000
+        long_url = "https://example.com/" + ("u" * 120000)
+        result = build_tool_complete(
+            "tc-web-extract-long-error",
+            "web_extract",
+            json.dumps({"results": [{"url": long_url, "title": long_title, "error": "timeout"}]}),
+        )
+        text = result.content[0].content.text
+        assert len(text) < 7000
+        assert "truncated" in text
+        assert result.raw_output is None
+
+    def test_build_tool_complete_for_web_extract_top_level_error_truncates(self):
+        result = build_tool_complete(
+            "tc-web-extract-top-error",
+            "web_extract",
+            json.dumps({"success": False, "error": "e" * 120000}),
+        )
+        text = result.content[0].content.text
+        assert len(text) < 7000
+        assert "truncated" in text
+        assert result.raw_output is None
+
     def test_build_tool_complete_truncates_large_output(self):
         """Very large outputs should be truncated."""
         big_output = "x" * 10000
@@ -481,6 +507,51 @@ class TestBuildToolComplete:
         assert diff_item.path.endswith("diff-test.txt")
         assert diff_item.old_text is None
         assert diff_item.new_text == "hello from hermes"
+
+    def test_build_tool_complete_for_write_file_redacts_snapshot_diff(self, tmp_path):
+        target = tmp_path / "secrets.env"
+        target.write_text("OPENAI_API_KEY=sk-newsecretvalue1234567890\n", encoding="utf-8")
+        snapshot = type(
+            "Snapshot",
+            (),
+            {
+                "paths": [target],
+                "before": {str(target): "OPENAI_API_KEY=sk-oldsecretvalue1234567890\n"},
+            },
+        )()
+
+        result = build_tool_complete(
+            "tc-wf-secret",
+            "write_file",
+            '{"bytes_written": 47, "dirs_created": false}',
+            function_args={
+                "path": str(target),
+                "content": "OPENAI_API_KEY=sk-newsecretvalue1234567890\n",
+            },
+            snapshot=snapshot,
+        )
+
+        assert isinstance(result, ToolCallProgress)
+        diff_item = result.content[0]
+        assert isinstance(diff_item, FileEditToolCallContent)
+        assert diff_item.old_text == "OPENAI_API_KEY=***"
+        assert diff_item.new_text == "OPENAI_API_KEY=***"
+
+    def test_build_tool_complete_for_patch_redacts_diff(self):
+        patch_result = (
+            '{"success": true, "diff": "--- a/.env\\n+++ b/.env\\n@@ -1 +1 @@\\n'
+            '-OPENAI_API_KEY=sk-oldsecretvalue1234567890\\n'
+            '+OPENAI_API_KEY=sk-newsecretvalue1234567890\\n"}'
+        )
+
+        result = build_tool_complete("tc-p-secret", "patch", patch_result)
+
+        assert isinstance(result, ToolCallProgress)
+        diff_item = result.content[0]
+        assert isinstance(diff_item, FileEditToolCallContent)
+        assert diff_item.path == ".env"
+        assert diff_item.old_text == "OPENAI_API_KEY=***"
+        assert diff_item.new_text == "OPENAI_API_KEY=***"
 
 
 # ---------------------------------------------------------------------------
