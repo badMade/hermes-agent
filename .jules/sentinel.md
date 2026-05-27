@@ -11,4 +11,4 @@
 ## 2024-05-26 - Security Enhancement: Shell Injection Prevention
 **Vulnerability:** Shell injection via `subprocess.run(..., shell=True)` using string commands in tests `tests/tools/test_search_hidden_dirs.py`.
 **Learning:** `shell=True` allows shell metacharacters and logic operators (`|`, `&&`, `;`) to alter intended execution paths or escalate privileges.
-**Prevention:** Avoid `shell=True` in `subprocess`. Always pass a list of strings instead, using `.split()` or `shlex.split()` on string templates if necessary, bypassing the system shell entirely. Update test frameworks to ensure the modified command forms execute successfully without regressions.
+**Prevention:** Avoid `shell=True` in `subprocess`. Always pass a list of strings (construct the argv list directly). Only use `shlex.split()` to parse a trusted shell-style command string when you can’t avoid it; don’t use `.split()` for commands/args.
