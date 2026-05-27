@@ -299,6 +299,20 @@ class TestMessageStorage:
         assert conv[0] == {"role": "user", "content": "Hello"}
         assert conv[1] == {"role": "assistant", "content": "Hi!"}
 
+    def test_get_messages_as_conversation_can_include_timestamps(self, db):
+        db.create_session(session_id="s1", source="cli")
+        db.append_message("s1", role="user", content="Hello")
+
+        default_conv = db.get_messages_as_conversation("s1")
+        timestamped_conv = db.get_messages_as_conversation(
+            "s1", include_timestamps=True
+        )
+
+        assert "timestamp" not in default_conv[0]
+        assert timestamped_conv[0]["role"] == "user"
+        assert timestamped_conv[0]["content"] == "Hello"
+        assert isinstance(timestamped_conv[0]["timestamp"], float)
+
     def test_get_messages_as_conversation_includes_ancestor_chain(self, db):
         db.create_session("root", "tui")
         db.append_message("root", role="user", content="first prompt")
@@ -1094,6 +1108,61 @@ class TestDeleteAndExport:
     def test_delete_nonexistent(self, db):
         assert db.delete_session("nope") is False
 
+    def test_delete_session_removes_transcript_files(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        db.create_session(session_id="s1", source="cli")
+        (sessions_dir / "s1.json").write_text("{}")
+        (sessions_dir / "s1.jsonl").write_text("{}\n")
+        (sessions_dir / "request_dump_s1_001.json").write_text("{}")
+
+        assert db.delete_session("s1", sessions_dir=sessions_dir) is True
+
+        assert not (sessions_dir / "s1.json").exists()
+        assert not (sessions_dir / "s1.jsonl").exists()
+        assert not (sessions_dir / "request_dump_s1_001.json").exists()
+
+    def test_delete_session_rejects_path_traversal_cleanup(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        outside_dir = tmp_path / "outside"
+        sessions_dir.mkdir()
+        outside_dir.mkdir()
+        malicious_id = "../outside/victim"
+        db.create_session(session_id=malicious_id, source="cli")
+        (outside_dir / "victim.json").write_text("do not delete")
+        (outside_dir / "victim.jsonl").write_text("do not delete")
+
+        assert db.delete_session(malicious_id, sessions_dir=sessions_dir) is True
+
+        assert (outside_dir / "victim.json").exists()
+        assert (outside_dir / "victim.jsonl").exists()
+
+    def test_delete_session_rejects_absolute_path_cleanup(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        outside_dir = tmp_path / "outside"
+        sessions_dir.mkdir()
+        outside_dir.mkdir()
+        victim = outside_dir / "victim"
+        malicious_id = str(victim)
+        db.create_session(session_id=malicious_id, source="cli")
+        (outside_dir / "victim.json").write_text("do not delete")
+
+        assert db.delete_session(malicious_id, sessions_dir=sessions_dir) is True
+
+        assert (outside_dir / "victim.json").exists()
+
+    def test_delete_session_treats_request_dump_globs_literally(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        db.create_session(session_id="[a]", source="cli")
+        (sessions_dir / "request_dump_a_001.json").write_text("do not delete")
+        (sessions_dir / "request_dump_[a]_001.json").write_text("delete")
+
+        assert db.delete_session("[a]", sessions_dir=sessions_dir) is True
+
+        assert (sessions_dir / "request_dump_a_001.json").exists()
+        assert not (sessions_dir / "request_dump_[a]_001.json").exists()
+
     def test_resolve_session_id_exact(self, db):
         db.create_session(session_id="20260315_092437_c9a6ff", source="cli")
         assert db.resolve_session_id("20260315_092437_c9a6ff") == "20260315_092437_c9a6ff"
@@ -1195,6 +1264,26 @@ class TestPruneSessions:
         assert pruned == 1
         assert db.get_session("old_cli") is None
         assert db.get_session("old_tg") is not None
+
+    def test_prune_sessions_rejects_path_traversal_cleanup(self, db, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        outside_dir = tmp_path / "outside"
+        sessions_dir.mkdir()
+        outside_dir.mkdir()
+        malicious_id = "../outside/pruned"
+        db.create_session(session_id=malicious_id, source="cli")
+        db.end_session(malicious_id, end_reason="done")
+        db._conn.execute(
+            "UPDATE sessions SET started_at = ? WHERE id = ?",
+            (time.time() - 200 * 86400, malicious_id),
+        )
+        db._conn.commit()
+        (outside_dir / "pruned.jsonl").write_text("do not delete")
+
+        pruned = db.prune_sessions(older_than_days=90, sessions_dir=sessions_dir)
+
+        assert pruned == 1
+        assert (outside_dir / "pruned.jsonl").exists()
 
     def test_prune_with_multilevel_chain(self, db):
         """Pruning old sessions orphans newer children instead of crashing on FK."""
