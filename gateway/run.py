@@ -37,6 +37,7 @@ import signal
 import tempfile
 import threading
 import time
+import weakref
 from collections import OrderedDict
 from contextvars import copy_context
 from pathlib import Path
@@ -51,7 +52,6 @@ from typing import Dict, Optional, Any, List, Union
 # preserving the established test-patch surface.
 from agent.account_usage import fetch_account_usage, render_account_usage_lines
 from agent.i18n import t
-from agent.redact import redact_sensitive_text
 from hermes_cli.config import cfg_get
 
 # --- Agent cache tuning ---------------------------------------------------
@@ -113,7 +113,6 @@ def _telegramize_command_mentions(text: str, platform: Any) -> str:
 # is still classified fresh.  Override via
 # ``config.yaml`` ``agent.gateway_auto_continue_freshness``.
 _AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT = 60 * 60
-_GATEWAY_QUEUE_MAX_DEPTH_DEFAULT = 25
 
 
 def _coerce_gateway_timestamp(value: Any) -> Optional[float]:
@@ -2014,29 +2013,13 @@ class GatewayRunner:
     # it up.  Clearing happens on /new and /reset via
     # _handle_reset_command.
 
-    def _gateway_queue_max_depth(self) -> int:
-        """Return the per-session cap for pending gateway /queue turns."""
-        raw_limit = cfg_get(
-            getattr(self, "config", None),
-            "agent",
-            "gateway_queue_max_depth",
-            default=_GATEWAY_QUEUE_MAX_DEPTH_DEFAULT,
-        )
-        try:
-            limit = int(raw_limit)
-        except (TypeError, ValueError):
-            return _GATEWAY_QUEUE_MAX_DEPTH_DEFAULT
-        return max(1, limit)
-
-    def _enqueue_fifo(self, session_key: str, queued_event: "MessageEvent", adapter: Any) -> bool:
+    def _enqueue_fifo(self, session_key: str, queued_event: "MessageEvent", adapter: Any) -> None:
         """Append a /queue event to the FIFO chain for a session."""
         if adapter is None:
-            return False
+            return
         pending_slot = getattr(adapter, "_pending_messages", None)
         if pending_slot is None:
-            return False
-        if self._queue_depth(session_key, adapter=adapter) >= self._gateway_queue_max_depth():
-            return False
+            return
         queued_events = getattr(self, "_queued_events", None)
         if queued_events is None:
             queued_events = {}
@@ -2045,7 +2028,6 @@ class GatewayRunner:
             queued_events.setdefault(session_key, []).append(queued_event)
         else:
             pending_slot[session_key] = queued_event
-        return True
 
     def _promote_queued_event(
         self,
@@ -2918,10 +2900,32 @@ class GatewayRunner:
                 agent.close()
         except Exception:
             pass
-        # Auxiliary async clients (session_search/web/vision/etc.) live in a
-        # process-global cache and are created inside worker threads. Clean up
-        # any entries whose event loop is now dead so their httpx transports do
-        # not accumulate across gateway turns.
+        self._cleanup_stale_auxiliary_clients()
+
+    def _cleanup_session_tool_resources(self, session_id: Optional[str]) -> None:
+        """Hard-clean tool state for a session whose cached agent was evicted."""
+        if not session_id:
+            return
+
+        try:
+            from tools.process_registry import process_registry
+            process_registry.kill_all(task_id=session_id)
+        except Exception:
+            pass
+        try:
+            from tools.terminal_tool import cleanup_vm
+            cleanup_vm(session_id)
+        except Exception:
+            pass
+        try:
+            from tools.browser_tool import cleanup_browser
+            cleanup_browser(session_id)
+        except Exception:
+            pass
+        self._cleanup_stale_auxiliary_clients()
+
+    def _cleanup_stale_auxiliary_clients(self) -> None:
+        """Drop stale process-global auxiliary async clients after teardown."""
         try:
             from agent.auxiliary_client import cleanup_stale_async_clients
             cleanup_stale_async_clients()
@@ -4004,8 +4008,15 @@ class GatewayRunner:
                         # still mid-turn when the expiry fires.
                         if _cached_agent is None:
                             _cached_agent = self._running_agents.get(key)
+                        if _cached_agent is None:
+                            _cached_agent = self._pop_soft_evicted_agent(key)
                         if _cached_agent and _cached_agent is not _AGENT_PENDING_SENTINEL:
                             self._cleanup_agent_resources(_cached_agent)
+                        else:
+                            # Cache eviction may have soft-released and removed
+                            # the AIAgent before the session boundary. Still
+                            # hard-clean per-task tool state by session_id.
+                            self._cleanup_session_tool_resources(entry.session_id)
                         # Drop the cache entry so the AIAgent (and its LLM
                         # clients, tool schemas, memory provider refs) can
                         # be garbage-collected.  Otherwise the cache grows
@@ -6027,13 +6038,8 @@ class GatewayRunner:
                         message_id=event.message_id,
                         channel_prompt=event.channel_prompt,
                     )
-                    accepted = self._enqueue_fifo(_quick_key, queued_event, adapter)
-                    depth = self._queue_depth(_quick_key, adapter=adapter)
-                    if not accepted:
-                        limit = self._gateway_queue_max_depth()
-                        return f"Queue is full ({depth}/{limit} queued). Wait for a queued turn to finish, then try again."
-                else:
-                    depth = 0
+                    self._enqueue_fifo(_quick_key, queued_event, adapter)
+                depth = self._queue_depth(_quick_key, adapter=self.adapters.get(source.platform))
                 if depth <= 1:
                     return "Queued for the next turn."
                 return f"Queued for the next turn. ({depth} queued)"
@@ -6878,13 +6884,15 @@ class GatewayRunner:
                     )
                 message_text = f"{context_note}\n\n{message_text}"
 
-        reply_prefix = ""
         if getattr(event, "reply_to_text", None) and event.reply_to_message_id:
-            # Always preserve the reply-to pointer for disambiguation, but keep
-            # the platform-controlled quote inert by adding it only after
-            # current-turn @ context references have been expanded.
+            # Always inject the reply-to pointer — even when the quoted text
+            # already appears in history. The prefix isn't deduplication, it's
+            # disambiguation: it tells the agent *which* prior message the user
+            # is referencing. History can contain the same or similar text
+            # multiple times, and without an explicit pointer the agent has to
+            # guess (or answer for both subjects). Token overhead is minimal.
             reply_snippet = event.reply_to_text[:500]
-            reply_prefix = f'[Replying to: "{reply_snippet}"]\n\n'
+            message_text = f'[Replying to: "{reply_snippet}"]\n\n{message_text}'
 
         if "@" in message_text:
             try:
@@ -6927,9 +6935,6 @@ class GatewayRunner:
                     message_text = _ctx_result.message
             except Exception as exc:
                 logger.debug("@ context reference expansion failed: %s", exc)
-
-        if reply_prefix:
-            message_text = f"{reply_prefix}{message_text}"
 
         return message_text
 
@@ -7445,14 +7450,8 @@ class GatewayRunner:
                                     # is something only they can fix, and
                                     # silent recovery would hide it.
                                     elif _comp is not None and getattr(_comp, "_last_aux_model_failure_model", None):
-                                        _aux_model = redact_sensitive_text(
-                                            getattr(_comp, "_last_aux_model_failure_model", ""),
-                                            force=True,
-                                        )
-                                        _aux_err = redact_sensitive_text(
-                                            getattr(_comp, "_last_aux_model_failure_error", None) or "unknown error",
-                                            force=True,
-                                        )
+                                        _aux_model = getattr(_comp, "_last_aux_model_failure_model", "")
+                                        _aux_err = getattr(_comp, "_last_aux_model_failure_error", None) or "unknown error"
                                         _aux_msg = (
                                             f"ℹ️ Configured compression model `{_aux_model}` "
                                             f"failed ({_aux_err}). Recovered using your main "
@@ -8120,6 +8119,7 @@ class GatewayRunner:
         # Close tool resources on the old agent (terminal sandboxes, browser
         # daemons, background processes) before evicting from cache.
         # Guard with getattr because test fixtures may skip __init__.
+        _old_agent = None
         _cache_lock = getattr(self, "_agent_cache_lock", None)
         if _cache_lock is not None:
             with _cache_lock:
@@ -8127,6 +8127,14 @@ class GatewayRunner:
                 _old_agent = _cached[0] if isinstance(_cached, tuple) else _cached if _cached else None
             if _old_agent is not None:
                 self._cleanup_agent_resources(_old_agent)
+        if _cache_lock is not None and _old_agent is None:
+            _old_agent = self._pop_soft_evicted_agent(session_key)
+            if _old_agent is not None:
+                self._cleanup_agent_resources(_old_agent)
+        if _cache_lock is not None and _old_agent is None and old_entry is not None:
+            # The agent may have been soft-evicted from _agent_cache for LRU/TTL
+            # memory management, leaving tool state alive under the session_id.
+            self._cleanup_session_tool_resources(old_entry.session_id)
         self._evict_cached_agent(session_key)
 
         # Discard any /queue overflow for this session — /new is a
@@ -10824,14 +10832,8 @@ class GatewayRunner:
                 # Separately: did the user's CONFIGURED aux model fail
                 # and we recovered via main?  Surface that as an info
                 # note so they can fix their config.
-                _aux_fail_model = redact_sensitive_text(
-                    getattr(compressor, "_last_aux_model_failure_model", None),
-                    force=True,
-                )
-                _aux_fail_err = redact_sensitive_text(
-                    getattr(compressor, "_last_aux_model_failure_error", None),
-                    force=True,
-                )
+                _aux_fail_model = getattr(compressor, "_last_aux_model_failure_model", None)
+                _aux_fail_err = getattr(compressor, "_last_aux_model_failure_error", None)
             finally:
                 # Evict and clean the cached session agent so next turn
                 # rebuilds its system prompt without leaking resources owned
@@ -11311,18 +11313,6 @@ class GatewayRunner:
                 return "That session is already linked to another Telegram topic."
 
         session_key = self._session_key_for_source(source)
-        current_entry = self.session_store.get_or_create_session(source)
-        if current_entry.session_id != session_id:
-            # /topic <session_id> creates the same kind of conversation
-            # boundary as /resume: the in-memory SessionStore entry and any
-            # cached AIAgent must move with the persistent topic binding.
-            self._release_running_agent_state(session_key)
-            switched_entry = self.session_store.switch_session(session_key, session_id)
-            if not switched_entry:
-                return t("gateway.resume.switch_failed")
-            self._clear_session_boundary_security_state(session_key)
-            self._evict_cached_agent(session_key)
-
         try:
             self._session_db.bind_telegram_topic(
                 chat_id=str(source.chat_id),
@@ -12202,8 +12192,6 @@ class GatewayRunner:
             anchor = reply_to_message_id or getattr(source, "message_id", None)
             if anchor is not None:
                 metadata["telegram_reply_to_message_id"] = str(anchor)
-        if getattr(source, "platform", None) == Platform.FEISHU and reply_to_message_id is not None:
-            metadata["reply_to_message_id"] = str(reply_to_message_id)
         return metadata
 
     @staticmethod
@@ -13712,6 +13700,35 @@ class GatewayRunner:
         if release_running_state:
             self._release_running_agent_state(session_key)
 
+    def _soft_evicted_agents(self) -> "weakref.WeakValueDictionary[str, Any]":
+        """Weak registry of cache-evicted agents that may still own resources."""
+        registry = getattr(self, "_agent_cache_soft_evicted", None)
+        if registry is None:
+            registry = weakref.WeakValueDictionary()
+            self._agent_cache_soft_evicted = registry
+        return registry
+
+    def _remember_soft_evicted_agent(self, session_key: str, agent: Any) -> None:
+        """Track a soft-evicted agent without extending its lifetime."""
+        if not session_key or agent is None:
+            return
+        try:
+            self._soft_evicted_agents()[session_key] = agent
+        except TypeError:
+            # Some test doubles may not support weak references. They do not
+            # own real tool state, so falling back to session_id cleanup is OK.
+            pass
+
+    def _pop_soft_evicted_agent(self, session_key: str) -> Any:
+        """Return and forget a live soft-evicted agent, if one still exists."""
+        registry = getattr(self, "_agent_cache_soft_evicted", None)
+        if registry is None:
+            return None
+        try:
+            return registry.pop(session_key, None)
+        except Exception:
+            return None
+
     @staticmethod
     def _agent_from_cache_entry(entry: Any) -> Any:
         """Return the agent object from a cache entry, if present."""
@@ -13865,6 +13882,7 @@ class GatewayRunner:
                 key, len(_cache),
             )
             if agent is not None:
+                self._remember_soft_evicted_agent(key, agent)
                 threading.Thread(
                     target=self._release_evicted_agent_soft,
                     args=(agent,),
@@ -13913,6 +13931,7 @@ class GatewayRunner:
                 "Agent cache idle-TTL evict: session=%s (idle=%.0fs)",
                 key, now - getattr(agent, "_last_activity_ts", now),
             )
+            self._remember_soft_evicted_agent(key, agent)
             threading.Thread(
                 target=self._release_evicted_agent_soft,
                 args=(agent,),
@@ -16264,15 +16283,11 @@ def _start_cron_ticker(stop_event: threading.Event, adapters=None, loop=None, in
     cron delivery path so live adapters can be used for E2EE rooms.
 
     Also refreshes the channel directory every 5 minutes and prunes the
-    image/audio/document/video cache + expired ``hermes debug share`` pastes
+    image/audio/document cache + expired ``hermes debug share`` pastes
     once per hour.
     """
     from cron.scheduler import tick as cron_tick
-    from gateway.platforms.base import (
-        cleanup_document_cache,
-        cleanup_image_cache,
-        cleanup_video_cache,
-    )
+    from gateway.platforms.base import cleanup_image_cache, cleanup_document_cache
     from hermes_cli.debug import _sweep_expired_pastes
 
     IMAGE_CACHE_EVERY = 60   # ticks — once per hour at default 60s interval
@@ -16318,12 +16333,6 @@ def _start_cron_ticker(stop_event: threading.Event, adapters=None, loop=None, in
                     logger.info("Document cache cleanup: removed %d stale file(s)", removed)
             except Exception as e:
                 logger.debug("Document cache cleanup error: %s", e)
-            try:
-                removed = cleanup_video_cache(max_age_hours=24)
-                if removed:
-                    logger.info("Video cache cleanup: removed %d stale file(s)", removed)
-            except Exception as e:
-                logger.debug("Video cache cleanup error: %s", e)
 
         if tick_count % PASTE_SWEEP_EVERY == 0:
             try:
