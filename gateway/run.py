@@ -51,6 +51,7 @@ from typing import Dict, Optional, Any, List, Union
 # preserving the established test-patch surface.
 from agent.account_usage import fetch_account_usage, render_account_usage_lines
 from agent.i18n import t
+from agent.redact import redact_sensitive_text
 from hermes_cli.config import cfg_get
 
 # --- Agent cache tuning ---------------------------------------------------
@@ -7444,8 +7445,14 @@ class GatewayRunner:
                                     # is something only they can fix, and
                                     # silent recovery would hide it.
                                     elif _comp is not None and getattr(_comp, "_last_aux_model_failure_model", None):
-                                        _aux_model = getattr(_comp, "_last_aux_model_failure_model", "")
-                                        _aux_err = getattr(_comp, "_last_aux_model_failure_error", None) or "unknown error"
+                                        _aux_model = redact_sensitive_text(
+                                            getattr(_comp, "_last_aux_model_failure_model", ""),
+                                            force=True,
+                                        )
+                                        _aux_err = redact_sensitive_text(
+                                            getattr(_comp, "_last_aux_model_failure_error", None) or "unknown error",
+                                            force=True,
+                                        )
                                         _aux_msg = (
                                             f"ℹ️ Configured compression model `{_aux_model}` "
                                             f"failed ({_aux_err}). Recovered using your main "
@@ -10817,8 +10824,14 @@ class GatewayRunner:
                 # Separately: did the user's CONFIGURED aux model fail
                 # and we recovered via main?  Surface that as an info
                 # note so they can fix their config.
-                _aux_fail_model = getattr(compressor, "_last_aux_model_failure_model", None)
-                _aux_fail_err = getattr(compressor, "_last_aux_model_failure_error", None)
+                _aux_fail_model = redact_sensitive_text(
+                    getattr(compressor, "_last_aux_model_failure_model", None),
+                    force=True,
+                )
+                _aux_fail_err = redact_sensitive_text(
+                    getattr(compressor, "_last_aux_model_failure_error", None),
+                    force=True,
+                )
             finally:
                 # Evict and clean the cached session agent so next turn
                 # rebuilds its system prompt without leaking resources owned
