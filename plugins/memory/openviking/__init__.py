@@ -328,7 +328,6 @@ ADD_RESOURCE_SCHEMA = {
 }
 
 
-
 def _is_windows_absolute_path(value: str) -> bool:
     return (
         len(value) >= 3
