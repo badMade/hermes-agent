@@ -67,6 +67,33 @@ class TestReadFileHandler:
         assert '"apiKey": "test"' in result["content"]
 
     @patch("tools.file_tools._get_file_ops")
+    def test_redacts_secrets_for_symlink_pointing_to_non_code_file(
+        self, mock_get, monkeypatch, tmp_path
+    ):
+        """A symlink named secrets.py → secrets.env must not bypass ENV redaction."""
+        monkeypatch.setattr("agent.redact._REDACT_ENABLED", True)
+        env_file = tmp_path / "secrets.env"
+        env_file.write_text("API_TOKEN=opaque-secret-value-123456", encoding="utf-8")
+        symlink = tmp_path / "secrets.py"
+        symlink.symlink_to(env_file)
+
+        mock_ops = MagicMock()
+        from tools.file_operations import ReadResult
+
+        mock_ops.read_file.return_value = ReadResult(
+            content="API_TOKEN=opaque-secret-value-123456",
+            total_lines=1,
+        )
+        mock_get.return_value = mock_ops
+
+        from tools.file_tools import read_file_tool
+        result = json.loads(
+            read_file_tool(str(symlink), task_id="read-symlink-bypass")
+        )
+        assert "opaque-secret-value" not in result["content"]
+        assert "API_TOKEN=" in result["content"]
+
+    @patch("tools.file_tools._get_file_ops")
     def test_custom_offset_and_limit(self, mock_get):
         mock_ops = MagicMock()
         result_obj = MagicMock()
@@ -303,6 +330,36 @@ class TestSearchHandler:
         contents = "\n".join(match["content"] for match in result["matches"])
         assert "MAX_TOKENS=4096" in contents
         assert '"apiKey": "test"' in contents
+
+    @patch("tools.file_tools._get_file_ops")
+    def test_search_redacts_secrets_for_symlink_pointing_to_non_code_file(
+        self, mock_get, monkeypatch, tmp_path
+    ):
+        """A match whose displayed path ends in .py but resolves to .env must be redacted."""
+        monkeypatch.setattr("agent.redact._REDACT_ENABLED", True)
+        env_file = tmp_path / "creds.env"
+        env_file.write_text("API_TOKEN=opaque-secret-value-123456", encoding="utf-8")
+        symlink = tmp_path / "creds.py"
+        symlink.symlink_to(env_file)
+
+        mock_ops = MagicMock()
+        from tools.file_operations import SearchMatch, SearchResult
+
+        mock_ops.search.return_value = SearchResult(
+            matches=[
+                SearchMatch(str(symlink), 1, "API_TOKEN=opaque-secret-value-123456"),
+            ],
+            total_count=1,
+        )
+        mock_get.return_value = mock_ops
+
+        from tools.file_tools import search_tool
+        result = json.loads(
+            search_tool(pattern="opaque", task_id="search-symlink-bypass")
+        )
+        content = result["matches"][0]["content"]
+        assert "opaque-secret-value" not in content
+        assert "API_TOKEN=" in content
 
     @patch("tools.file_tools._get_file_ops")
     def test_search_passes_all_params(self, mock_get):

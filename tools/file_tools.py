@@ -600,7 +600,7 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
         # ── Redact secrets (after guard check to skip oversized content) ──
         if result.content:
             result.content = redact_sensitive_text(
-                result.content, code_file=_is_source_code_path(path)
+                result.content, code_file=_is_source_code_path(_resolved)
             )
             result_dict["content"] = result.content
 
@@ -1025,7 +1025,10 @@ def search_tool(pattern: str, target: str = "content", path: str = ".",
             for m in result.matches:
                 if hasattr(m, 'content') and m.content:
                     m.content = redact_sensitive_text(
-                        m.content, code_file=_is_source_code_path(getattr(m, "path", ""))
+                        m.content,
+                        code_file=_is_source_code_path(
+                            os.path.realpath(getattr(m, "path", ""))
+                        ),
                     )
         result_dict = result.to_dict()
 
