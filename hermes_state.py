@@ -1198,6 +1198,8 @@ class SessionDB:
                     "  AND parent.end_reason = 'compression' "
                     "  AND child.started_at >= parent.ended_at "
                     "  AND child.source = parent.source "
+                    # SQLite: IS is NULL-safe equality (equivalent to IS NOT DISTINCT FROM
+                    # in standard SQL).  Intentional — this database is SQLite-only.
                     "  AND child.user_id IS parent.user_id "
                     "ORDER BY child.started_at DESC LIMIT 1",
                     (current,),
@@ -1301,6 +1303,7 @@ class SessionDB:
                     WHERE parent.end_reason = 'compression'
                       AND child.started_at >= parent.ended_at
                       AND child.source = parent.source
+                      -- SQLite: IS is NULL-safe equality (equivalent to IS NOT DISTINCT FROM).
                       AND child.user_id IS parent.user_id
                 ),
                 chain_max AS (

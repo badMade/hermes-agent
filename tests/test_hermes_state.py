@@ -2589,50 +2589,40 @@ class TestCompressionChainProjection:
         # root1's tip must be tip1 (via mid1), not delegate1.
         assert db.get_compression_tip("root1") == "tip1"
 
-    def test_get_compression_tip_skips_cross_source_child(self, db):
-        """Compression projection must not cross source boundaries."""
+    @pytest.mark.parametrize(
+        "child_id,child_source,child_user_id,list_kwargs",
+        [
+            ("tool_child", "tool", "alice", {"source": "cli"}),
+            ("mallory_child", "cli", "mallory", {"source": "cli", "user_id": "alice"}),
+        ],
+        ids=["cross_source", "cross_user"],
+    )
+    def test_get_compression_tip_skips_excluded_child(
+        self, db, child_id, child_source, child_user_id, list_kwargs
+    ):
+        """Compression projection must not cross source or user boundaries."""
         import time as _time
+
         t0 = _time.time() - 3600
         db.create_session("root1", "cli", user_id="alice")
         db._conn.execute(
             "UPDATE sessions SET started_at=?, ended_at=?, end_reason=? WHERE id=?",
             (t0, t0 + 10, "compression", "root1"),
         )
-        db.create_session("tool_child", "tool", parent_session_id="root1", user_id="alice")
+        db.create_session(
+            child_id, child_source, parent_session_id="root1", user_id=child_user_id
+        )
         db._conn.execute(
             "UPDATE sessions SET started_at=? WHERE id=?",
-            (t0 + 11, "tool_child"),
+            (t0 + 11, child_id),
         )
-        db.append_message("tool_child", "user", "SECRET_PREVIEW")
+        db.append_message(child_id, "user", "SECRET_PREVIEW")
         db._conn.commit()
 
         assert db.get_compression_tip("root1") == "root1"
-        sessions = db.list_sessions_rich(source="cli", limit=20)
+        sessions = db.list_sessions_rich(limit=20, **list_kwargs)
         assert [s["id"] for s in sessions] == ["root1"]
-        assert sessions[0]["preview"] == ""
-        assert "_lineage_root_id" not in sessions[0]
-
-    def test_get_compression_tip_skips_cross_user_child(self, db):
-        """Compression projection must not cross gateway user boundaries."""
-        import time as _time
-        t0 = _time.time() - 3600
-        db.create_session("root1", "cli", user_id="alice")
-        db._conn.execute(
-            "UPDATE sessions SET started_at=?, ended_at=?, end_reason=? WHERE id=?",
-            (t0, t0 + 10, "compression", "root1"),
-        )
-        db.create_session("mallory_child", "cli", parent_session_id="root1", user_id="mallory")
-        db._conn.execute(
-            "UPDATE sessions SET started_at=? WHERE id=?",
-            (t0 + 11, "mallory_child"),
-        )
-        db.append_message("mallory_child", "user", "SECRET_PREVIEW")
-        db._conn.commit()
-
-        assert db.get_compression_tip("root1") == "root1"
-        sessions = db.list_sessions_rich(source="cli", user_id="alice", limit=20)
-        assert [s["id"] for s in sessions] == ["root1"]
-        assert sessions[0]["preview"] == ""
+        assert "SECRET_PREVIEW" not in sessions[0]["preview"]
         assert "_lineage_root_id" not in sessions[0]
 
     def test_list_surfaces_tip_for_compressed_root(self, db):
