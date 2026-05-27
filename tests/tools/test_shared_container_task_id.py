@@ -91,11 +91,15 @@ def test_rl_task_with_override_keeps_its_own_id():
         terminal_tool.clear_task_env_overrides("tb2-task-fix-git")
 
 
-def test_cleared_override_collapses_again():
+def test_cleared_override_keeps_own_key():
+    # With the isolation model, clearing the override does NOT collapse the ID
+    # back to "default"; the task keeps its own sandbox key so that a stale
+    # cleanup_vm call after rollout teardown pops the right (already-empty)
+    # bucket rather than accidentally touching the shared "default" sandbox.
     terminal_tool.register_task_env_overrides("tb2-x", {"docker_image": "x:y"})
     assert terminal_tool._resolve_container_task_id("tb2-x") == "tb2-x"
     terminal_tool.clear_task_env_overrides("tb2-x")
-    assert terminal_tool._resolve_container_task_id("tb2-x") == "default"
+    assert terminal_tool._resolve_container_task_id("tb2-x") == "tb2-x"
 
 
 def test_get_active_env_reads_shared_container_from_subagent_id():
