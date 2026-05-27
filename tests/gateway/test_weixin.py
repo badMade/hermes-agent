@@ -425,8 +425,15 @@ class TestWeixinChunkDelivery:
 
         assert result.success is True
         send_file_mock.assert_not_awaited()
-        send_message_mock.assert_awaited_once()
-        assert send_message_mock.await_args.kwargs["text"] == content
+        sent_chunks = [call.kwargs["text"] for call in send_message_mock.await_args_list]
+        expected_chunks = [
+            c for c in adapter._split_text(adapter.format_message(content))
+            if c and c.strip()
+        ]
+        assert sent_chunks == expected_chunks
+        sent_text = "\n".join(sent_chunks)
+        assert f"MEDIA:{secret_doc}" in sent_text
+        assert str(bare_image) in sent_text
 
 
 class TestWeixinOutboundMedia:
