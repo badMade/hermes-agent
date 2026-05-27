@@ -29,10 +29,7 @@ import json
 import logging
 import mimetypes
 import os
-import tempfile
 import threading
-import uuid
-import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -292,9 +289,9 @@ REMEMBER_SCHEMA = {
 ADD_RESOURCE_SCHEMA = {
     "name": "viking_add_resource",
     "description": (
-        "Add a remote resource URL to the OpenViking knowledge base. "
-        "Resources must be public http(s), git, or ssh URLs. "
-        "Local file and directory paths are not allowed. "
+        "Add a remote URL to the OpenViking knowledge base. "
+        "Resources must be public http(s), git, or ssh URLs reachable by OpenViking. "
+        "Local filesystem paths and file:// URIs are not allowed. "
         "The system automatically parses, indexes, and generates summaries."
     ),
     "parameters": {
@@ -331,16 +328,6 @@ ADD_RESOURCE_SCHEMA = {
 }
 
 
-def _zip_directory(dir_path: Path) -> Path:
-    """Create a temporary zip file containing a directory tree."""
-    zip_path = Path(tempfile.gettempdir()) / f"openviking_upload_{uuid.uuid4().hex}.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for file_path in dir_path.rglob("*"):
-            if file_path.is_file():
-                arcname = str(file_path.relative_to(dir_path)).replace("\\", "/")
-                zipf.write(file_path, arcname=arcname)
-    return zip_path
-
 
 def _is_windows_absolute_path(value: str) -> bool:
     return (
@@ -352,7 +339,7 @@ def _is_windows_absolute_path(value: str) -> bool:
 
 
 def _is_remote_resource_source(value: str) -> bool:
-    return value.startswith(_REMOTE_RESOURCE_PREFIXES)
+    return value.lower().startswith(_REMOTE_RESOURCE_PREFIXES)
 
 
 def _is_local_path_reference(value: str) -> bool:
@@ -872,6 +859,10 @@ class OpenVikingMemoryProvider(MemoryProvider):
         url = args.get("url", "")
         if not url:
             return tool_error("url is required")
+        local_path_error = (
+            "Local filesystem paths are not allowed for viking_add_resource; "
+            "provide a remote URL instead."
+        )
 
         if args.get("to") and args.get("parent"):
             return tool_error("Cannot specify both 'to' and 'parent'")
@@ -881,9 +872,13 @@ class OpenVikingMemoryProvider(MemoryProvider):
             if key in args and args[key] not in (None, ""):
                 payload[key] = args[key]
 
-        if not _is_remote_resource_source(url):
-            return tool_error("Local file and directory paths are not allowed")
-
+        parsed_url = urlparse(url)
+        if parsed_url.scheme == "file":
+            return tool_error(local_path_error)
+        if parsed_url.scheme and not _is_windows_absolute_path(url) and not _is_remote_resource_source(url):
+            return tool_error(f"Unsupported resource URL scheme: {parsed_url.scheme}")
+        if _is_local_path_reference(url):
+            return tool_error(local_path_error)
         payload["path"] = url
         resp = self._client.post("/api/v1/resources", payload)
         result = resp.get("result", {})
