@@ -58,7 +58,25 @@ class TestFindExcludesHiddenDirs:
             "-name",
             "*.json",
         ]
-        result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
+        assert "catalog.json" not in result.stdout
+        assert ".hub" not in result.stdout
+
+    def test_find_skips_git_internals(self, searchable_tree):
+        """find should not return files from .git/ directory."""
+        cmd = [
+            "find", str(searchable_tree), "-not", "-path", "*/.*", "-type", "f", "-name", "*.idx"
+        ]
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
+        assert "pack-abc.idx" not in result.stdout
+        assert ".git" not in result.stdout
+
+    def test_find_still_returns_visible_files(self, searchable_tree):
+        """find should still return files from visible directories."""
+        cmd = [
+            "find", str(searchable_tree), "-not", "-path", "*/.*", "-type", "f", "-name", "*.md"
+        ]
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
         assert "catalog.json" not in result.stdout
         assert ".hub" not in result.stdout
 
