@@ -1771,13 +1771,23 @@ class TestTruncateToolCallArgsJson:
         assert "非德满" in out
 
     def test_deeply_nested_json_falls_back_without_crashing(self):
-        import json as _json
+        import sys
         shrink = self._helper()
-        nested = "x" * 501
-        for _ in range(1100):
-            nested = [nested]
-        payload = _json.dumps({"command": "true", "junk": nested})
-        assert shrink(payload) == payload
+        old_limit = sys.getrecursionlimit()
+        test_limit = min(old_limit, 400)
+        sys.setrecursionlimit(test_limit)
+        try:
+            depth = test_limit + 50
+            payload = (
+                '{"command":"true","junk":'
+                + ("[" * depth)
+                + '"' + ("x" * 501) + '"'
+                + ("]" * depth)
+                + "}"
+            )
+            assert shrink(payload) == payload
+        finally:
+            sys.setrecursionlimit(old_limit)
 
     def test_pass3_emits_valid_json_for_downstream_provider(self):
         """End-to-end: Pass 3 must never produce the exact failure payload
