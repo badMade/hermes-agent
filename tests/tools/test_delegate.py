@@ -989,6 +989,8 @@ class TestDelegationProviderIntegration(unittest.TestCase):
                 task_index=0,
                 goal="test",
                 context="",
+                toolsets=None,
+                model=None,
                 parent_agent=parent,
                 max_iterations=45,
                 task_count=1,
