@@ -3274,6 +3274,73 @@ class TestFTS5ToolCallMigration:
             session_db.close()
 
 
+class TestCJKCodepoint:
+    @pytest.mark.parametrize(
+        "cp",
+        [
+            # CJK Unified Ideographs
+            0x4E00,
+            0x9FFF,
+            0x7000,
+            # CJK Extension A
+            0x3400,
+            0x4DBF,
+            0x4000,
+            # CJK Extension B
+            0x20000,
+            0x2A6DF,
+            0x25000,
+            # CJK Symbols
+            0x3000,
+            0x303F,
+            0x3020,
+            # Hiragana
+            0x3040,
+            0x309F,
+            0x3050,
+            # Katakana
+            0x30A0,
+            0x30FF,
+            0x30C0,
+            # Hangul Syllables
+            0xAC00,
+            0xD7AF,
+            0xB000,
+        ],
+    )
+    def test_is_cjk_codepoint_valid(self, cp: int):
+        assert SessionDB._is_cjk_codepoint(cp) is True
+
+    @pytest.mark.parametrize(
+        "cp",
+        [
+            # Outside CJK Unified Ideographs
+            0x4DFF,
+            0xA000,
+            # Outside CJK Extension A
+            0x33FF,
+            0x4DC0,
+            # Outside CJK Extension B
+            0x1FFFF,
+            0x2A6E0,
+            # Outside CJK Symbols
+            0x2FFF,
+            # Note: 0x303F + 1 = 0x3040 which IS CJK (Hiragana)
+            # So we test below 0x3000, and above 0x30FF
+            0x3100,
+            # Outside Hangul Syllables
+            0xABFF,
+            0xD7B0,
+            # Extreme values
+            -1,
+            0,
+            0x110000,
+        ],
+    )
+    def test_is_cjk_codepoint_invalid(self, cp: int):
+        assert SessionDB._is_cjk_codepoint(cp) is False
+
+
 # =========================================================================
 # Format session DB unavailable
 # =========================================================================
