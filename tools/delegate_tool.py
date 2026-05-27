@@ -1487,44 +1487,7 @@ def _run_single_child(
             "api_calls": 0,
         }
 
-<<<<<<< HEAD
-        def _run_with_thread_capture():
-            _worker_thread_holder["t"] = threading.current_thread()
-            return child.run_conversation(
-                user_message=goal,
-                task_id=child_task_id,
-            )
-
-        _child_future = _timeout_executor.submit(_run_with_thread_capture)
-        try:
-            result = _child_future.result(timeout=child_timeout)
-        except Exception as _timeout_exc:
-            # Signal the child to stop so its thread can exit cleanly.
-            try:
-                if hasattr(child, "interrupt"):
-                    child.interrupt()
-                elif hasattr(child, "_interrupt_requested"):
-                    child._interrupt_requested = True
-            except Exception:
-                pass
-
-            is_timeout = isinstance(_timeout_exc, (FuturesTimeoutError, TimeoutError))
-            duration = round(time.monotonic() - child_start, 2)
-            logger.warning(
-                "Subagent %d %s after %.1fs",
-                task_index,
-                "timed out" if is_timeout else f"raised {type(_timeout_exc).__name__}",
-                duration,
-            )
-
-            # When a subagent times out BEFORE making any API call, dump a
-            # diagnostic to help users (and us) see what the child was doing.
-            # See #14726 — without this, 0-API-call hangs are black boxes.
-            diagnostic_path: Optional[str] = None
-            child_api_calls = 0
-=======
         def _read_child_api_calls() -> int:
->>>>>>> origin/main
             try:
                 _summary = child.get_activity_summary()
                 return int(_summary.get("api_call_count", 0) or 0)

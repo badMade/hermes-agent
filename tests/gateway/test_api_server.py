@@ -336,6 +336,22 @@ class TestAuth:
         assert result is not None
         assert result.status == 401
 
+    def test_non_ascii_key_mismatch_returns_401(self):
+        config = PlatformConfig(enabled=True, extra={"key": "séc-ret"})
+        adapter = APIServerAdapter(config)
+        mock_request = MagicMock()
+        mock_request.headers = {"Authorization": "Bearer wrong-key"}
+        result = adapter._check_auth(mock_request)
+        assert result is not None
+        assert result.status == 401
+
+    def test_non_ascii_key_match_passes(self):
+        config = PlatformConfig(enabled=True, extra={"key": "séc-ret"})
+        adapter = APIServerAdapter(config)
+        mock_request = MagicMock()
+        mock_request.headers = {"Authorization": "Bearer séc-ret"}
+        assert adapter._check_auth(mock_request) is None
+
     def test_missing_auth_header_returns_401(self):
         config = PlatformConfig(enabled=True, extra={"key": "sk-test123"})
         adapter = APIServerAdapter(config)
@@ -649,8 +665,6 @@ class TestCapabilitiesEndpoint:
 
 class TestChatCompletionsEndpoint:
     @pytest.mark.asyncio
-<<<<<<< HEAD
-=======
     async def test_rejects_unsigned_proxy_scope(self, auth_adapter):
         """Normal API clients cannot supply gateway proxy scope metadata."""
         app = _create_app(auth_adapter)
@@ -732,7 +746,6 @@ class TestChatCompletionsEndpoint:
             assert "hermes_proxy_scope" in data["error"]["message"]
 
     @pytest.mark.asyncio
->>>>>>> origin/main
     async def test_invalid_json_returns_400(self, adapter):
         app = _create_app(adapter)
         async with TestClient(TestServer(app)) as cli:
@@ -2023,6 +2036,63 @@ class TestResponsesStreaming:
             for part in item.get("content", [])
         )
         assert "partial output" in output_text
+
+    @pytest.mark.asyncio
+    async def test_stream_batched_delta_disconnect_interrupts_agent(self, adapter):
+        """Disconnects from the background text-batch flush must stop the agent."""
+        fake_request = MagicMock()
+        fake_request.headers = {}
+
+        write_call_count = {"n": 0}
+
+        class _DisconnectingStreamResponse:
+            async def prepare(self, req):
+                pass
+
+            async def write(self, payload):
+                write_call_count["n"] += 1
+                if write_call_count["n"] >= 3:
+                    raise ConnectionResetError("simulated client disconnect")
+
+        import gateway.platforms.api_server as api_mod
+        import queue as _q
+
+        stream_q: _q.Queue = _q.Queue()
+        stream_q.put("batched text")
+
+        async def _agent_coro():
+            await asyncio.sleep(999)
+            return ({"final_response": "", "messages": [], "api_calls": 0}, {})
+
+        agent_task = asyncio.ensure_future(_agent_coro())
+        mock_agent = MagicMock()
+        response_id = f"resp_{uuid.uuid4().hex[:28]}"
+
+        with patch.object(api_mod.web, "StreamResponse", return_value=_DisconnectingStreamResponse()):
+            await asyncio.wait_for(
+                adapter._write_sse_responses(
+                    request=fake_request,
+                    response_id=response_id,
+                    model="hermes-agent",
+                    created_at=int(time.time()),
+                    stream_q=stream_q,
+                    agent_task=agent_task,
+                    agent_ref=[mock_agent],
+                    conversation_history=[],
+                    user_message="will disconnect",
+                    instructions=None,
+                    conversation=None,
+                    store=True,
+                    session_id=None,
+                ),
+                timeout=1.0,
+            )
+
+        mock_agent.interrupt.assert_called_once_with("SSE client disconnected")
+        assert agent_task.cancelled() or agent_task.done()
+        stored = adapter._response_store.get(response_id)
+        assert stored is not None
+        assert stored["response"]["status"] == "incomplete"
 
     @pytest.mark.asyncio
     async def test_stream_client_disconnect_persists_incomplete_snapshot(self, adapter):
