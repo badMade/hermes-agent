@@ -649,6 +649,41 @@ def test_custom_endpoint_explicit_custom_prefers_config_key(monkeypatch):
     assert resolved["api_key"] == "sk-vllm-key"
 
 
+def test_custom_base_url_env_does_not_receive_config_api_key(monkeypatch):
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openrouter")
+    monkeypatch.setattr(
+        rp,
+        "_get_model_config",
+        lambda: {
+            "provider": "custom",
+            "base_url": "https://trusted-provider.example/v1",
+            "api_key": "config-secret-should-not-leak",
+        },
+    )
+    monkeypatch.setenv("CUSTOM_BASE_URL", "https://attacker.example/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "env-openai-key")
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    resolved = rp.resolve_runtime_provider(requested="custom")
+
+    assert resolved["provider"] == "custom"
+    assert resolved["base_url"] == "https://attacker.example/v1"
+    assert resolved["api_key"] == "env-openai-key"
+
+
+def test_custom_base_url_env_does_not_override_auto_openrouter(monkeypatch):
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openrouter")
+    monkeypatch.setattr(rp, "_get_model_config", lambda: {})
+    monkeypatch.setenv("CUSTOM_BASE_URL", "https://custom-env.example/v1")
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+
+    resolved = rp.resolve_runtime_provider(requested="auto")
+
+    assert resolved["provider"] == "openrouter"
+    assert resolved["base_url"] == rp.OPENROUTER_BASE_URL
+
+
 def test_bare_custom_uses_loopback_model_base_url_when_provider_not_custom(monkeypatch):
     """Regression for #14676: /model can select Custom while YAML still lists another provider."""
     monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openrouter")
@@ -1957,6 +1992,72 @@ class TestAzureFoundryResolution:
 #   4. AZURE_ANTHROPIC_KEY env var
 #   5. ANTHROPIC_API_KEY env var
 # ──────────────────────────────────────────────────────────────────────────
+
+
+class TestAzureAnthropicUrlSubstringLeak:
+    def test_configured_path_injection_does_not_use_azure_key(self, monkeypatch):
+        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-secret-should-not-leak")
+        monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
+        monkeypatch.setattr(rp, "_get_model_config", lambda: {
+            "provider": "anthropic",
+            "base_url": "http://127.0.0.1:9000/azure.com/anthropic",
+        })
+        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+        monkeypatch.setattr(
+            "agent.anthropic_adapter.resolve_anthropic_token",
+            lambda: "token-from-safe-resolver",
+        )
+
+        resolved = rp.resolve_runtime_provider(requested="anthropic")
+
+        assert resolved["api_key"] == "token-from-safe-resolver"
+
+    def test_configured_lookalike_host_does_not_use_azure_key(self, monkeypatch):
+        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-secret-should-not-leak")
+        monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
+        monkeypatch.setattr(rp, "_get_model_config", lambda: {
+            "provider": "anthropic",
+            "base_url": "https://azure.com.attacker.example/anthropic",
+        })
+        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+        monkeypatch.setattr(
+            "agent.anthropic_adapter.resolve_anthropic_token",
+            lambda: "token-from-safe-resolver",
+        )
+
+        resolved = rp.resolve_runtime_provider(requested="anthropic")
+
+        assert resolved["api_key"] == "token-from-safe-resolver"
+
+    def test_explicit_path_injection_does_not_use_azure_short_circuit(self, monkeypatch):
+        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-secret-should-not-leak")
+        monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
+        monkeypatch.setattr(rp, "_get_model_config", lambda: {})
+        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+        monkeypatch.setattr(
+            "agent.anthropic_adapter.resolve_anthropic_token",
+            lambda: "token-from-safe-resolver",
+        )
+
+        resolved = rp.resolve_runtime_provider(
+            requested="anthropic",
+            explicit_base_url="http://127.0.0.1:9000/azure.com/anthropic",
+        )
+
+        assert resolved["api_key"] == "token-from-safe-resolver"
+
+    def test_azure_subdomain_still_uses_azure_key(self, monkeypatch):
+        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-key")
+        monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
+        monkeypatch.setattr(rp, "_get_model_config", lambda: {
+            "provider": "anthropic",
+            "base_url": "https://my-resource.services.ai.azure.com/anthropic",
+        })
+        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+
+        resolved = rp.resolve_runtime_provider(requested="anthropic")
+
+        assert resolved["api_key"] == "azure-key"
 
 
 class TestAzureAnthropicEnvVarHint:
