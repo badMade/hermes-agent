@@ -50,6 +50,6 @@
     "vite": "^7.3.1"
   },
   "overrides": {
-    "unicode-animations": "$unicode-animations"
+    "unicode-animations": "file:vendor/unicode-animations"
   }
 }
