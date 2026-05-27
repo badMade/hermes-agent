@@ -73,8 +73,10 @@ def test_run_uninstall_removes_named_profiles_before_project_root(tmp_path, monk
 
     assert ("gateway", True) in events
     first_project_delete = events.index(("rmtree", project_root))
-    last_gateway = max(i for i, event in enumerate(events) if event[0] == "gateway")
-    assert last_gateway < first_project_delete
+    last_gateway_while_project_exists = max(
+        i for i, event in enumerate(events) if event == ("gateway", True)
+    )
+    assert last_gateway_while_project_exists < first_project_delete
 
 
 def test_run_uninstall_aborts_when_named_profile_cleanup_fails(tmp_path, monkeypatch):
