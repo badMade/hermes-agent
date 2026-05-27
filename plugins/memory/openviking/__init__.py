@@ -29,10 +29,7 @@ import json
 import logging
 import mimetypes
 import os
-import tempfile
 import threading
-import uuid
-import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -292,15 +289,15 @@ REMEMBER_SCHEMA = {
 ADD_RESOURCE_SCHEMA = {
     "name": "viking_add_resource",
     "description": (
-        "Add a remote URL or local file/directory to the OpenViking knowledge base. "
-        "Remote resources must be public http(s), git, or ssh URLs. "
-        "Local files are automatically uploaded to OpenViking before indexing. "
+        "Add a remote URL to the OpenViking knowledge base. "
+        "Resources must be public http(s), git, or ssh URLs reachable by OpenViking. "
+        "Local filesystem paths and file:// URIs are not allowed. "
         "The system automatically parses, indexes, and generates summaries."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "url": {"type": "string", "description": "Remote URL or local file/directory path to add."},
+            "url": {"type": "string", "description": "Remote URL to add (http(s), git, or ssh)."},
             "reason": {
                 "type": "string",
                 "description": "Why this resource is relevant (improves search).",
@@ -331,16 +328,6 @@ ADD_RESOURCE_SCHEMA = {
 }
 
 
-def _zip_directory(dir_path: Path) -> Path:
-    """Create a temporary zip file containing a directory tree."""
-    zip_path = Path(tempfile.gettempdir()) / f"openviking_upload_{uuid.uuid4().hex}.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for file_path in dir_path.rglob("*"):
-            if file_path.is_file():
-                arcname = str(file_path.relative_to(dir_path)).replace("\\", "/")
-                zipf.write(file_path, arcname=arcname)
-    return zip_path
-
 
 def _is_windows_absolute_path(value: str) -> bool:
     return (
@@ -352,7 +339,7 @@ def _is_windows_absolute_path(value: str) -> bool:
 
 
 def _is_remote_resource_source(value: str) -> bool:
-    return value.startswith(_REMOTE_RESOURCE_PREFIXES)
+    return value.lower().startswith(_REMOTE_RESOURCE_PREFIXES)
 
 
 def _is_local_path_reference(value: str) -> bool:
@@ -886,29 +873,15 @@ class OpenVikingMemoryProvider(MemoryProvider):
                 payload[key] = args[key]
 
         parsed_url = urlparse(url)
-        if _is_remote_resource_source(url):
-            source_path = None
-        elif parsed_url.scheme == "file":
-            source_path = _path_from_file_uri(url)
-            if isinstance(source_path, str):
-                return tool_error(source_path)
-        elif parsed_url.scheme and not _is_windows_absolute_path(url):
-            source_path = None
-        else:
-            source_path = Path(url).expanduser()
-
-        cleanup_path: Optional[Path] = None
-        try:
-            if source_path is not None:
-                return tool_error(local_path_error)
-            else:
-                payload["path"] = url
-
-            resp = self._client.post("/api/v1/resources", payload)
-            result = resp.get("result", {})
-        finally:
-            if cleanup_path:
-                cleanup_path.unlink(missing_ok=True)
+        if parsed_url.scheme == "file":
+            return tool_error(local_path_error)
+        if parsed_url.scheme and not _is_windows_absolute_path(url) and not _is_remote_resource_source(url):
+            return tool_error(f"Unsupported resource URL scheme: {parsed_url.scheme}")
+        if _is_local_path_reference(url):
+            return tool_error(local_path_error)
+        payload["path"] = url
+        resp = self._client.post("/api/v1/resources", payload)
+        result = resp.get("result", {})
 
         return json.dumps({
             "status": "added",
