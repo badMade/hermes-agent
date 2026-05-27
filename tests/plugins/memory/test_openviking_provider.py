@@ -168,6 +168,23 @@ def test_tool_add_resource_rejects_missing_local_path_with_generic_local_path_er
     provider._client.post.assert_not_called()
 
 
+@pytest.mark.parametrize("url", [
+    "ftp://example.com/file.txt",
+    "data:text/plain;base64,SGVsbG8=",
+    "mailto:user@example.com",
+    "custom://some-resource",
+])
+def test_tool_add_resource_rejects_disallowed_schemes(url):
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+
+    result = json.loads(provider._tool_add_resource({"url": url}))
+
+    assert "error" in result
+    assert result["error"] == "Invalid resource URL. Provide a public http(s), git, or ssh URL."
+    provider._client.post.assert_not_called()
+
+
 def test_tool_add_resource_sends_remote_url_as_path():
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()

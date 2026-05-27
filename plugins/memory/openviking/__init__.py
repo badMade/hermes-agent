@@ -876,7 +876,9 @@ class OpenVikingMemoryProvider(MemoryProvider):
         if parsed_url.scheme == "file":
             return tool_error(local_path_error)
         if parsed_url.scheme and not _is_windows_absolute_path(url) and not _is_remote_resource_source(url):
-            return tool_error(f"Unsupported resource URL scheme: {parsed_url.scheme}")
+            return tool_error(
+                "Invalid resource URL. Provide a public http(s), git, or ssh URL."
+            )
         if _is_local_path_reference(url):
             return tool_error(local_path_error)
         payload["path"] = url
