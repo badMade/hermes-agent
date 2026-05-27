@@ -220,7 +220,7 @@ def test_acp_image_block_rejects_local_file_uri(tmp_path):
 
     content = _content_blocks_to_openai_user_content([
         TextContentBlock(type="text", text="describe this"),
-        ImageContentBlock(type="image", uri=attached.as_uri(), mimeType="image/png"),
+        ImageContentBlock(type="image", data="", uri=attached.as_uri(), mimeType="image/png"),
     ])
 
     assert content == "describe this"
@@ -230,6 +230,7 @@ def test_acp_image_block_allows_http_urls():
     content = _content_blocks_to_openai_user_content([
         ImageContentBlock(
             type="image",
+            data="",
             uri="https://example.test/image.png",
             mimeType="image/png",
         ),
@@ -254,7 +255,12 @@ def test_acp_image_block_rejects_oversized_inline_data():
 def test_acp_image_block_rejects_non_image_data_url():
     content = _content_blocks_to_openai_user_content([
         TextContentBlock(type="text", text="not an image"),
-        ImageContentBlock(type="image", uri="data:text/plain;base64,aGVsbG8="),
+        ImageContentBlock(
+            type="image",
+            data="",
+            uri="data:text/plain;base64,aGVsbG8=",
+            mimeType="image/png",
+        ),
     ])
 
     assert content == "not an image"
