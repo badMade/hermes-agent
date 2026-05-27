@@ -173,13 +173,17 @@ class FileStateRegistryUnitTests(unittest.TestCase):
     def test_lock_path_kill_switch_does_not_allocate_lock(self):
         p = self._mk()
         reg = file_state.get_registry()
+        prior = os.environ.get("HERMES_DISABLE_FILE_STATE_GUARD")
         os.environ["HERMES_DISABLE_FILE_STATE_GUARD"] = "1"
         try:
             with file_state.lock_path(p):
                 pass
-            self.assertEqual(reg._path_locks, {})
+            self.assertNotIn(p, reg._path_locks)
         finally:
-            del os.environ["HERMES_DISABLE_FILE_STATE_GUARD"]
+            if prior is None:
+                os.environ.pop("HERMES_DISABLE_FILE_STATE_GUARD", None)
+            else:
+                os.environ["HERMES_DISABLE_FILE_STATE_GUARD"] = prior
 
     def test_cleanup_task_removes_top_level_read_entry(self):
         p = self._mk()

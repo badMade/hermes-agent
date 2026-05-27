@@ -32,6 +32,7 @@ loop detection, which is a different concern.
 """
 from __future__ import annotations
 
+import itertools
 import os
 import threading
 import time
@@ -133,7 +134,12 @@ class FileStateRegistry:
                 return
         now = time.time()
         with self._state_lock:
-            agent_reads = self._reads[task_id]
+            # Move task_id to newest position (LRU) so active tasks are not
+            # evicted before idle ones when _reads hits _MAX_TASKS.
+            agent_reads = self._reads.pop(task_id, None)
+            if agent_reads is None:
+                agent_reads = {}
+            self._reads[task_id] = agent_reads
             agent_reads[resolved] = (float(mtime), now, bool(partial))
             _cap_dict(agent_reads, _MAX_PATHS_PER_AGENT)
             _cap_dict(self._reads, _MAX_TASKS)
@@ -163,7 +169,12 @@ class FileStateRegistry:
             self._last_writer[resolved] = (task_id, now)
             _cap_dict(self._last_writer, _MAX_GLOBAL_WRITERS)
             # Writer's own view is now up-to-date.
-            agent_reads = self._reads[task_id]
+            # Move task_id to newest position (LRU) so active tasks are not
+            # evicted before idle ones when _reads hits _MAX_TASKS.
+            agent_reads = self._reads.pop(task_id, None)
+            if agent_reads is None:
+                agent_reads = {}
+            self._reads[task_id] = agent_reads
             agent_reads[resolved] = (float(mtime), now, False)
             _cap_dict(agent_reads, _MAX_PATHS_PER_AGENT)
             _cap_dict(self._reads, _MAX_TASKS)
@@ -278,9 +289,12 @@ class FileStateRegistry:
             return list(self._reads.get(task_id, {}).keys())
 
     def cleanup_task(self, task_id: str) -> None:
-        """Forget read stamps owned by a completed task."""
-        if _disabled():
-            return
+        """Forget read stamps owned by a completed task.
+
+        Runs unconditionally — even when the kill-switch is active — so
+        tasks that recorded stamps before the guard was disabled still
+        release their ``_reads`` entries and cannot cause unbounded growth.
+        """
         with self._state_lock:
             self._reads.pop(task_id, None)
 
@@ -318,9 +332,9 @@ def _cap_dict(d: dict, limit: int) -> None:
     over = len(d) - limit
     if over <= 0:
         return
-    # dict preserves insertion order (PY>=3.7) — snapshot keys before
-    # mutating so trimming multiple entries is safe.
-    for key in list(d)[:over]:
+    # Snapshot only the first `over` keys rather than the full keyset so
+    # trimming costs O(over) instead of O(len(d)) on each call.
+    for key in list(itertools.islice(iter(d), over)):
         d.pop(key, None)
 
 
