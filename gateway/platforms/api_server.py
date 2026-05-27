@@ -535,7 +535,11 @@ def _make_request_fingerprint(
     from hashlib import sha256
     subset = {k: body.get(k) for k in keys}
     if extra:
+<<<<<<< HEAD
         subset["__headers__"] = extra
+=======
+        subset["__extra__"] = extra
+>>>>>>> origin/main
     return sha256(repr(subset).encode("utf-8")).hexdigest()
 
 
@@ -1067,10 +1071,10 @@ class APIServerAdapter(BasePlatformAdapter):
 
         stream = body.get("stream", False)
 
-        proxy_scope = body.get("hermes_proxy_scope")
         origin_platform = None
         enabled_toolsets_override = None
-        if proxy_scope is not None:
+        if "hermes_proxy_scope" in body:
+            proxy_scope = body["hermes_proxy_scope"]
             if not isinstance(proxy_scope, dict):
                 return web.json_response(_openai_error("Invalid hermes_proxy_scope"), status=400)
             raw_platform = proxy_scope.get("origin_platform")
@@ -1263,7 +1267,11 @@ class APIServerAdapter(BasePlatformAdapter):
             fp = _make_request_fingerprint(
                 body,
                 keys=["model", "messages", "tools", "tool_choice", "stream"],
+<<<<<<< HEAD
                 extra={"X-Hermes-Session-Id": session_id},
+=======
+                extra={"x_hermes_session_id": session_id},
+>>>>>>> origin/main
             )
             try:
                 result, usage = await _idem_cache.get_or_set(idempotency_key, fp, _compute_completion)

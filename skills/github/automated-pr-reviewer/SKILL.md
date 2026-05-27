@@ -1,13 +1,23 @@
 ---
 name: automated-pr-reviewer
+<<<<<<< HEAD
 description: "Automated PR reviewer: scans for authorized '@jules' PR comments and triggers static code reviews."
 version: 1.0.2
 author: Hermes Agent
+=======
+description: "Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews."
+version: 1.0.0
+author: badMade
+>>>>>>> origin/main
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
+<<<<<<< HEAD
     tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, review]
+=======
+    tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron]
+>>>>>>> origin/main
     related_skills: [github-code-review, cronjob]
 ---
 
