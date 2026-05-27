@@ -32,7 +32,10 @@ function isLoopbackAddress(address: string | undefined): boolean {
 function acceptsHtml(req: IncomingMessage): boolean {
   const accept = req.headers.accept;
   const values = Array.isArray(accept) ? accept : [accept ?? ""];
-  return values.some((value) => value.includes("text/html"));
+  return values.some((value) => {
+    const normalized = value.toLowerCase();
+    return normalized.includes("text/html") || normalized.includes("*/*");
+  });
 }
 
 function isHtmlDocumentRoute(req: IncomingMessage): boolean {
