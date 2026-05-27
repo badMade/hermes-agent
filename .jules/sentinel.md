@@ -9,6 +9,6 @@
 **Prevention:** To prevent SQL injection when applying limits to user-provided SQL queries, execute the raw user query directly and restrict the output rows in Python using `cursor.fetchmany(limit)` instead of trying to wrap the query in another SELECT with a LIMIT clause.
 
 ## 2024-05-26 - Security Enhancement: Shell Injection Prevention
-**Vulnerability:** Shell injection via `subprocess.run(..., shell=True)` using unquoted string templates in `hermes_cli/tools_config.py` and string commands in tests `tests/tools/test_local_background_child_hang.py`, `tests/tools/test_search_hidden_dirs.py`.
+**Vulnerability:** Shell injection via `subprocess.run(..., shell=True)` using string commands in tests `tests/tools/test_search_hidden_dirs.py`.
 **Learning:** `shell=True` allows shell metacharacters and logic operators (`|`, `&&`, `;`) to alter intended execution paths or escalate privileges.
 **Prevention:** Avoid `shell=True` in `subprocess`. Always pass a list of strings instead, using `.split()` or `shlex.split()` on string templates if necessary, bypassing the system shell entirely. Update test frameworks to ensure the modified command forms execute successfully without regressions.
