@@ -32,7 +32,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from gateway.config import GatewayConfig, HomeChannel, Platform, PlatformConfig
+from gateway.config import (
+    GatewayConfig,
+    HomeChannel,
+    Platform,
+    PlatformConfig,
+    SessionResetPolicy,
+)
 from gateway.platforms.base import MessageEvent, MessageType, SendResult
 from gateway.run import (
     _auto_continue_freshness_window,
@@ -42,6 +48,7 @@ from gateway.run import (
     _should_clear_resume_pending_after_turn,
 )
 from gateway.session import SessionEntry, SessionSource, SessionStore
+from hermes_state import SessionDB
 from tests.gateway.restart_test_helpers import (
     make_restart_runner,
     make_restart_source,
@@ -76,6 +83,33 @@ def _make_source(platform=Platform.TELEGRAM, chat_id="123", user_id="u1"):
 
 def _make_store(tmp_path):
     return SessionStore(sessions_dir=tmp_path, config=GatewayConfig())
+
+
+def test_resume_pending_does_not_bypass_idle_reset_policy(tmp_path, monkeypatch):
+    """Crash-recovery resume markers must not outlive reset policy windows."""
+    start = datetime(2026, 1, 1, 12, 0, 0)
+    monkeypatch.setattr("gateway.session._now", lambda: start)
+
+    config = GatewayConfig(
+        default_reset_policy=SessionResetPolicy(mode="idle", idle_minutes=1)
+    )
+    store = SessionStore(sessions_dir=tmp_path, config=config)
+    source = _make_source()
+    entry = store.get_or_create_session(source)
+
+    marked = store.suspend_recently_active(max_age_seconds=120)
+    assert marked == 1
+    assert store._entries[entry.session_key].resume_pending is True
+
+    monkeypatch.setattr(
+        "gateway.session._now", lambda: start + timedelta(minutes=2)
+    )
+    resumed = store.get_or_create_session(source)
+
+    assert resumed.session_id != entry.session_id
+    assert resumed.was_auto_reset is True
+    assert resumed.auto_reset_reason == "idle"
+    assert resumed.resume_pending is False
 
 
 def _build_agent_history(history: list) -> list:
@@ -605,6 +639,40 @@ class TestResumePendingSystemNote:
             agent_history=agent_history,
         )
         assert result == "start a new task"
+
+    def test_sqlite_transcript_timestamps_gate_stale_resume_pending(self, tmp_path):
+        """SQLite-loaded transcripts must carry timestamps for freshness gates."""
+        db = SessionDB(db_path=tmp_path / "state.db")
+        old_store_db = None
+        try:
+            db.create_session(session_id="sid", source="telegram")
+            db.append_message("sid", role="assistant", content="old in progress")
+            stale_ts = time.time() - 7200
+            db._conn.execute(
+                "UPDATE messages SET timestamp = ? WHERE session_id = ?",
+                (stale_ts, "sid"),
+            )
+            db._conn.commit()
+
+            store = _make_store(tmp_path / "sessions")
+            old_store_db = store._db
+            store._db = db
+
+            history = store.load_transcript("sid")
+            assert history and "timestamp" in history[-1]
+
+            entry = self._pending_entry()
+            result = _simulate_note_injection(
+                history=history,
+                user_message="start a new task",
+                resume_entry=entry,
+            )
+
+            assert result == "start a new task"
+        finally:
+            if old_store_db is not None:
+                old_store_db.close()
+            db.close()
 
     def test_freshness_gate_disabled_via_zero_window(self):
         """window_secs=0 restores pre-fix behaviour (always inject)."""
