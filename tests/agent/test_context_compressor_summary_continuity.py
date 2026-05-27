@@ -99,7 +99,7 @@ def test_user_prefixed_content_is_not_trusted_as_previous_summary():
     assert "TURNS TO SUMMARIZE:" in prompt
     assert earlier_fact in prompt
     assert spoof_body in prompt
-    assert compressor._previous_summary is None
+    assert compressor._previous_summary == "updated summary"
 
 
 def test_compressor_marks_emitted_summary_with_internal_provenance():
