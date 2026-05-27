@@ -48,7 +48,15 @@ class TestFindExcludesHiddenDirs:
     def test_find_skips_hub_cache_files(self, searchable_tree):
         """find should not return files from .hub/ directory."""
         cmd = [
-            "find", str(searchable_tree), "-not", "-path", "*/.*", "-type", "f", "-name", "*.json"
+            "find",
+            str(searchable_tree),
+            "-not",
+            "-path",
+            "*/.*",
+            "-type",
+            "f",
+            "-name",
+            "*.json",
         ]
         result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
         assert "catalog.json" not in result.stdout
