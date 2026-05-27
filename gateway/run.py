@@ -2114,11 +2114,6 @@ class GatewayRunner:
     # it up.  Clearing happens on /new and /reset via
     # _handle_reset_command.
 
-<<<<<<< HEAD
-    def _enqueue_fifo(
-        self, session_key: str, queued_event: "MessageEvent", adapter: Any
-    ) -> None:
-=======
     def _gateway_queue_max_depth(self) -> int:
         """Return the per-session cap for pending gateway /queue turns."""
         raw_limit = cfg_get(
@@ -2134,7 +2129,6 @@ class GatewayRunner:
         return max(1, limit)
 
     def _enqueue_fifo(self, session_key: str, queued_event: "MessageEvent", adapter: Any) -> bool:
->>>>>>> origin/main
         """Append a /queue event to the FIFO chain for a session."""
         if adapter is None:
             return False
@@ -6534,12 +6528,6 @@ class GatewayRunner:
                         message_id=event.message_id,
                         channel_prompt=event.channel_prompt,
                     )
-<<<<<<< HEAD
-                    self._enqueue_fifo(_quick_key, queued_event, adapter)
-                depth = self._queue_depth(
-                    _quick_key, adapter=self.adapters.get(source.platform)
-                )
-=======
                     accepted = self._enqueue_fifo(_quick_key, queued_event, adapter)
                     depth = self._queue_depth(_quick_key, adapter=adapter)
                     if not accepted:
@@ -6547,7 +6535,6 @@ class GatewayRunner:
                         return f"Queue is full ({depth}/{limit} queued). Wait for a queued turn to finish, then try again."
                 else:
                     depth = 0
->>>>>>> origin/main
                 if depth <= 1:
                     return "Queued for the next turn."
                 return f"Queued for the next turn. ({depth} queued)"
@@ -8085,21 +8072,6 @@ class GatewayRunner:
                                     # misconfigured auxiliary.compression.model
                                     # is something only they can fix, and
                                     # silent recovery would hide it.
-<<<<<<< HEAD
-                                    elif _comp is not None and getattr(
-                                        _comp, "_last_aux_model_failure_model", None
-                                    ):
-                                        _aux_model = getattr(
-                                            _comp, "_last_aux_model_failure_model", ""
-                                        )
-                                        _aux_err = (
-                                            getattr(
-                                                _comp,
-                                                "_last_aux_model_failure_error",
-                                                None,
-                                            )
-                                            or "unknown error"
-=======
                                     elif _comp is not None and getattr(_comp, "_last_aux_model_failure_model", None):
                                         _aux_model = redact_sensitive_text(
                                             getattr(_comp, "_last_aux_model_failure_model", ""),
@@ -8108,7 +8080,6 @@ class GatewayRunner:
                                         _aux_err = redact_sensitive_text(
                                             getattr(_comp, "_last_aux_model_failure_error", None) or "unknown error",
                                             force=True,
->>>>>>> origin/main
                                         )
                                         _aux_msg = (
                                             f"ℹ️ Configured compression model `{_aux_model}` "
@@ -11795,13 +11766,6 @@ class GatewayRunner:
                 # Separately: did the user's CONFIGURED aux model fail
                 # and we recovered via main?  Surface that as an info
                 # note so they can fix their config.
-<<<<<<< HEAD
-                _aux_fail_model = getattr(
-                    compressor, "_last_aux_model_failure_model", None
-                )
-                _aux_fail_err = getattr(
-                    compressor, "_last_aux_model_failure_error", None
-=======
                 _aux_fail_model = redact_sensitive_text(
                     getattr(compressor, "_last_aux_model_failure_model", None),
                     force=True,
@@ -11809,7 +11773,6 @@ class GatewayRunner:
                 _aux_fail_err = redact_sensitive_text(
                     getattr(compressor, "_last_aux_model_failure_error", None),
                     force=True,
->>>>>>> origin/main
                 )
             finally:
                 # Evict cached agent so next turn rebuilds system prompt
