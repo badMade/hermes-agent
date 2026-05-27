@@ -99,9 +99,58 @@ class TestFindExcludesHiddenDirs:
 
     def test_find_still_returns_visible_files(self, searchable_tree):
         """find should still return files from visible directories."""
-        cmd = [
-            "find", str(searchable_tree), "-not", "-path", "*/.*", "-type", "f", "-name", "*.md"
-        ]
+@@ -67,3 +67,13 @@
+-        cmd = [
+-            "find", str(searchable_tree), "-not", "-path", "*/.*", "-type", "f", "-name", "*.idx"
+-        ]
++        cmd = [
++            "find",
++            str(searchable_tree),
++            "-not",
++            "-path",
++            "*/.*",
++            "-type",
++            "f",
++            "-name",
++            "*.idx",
++        ]
+@@ -76,3 +86,13 @@
+-        cmd = [
+-            "find", str(searchable_tree), "-not", "-path", "*/.*", "-type", "f", "-name", "*.md"
+-        ]
++        cmd = [
++            "find",
++            str(searchable_tree),
++            "-not",
++            "-path",
++            "*/.*",
++            "-type",
++            "f",
++            "-name",
++            "*.md",
++        ]
+@@ -106,3 +116,9 @@
+-        cmd = [
+-            "grep", "-rnH", "--exclude-dir=.*", "ignore", str(searchable_tree)
+-        ]
++        cmd = [
++            "grep",
++            "-rnH",
++            "--exclude-dir=.*",
++            "ignore",
++            str(searchable_tree),
++        ]
+@@ -116,3 +126,9 @@
+-        cmd = [
+-            "grep", "-rnH", "--exclude-dir=.*", "real skill", str(searchable_tree)
+-        ]
++        cmd = [
++            "grep",
++            "-rnH",
++            "--exclude-dir=.*",
++            "real skill",
++            str(searchable_tree),
++        ]
         result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
         assert "SKILL.md" in result.stdout
 
