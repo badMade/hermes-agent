@@ -78,7 +78,7 @@ export const pasteTokenLabel = (text: string, lineCount: number) => {
 }
 
 const THINKING_STATUS_RE = new RegExp(`^(?:${VERBS.join('|')})\\.{0,3}$`, 'i')
-const THINKING_STATUS_WORDS = VERBS.map(verb => verb.toLocaleLowerCase())
+const THINKING_STATUS_WORDS = VERBS.map(verb => verb.toLowerCase())
 
 const statusWordAt = (line: string, start: number) =>
   THINKING_STATUS_WORDS.find(word => {
@@ -87,7 +87,7 @@ const statusWordAt = (line: string, start: number) =>
     }
 
     for (let offset = 0; offset < word.length; offset++) {
-      if (line[start + offset]!.toLocaleLowerCase() !== word[offset]) {
+      if (line[start + offset]!.toLowerCase() !== word[offset]) {
         return false
       }
     }
@@ -102,7 +102,7 @@ const isAsciiLetter = (char: string) => {
 }
 
 const stripThinkingStatusChunks = (line: string) => {
-  let result = ''
+  const parts: string[] = []
   let cursor = 0
   let i = 0
 
@@ -137,12 +137,14 @@ const stripThinkingStatusChunks = (line: string) => {
       end++
     }
 
-    result += line.slice(cursor, i)
+    parts.push(line.slice(cursor, i))
     cursor = end
     i = end
   }
 
-  return result + line.slice(cursor)
+  parts.push(line.slice(cursor))
+
+  return parts.join('')
 }
 
 export const cleanThinkingText = (reasoning: string) =>
