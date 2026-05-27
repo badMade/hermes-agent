@@ -116,7 +116,7 @@ class TestGrepExcludesHiddenDirs:
         cmd = [
             "grep", "-rnH", "--exclude-dir=.*", "real skill", str(searchable_tree)
         ]
-        result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
         assert "SKILL.md" in result.stdout
 
 
