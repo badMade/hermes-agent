@@ -13,7 +13,9 @@ class Completed:
         self.stderr = stderr
 
 
-def test_uninstall_profile_checks_gateway_subprocess_before_deleting(tmp_path, monkeypatch):
+def test_uninstall_profile_checks_gateway_subprocess_before_deleting(
+    tmp_path, monkeypatch
+):
     profile_home = tmp_path / "profiles" / "alpha"
     profile_home.mkdir(parents=True)
     alias_path = tmp_path / "bin" / "alpha"
@@ -32,7 +34,9 @@ def test_uninstall_profile_checks_gateway_subprocess_before_deleting(tmp_path, m
     assert alias_path.exists()
 
 
-def test_run_uninstall_removes_named_profiles_before_project_root(tmp_path, monkeypatch):
+def test_run_uninstall_removes_named_profiles_before_project_root(
+    tmp_path, monkeypatch
+):
     project_root = tmp_path / "hermes-agent"
     project_root.mkdir()
     hermes_home = tmp_path / ".hermes"
@@ -58,7 +62,9 @@ def test_run_uninstall_removes_named_profiles_before_project_root(tmp_path, monk
     monkeypatch.setattr(
         uninstall.subprocess,
         "run",
-        lambda *args, **kwargs: events.append(("gateway", project_root.exists())) or Completed(),
+        lambda *args, **kwargs: (
+            events.append(("gateway", project_root.exists())) or Completed(returncode=0)
+        ),
     )
 
     real_rmtree = uninstall.shutil.rmtree
