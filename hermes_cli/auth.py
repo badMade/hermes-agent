@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import httpx
 import yaml
@@ -80,6 +80,13 @@ MINIMAX_OAUTH_CN_BASE = "https://api.minimaxi.com"
 MINIMAX_OAUTH_GLOBAL_INFERENCE = "https://api.minimax.io/anthropic"
 MINIMAX_OAUTH_CN_INFERENCE = "https://api.minimaxi.com/anthropic"
 MINIMAX_OAUTH_REFRESH_SKEW_SECONDS = 60
+MINIMAX_OAUTH_REDIRECT_HOSTS = frozenset({
+    "api.minimax.io",
+    "account.minimax.io",
+    "api.minimaxi.com",
+    "account.minimaxi.com",
+})
+MINIMAX_OAUTH_MAX_REDIRECTS = 3
 DEFAULT_QWEN_BASE_URL = "https://portal.qwen.ai/v1"
 DEFAULT_GITHUB_MODELS_BASE_URL = "https://api.githubcopilot.com"
 DEFAULT_COPILOT_ACP_BASE_URL = "acp://copilot"
@@ -2702,12 +2709,12 @@ def _default_verify() -> bool | ssl.SSLContext:
     return True
 
 
-def _resolve_verify(
+def _resolve_tls_settings(
     *,
     insecure: Optional[bool] = None,
     ca_bundle: Optional[str] = None,
     auth_state: Optional[Dict[str, Any]] = None,
-) -> bool | ssl.SSLContext:
+) -> tuple[bool, Optional[str]]:
     tls_state = auth_state.get("tls") if isinstance(auth_state, dict) else {}
     tls_state = tls_state if isinstance(tls_state, dict) else {}
 
@@ -2722,11 +2729,36 @@ def _resolve_verify(
         or os.getenv("SSL_CERT_FILE")
         or os.getenv("REQUESTS_CA_BUNDLE")
     )
+    return effective_insecure, str(effective_ca) if effective_ca else None
+
+
+def _resolve_ca_bundle_path(
+    *,
+    insecure: Optional[bool] = None,
+    ca_bundle: Optional[str] = None,
+    auth_state: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    effective_insecure, ca_path = _resolve_tls_settings(
+        insecure=insecure, ca_bundle=ca_bundle, auth_state=auth_state
+    )
+    if effective_insecure or not ca_path or not os.path.isfile(ca_path):
+        return None
+    return ca_path
+
+
+def _resolve_verify(
+    *,
+    insecure: Optional[bool] = None,
+    ca_bundle: Optional[str] = None,
+    auth_state: Optional[Dict[str, Any]] = None,
+) -> bool | ssl.SSLContext:
+    effective_insecure, ca_path = _resolve_tls_settings(
+        insecure=insecure, ca_bundle=ca_bundle, auth_state=auth_state
+    )
 
     if effective_insecure:
         return False
-    if effective_ca:
-        ca_path = str(effective_ca)
+    if ca_path:
         if not os.path.isfile(ca_path):
             logger.warning(
                 "CA bundle path does not exist: %s — falling back to default certificates",
@@ -3300,6 +3332,9 @@ def resolve_nous_access_token(
         ).rstrip("/")
         client_id = str(state.get("client_id") or DEFAULT_NOUS_CLIENT_ID)
         verify = _resolve_verify(insecure=insecure, ca_bundle=ca_bundle, auth_state=state)
+        resolved_ca_bundle = _resolve_ca_bundle_path(
+            insecure=insecure, ca_bundle=ca_bundle, auth_state=state
+        )
 
         with _nous_shared_store_lock(timeout_seconds=max(timeout_seconds + 5.0, AUTH_LOCK_TIMEOUT_SECONDS)):
             merged_shared = _merge_shared_nous_oauth_state(state)
@@ -3354,7 +3389,7 @@ def resolve_nous_access_token(
             state["client_id"] = client_id
             state["tls"] = {
                 "insecure": verify is False,
-                "ca_bundle": verify if isinstance(verify, str) else None,
+                "ca_bundle": resolved_ca_bundle,
             }
             _save_provider_state(auth_store, "nous", state)
             _save_auth_store(auth_store)
@@ -3608,6 +3643,9 @@ def resolve_nous_runtime_credentials(
             _write_shared_nous_state(state)
 
         verify = _resolve_verify(insecure=insecure, ca_bundle=ca_bundle, auth_state=state)
+        resolved_ca_bundle = _resolve_ca_bundle_path(
+            insecure=insecure, ca_bundle=ca_bundle, auth_state=state
+        )
         timeout = httpx.Timeout(timeout_seconds if timeout_seconds else 15.0)
         _oauth_trace(
             "nous_runtime_credentials_start",
@@ -3778,7 +3816,7 @@ def resolve_nous_runtime_credentials(
             state["client_id"] = client_id
             state["tls"] = {
                 "insecure": verify is False,
-                "ca_bundle": verify if isinstance(verify, str) else None,
+                "ca_bundle": resolved_ca_bundle,
             }
 
         _persist_state("resolve_nous_runtime_credentials_final")
@@ -4721,7 +4759,8 @@ def _minimax_request_user_code(
     client: httpx.Client, *, portal_base_url: str, client_id: str,
     code_challenge: str, state: str,
 ) -> Dict[str, Any]:
-    response = client.post(
+    response = _minimax_post_oauth_form(
+        client,
         f"{portal_base_url}/oauth/code",
         data={
             "response_type": "code",
@@ -4757,6 +4796,49 @@ def _minimax_request_user_code(
     return payload
 
 
+def _minimax_redirect_target(url: str, location: str) -> Optional[str]:
+    """Return an allowed MiniMax OAuth redirect URL, or None if unsafe."""
+    target = urljoin(url, location)
+    parsed = urlparse(target)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or host not in MINIMAX_OAUTH_REDIRECT_HOSTS:
+        return None
+    if not parsed.path.startswith("/oauth/"):
+        return None
+    return target
+
+
+def _minimax_post_oauth_form(
+    client: httpx.Client,
+    url: str,
+    *,
+    data: Dict[str, Any],
+    headers: Dict[str, str],
+) -> httpx.Response:
+    """POST MiniMax OAuth form data, following only allowlisted HTTPS redirects."""
+    current_url = url
+    for _ in range(MINIMAX_OAUTH_MAX_REDIRECTS + 1):
+        response = client.post(current_url, data=data, headers=headers)
+        if response.status_code not in (307, 308):
+            return response
+
+        location = response.headers.get("Location") if response.headers else None
+        if not location:
+            return response
+        redirect_url = _minimax_redirect_target(current_url, location)
+        if not redirect_url:
+            raise AuthError(
+                "MiniMax OAuth redirected to an untrusted endpoint.",
+                provider="minimax-oauth", code="unsafe_redirect",
+            )
+        current_url = redirect_url
+
+    raise AuthError(
+        "MiniMax OAuth exceeded the redirect limit.",
+        provider="minimax-oauth", code="too_many_redirects",
+    )
+
+
 def _minimax_poll_token(
     client: httpx.Client, *, portal_base_url: str, client_id: str,
     user_code: str, code_verifier: str, expired_in: int, interval_ms: Optional[int],
@@ -4774,7 +4856,8 @@ def _minimax_poll_token(
     interval = max(2.0, (interval_ms or 2000) / 1000.0)
 
     while _time.time() < deadline:
-        response = client.post(
+        response = _minimax_post_oauth_form(
+            client,
             f"{portal_base_url}/oauth/token",
             data={
                 "grant_type": MINIMAX_OAUTH_GRANT_TYPE,
@@ -4851,8 +4934,7 @@ def _minimax_oauth_login(
     print(f"Portal: {portal_base_url}")
 
     with httpx.Client(timeout=httpx.Timeout(timeout_seconds),
-                      headers={"Accept": "application/json"},
-                      follow_redirects=True) as client:
+                      headers={"Accept": "application/json"}) as client:
         code_data = _minimax_request_user_code(
             client, portal_base_url=portal_base_url,
             client_id=pconfig.client_id,
@@ -4929,9 +5011,9 @@ def _refresh_minimax_oauth_state(
         return state
 
     portal_base_url = state["portal_base_url"]
-    with httpx.Client(timeout=httpx.Timeout(timeout_seconds),
-                      follow_redirects=True) as client:
-        response = client.post(
+    with httpx.Client(timeout=httpx.Timeout(timeout_seconds)) as client:
+        response = _minimax_post_oauth_form(
+            client,
             f"{portal_base_url}/oauth/token",
             data={
                 "grant_type": "refresh_token",
