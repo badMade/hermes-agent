@@ -1165,6 +1165,8 @@ class TestDetachedProfileGatewayRestartEnv:
             "/venv/bin/python",
             "-m",
             "hermes_cli.main",
+            "--profile",
+            "default",
             "gateway",
             "run",
             "--replace",
