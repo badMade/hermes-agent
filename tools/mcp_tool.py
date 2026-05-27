@@ -1150,11 +1150,14 @@ class MCPServerTask:
                 # Timeout — no lifecycle event fired.  Send a keepalive
                 # to exercise the connection and detect stale sockets.
                 if self.session:
+                    if self._rpc_lock.locked():
+                        continue
                     try:
-                        await asyncio.wait_for(
-                            self.session.list_tools(),
-                            timeout=30.0,
-                        )
+                        async with self._rpc_lock:
+                            await asyncio.wait_for(
+                                self.session.list_tools(),
+                                timeout=30.0,
+                            )
                     except Exception as exc:
                         logger.warning(
                             "MCP server '%s' keepalive failed, "
@@ -2624,13 +2627,21 @@ def _normalize_mcp_input_schema(schema: dict | None) -> dict:
         return strip_nullable_unions(node, keep_nullable_hint=True)
 
     def _repair_object_shape(node):
-        """Recursively repair object-shaped nodes: fill type, prune required."""
+        """Recursively repair schema nodes without mutating container maps."""
         if isinstance(node, list):
             return [_repair_object_shape(item) for item in node]
         if not isinstance(node, dict):
             return node
 
-        repaired = {k: _repair_object_shape(v) for k, v in node.items()}
+        repaired = {}
+        for key, value in node.items():
+            if key in {"properties", "$defs"} and isinstance(value, dict):
+                repaired[key] = {
+                    prop_name: _repair_object_shape(prop_schema)
+                    for prop_name, prop_schema in value.items()
+                }
+            else:
+                repaired[key] = _repair_object_shape(value)
 
         # Coerce missing / null type when the shape is clearly an object
         # (has properties or required but no type).
