@@ -1,3 +1,4 @@
+import errno
 import json
 import os
 import sys
@@ -6,6 +7,8 @@ import time
 import types
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from tui_gateway import server
 
@@ -765,8 +768,9 @@ def test_session_save_writes_secure_snapshot_under_hermes_home(tmp_path, monkeyp
         / "hermes_conversation_20260101_120000_abc123.json"
     )
     assert not list(work.glob("hermes_conversation_*.json"))
-    assert saved_path.stat().st_mode & 0o777 == 0o600
-    assert (saved_path.parent.stat().st_mode & 0o777) == 0o700
+    if os.name != "nt":
+        assert saved_path.stat().st_mode & 0o777 == 0o600
+        assert (saved_path.parent.stat().st_mode & 0o777) == 0o700
     assert json.loads(saved_path.read_text(encoding="utf-8")) == {
         "model": "test-model",
         "messages": [{"role": "user", "content": "secret"}],
@@ -780,7 +784,20 @@ def test_session_save_refuses_existing_export_path(tmp_path, monkeypatch):
     target = tmp_path / "target.json"
     target.write_text("do not overwrite", encoding="utf-8")
     export_path = saved_dir / "hermes_conversation_20260101_120000_abc123.json"
-    export_path.symlink_to(target)
+    try:
+        export_path.symlink_to(target)
+    except NotImplementedError:
+        pytest.skip("symlink creation unsupported on this platform")
+    except OSError as exc:
+        unsupported_errnos = {
+            errno.EPERM,
+            errno.EACCES,
+            errno.EINVAL,
+            getattr(errno, "ENOTSUP", None),
+        }
+        if os.name == "nt" and exc.errno in unsupported_errnos:
+            pytest.skip("symlink creation unavailable in this test environment")
+        raise
     monkeypatch.setattr(server, "get_hermes_home", lambda: hermes_home)
     monkeypatch.setattr(server.time, "strftime", lambda _fmt: "20260101_120000")
     monkeypatch.setattr(

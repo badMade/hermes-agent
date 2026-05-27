@@ -2626,8 +2626,10 @@ def _secure_write_json(path: Path, payload: dict) -> None:
         flags |= os.O_NOFOLLOW
 
     fd = None
+    created = False
     try:
         fd = os.open(path, flags, 0o600)
+        created = True
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             fd = None
             json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -2635,10 +2637,11 @@ def _secure_write_json(path: Path, payload: dict) -> None:
     except Exception:
         if fd is not None:
             os.close(fd)
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+        if created:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
         raise
 
 
