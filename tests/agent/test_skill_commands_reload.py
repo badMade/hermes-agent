@@ -12,7 +12,6 @@ dicts. Descriptions are truncated to 60 chars.
 
 import shutil
 import tempfile
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -21,16 +20,15 @@ import pytest
 def _write_skill(skills_dir: Path, name: str, description: str = "") -> Path:
     skill_dir = skills_dir / name
     skill_dir.mkdir(parents=True, exist_ok=True)
+    desc = description or f"{name} skill"
+    # Use YAML block scalar when description contains newlines to produce valid YAML.
+    if "\n" in desc:
+        indented = "\n".join("  " + line for line in desc.splitlines())
+        desc_field = f"|\n{indented}"
+    else:
+        desc_field = desc
     (skill_dir / "SKILL.md").write_text(
-        textwrap.dedent(
-            f"""\
-            ---
-            name: {name}
-            description: {description or f'{name} skill'}
-            ---
-            body
-            """
-        )
+        f"---\nname: {name}\ndescription: {desc_field}\n---\nbody\n"
     )
     return skill_dir
 
