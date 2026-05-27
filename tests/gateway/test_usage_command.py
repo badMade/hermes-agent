@@ -323,5 +323,5 @@ class TestUsageAccountSection:
         result = await runner._handle_usage_command(event)
 
         assert calls == []
-        assert result == "No usage data yet. Start a conversation first!"
+        assert result == "No usage data available for this session."
         assert "📈 **Account limits**" not in result
