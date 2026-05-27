@@ -65,7 +65,15 @@ class TestFindExcludesHiddenDirs:
     def test_find_skips_git_internals(self, searchable_tree):
         """find should not return files from .git/ directory."""
         cmd = [
-            "find", str(searchable_tree), "-not", "-path", "*/.*", "-type", "f", "-name", "*.idx"
+            "find",
+            str(searchable_tree),
+            "-not",
+            "-path",
+            "*/.*",
+            "-type",
+            "f",
+            "-name",
+            "*.idx",
         ]
         result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
         assert "pack-abc.idx" not in result.stdout
