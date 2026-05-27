@@ -13,6 +13,7 @@ import os
 import queue
 import shlex
 import subprocess
+import tempfile
 import threading
 import time
 from collections import deque
@@ -25,6 +26,7 @@ from agent.redact import redact_sensitive_text
 
 ACP_MARKER_BASE_URL = "acp://copilot"
 _DEFAULT_TIMEOUT_SECONDS = 900.0
+_FALLBACK_HOME_DIR: str | None = None
 
 
 
@@ -72,10 +74,11 @@ def _resolve_home_dir() -> str:
     except Exception:
         pass
 
-    # Last resort: /tmp (writable on any POSIX system). Avoids crashing the
-    # subprocess with no HOME; callers can set HERMES_HOME explicitly if they
-    # need a different writable dir.
-    return "/tmp"
+    global _FALLBACK_HOME_DIR
+    if not _FALLBACK_HOME_DIR:
+        _FALLBACK_HOME_DIR = tempfile.mkdtemp(prefix="hermes-copilot-acp-home-")
+    os.chmod(_FALLBACK_HOME_DIR, 0o700)
+    return _FALLBACK_HOME_DIR
 
 
 def _build_subprocess_env() -> dict[str, str]:
