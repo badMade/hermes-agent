@@ -94,7 +94,7 @@ class TestFindExcludesHiddenDirs:
         cmd = [
             "find", str(searchable_tree), "-not", "-path", "*/.*", "-type", "f", "-name", "*.md"
         ]
-        result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
         assert "SKILL.md" in result.stdout
 
 
