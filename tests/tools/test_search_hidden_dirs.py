@@ -85,7 +85,7 @@ class TestFindExcludesHiddenDirs:
         cmd = [
             "find", str(searchable_tree), "-not", "-path", "*/.*", "-type", "f", "-name", "*.idx"
         ]
-        result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
         assert "pack-abc.idx" not in result.stdout
         assert ".git" not in result.stdout
 
