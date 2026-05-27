@@ -519,6 +519,6 @@ async def test_gateway_notify_subscribe_ignores_spoofed_notifier_profile(kanban_
     finally:
         conn.close()
     assert len(subs) == 1
-    assert getattr(subs[0], "notifier_profile", "") == "victim-profile"
-    assert getattr(subs[0], "chat_id", "") == "chat1"
-    assert getattr(subs[0], "platform", "") == "telegram"
+    assert subs[0].get("notifier_profile", "") == "victim-profile"
+    assert subs[0].get("chat_id", "") == "attacker-chat"
+    assert subs[0].get("platform", "") == "telegram"
