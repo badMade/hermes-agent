@@ -328,6 +328,8 @@ class SessionDB:
     _WRITE_RETRY_MAX_S = 0.150   # 150ms
     # Attempt a PASSIVE WAL checkpoint every N successful writes.
     _CHECKPOINT_EVERY_N_WRITES = 50
+    # Keep CJK LIKE fallback SQL below SQLite expression/variable limits.
+    _CJK_LIKE_MAX_TOKENS = 250
 
     def __init__(self, db_path: Path = None):
         self.db_path = db_path or DEFAULT_DB_PATH
@@ -1723,10 +1725,19 @@ class SessionDB:
         session_id: str,
         include_ancestors: bool = False,
         source: Optional[str] = None,
+        include_timestamps: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Load messages in the OpenAI conversation format (role + content dicts).
         Used by the gateway to restore conversation history.
+
+        Args:
+            session_id: Session ID to load.
+            include_ancestors: Include parent-session lineage before this session.
+            source: Optional session source filter.
+            include_timestamps: Include raw message timestamps for gateway
+                freshness checks. Defaults to False so API replay callers keep
+                the historical OpenAI-compatible shape.
         """
         session_ids = [session_id]
         if include_ancestors:
@@ -1734,19 +1745,23 @@ class SessionDB:
 
         with self._lock:
             placeholders = ",".join("?" for _ in session_ids)
+            select_columns = (
+                "role, content, tool_call_id, tool_calls, tool_name, "
+                "finish_reason, reasoning, reasoning_content, reasoning_details, "
+                "codex_reasoning_items, codex_message_items"
+            )
+            if include_timestamps:
+                select_columns += ", timestamp"
+
             if source is None:
                 rows = self._conn.execute(
-                    "SELECT role, content, tool_call_id, tool_calls, tool_name, "
-                    "finish_reason, reasoning, reasoning_content, reasoning_details, "
-                    "codex_reasoning_items, codex_message_items "
+                    f"SELECT {select_columns} "
                     f"FROM messages WHERE session_id IN ({placeholders}) ORDER BY timestamp, id",
                     tuple(session_ids),
                 ).fetchall()
             else:
                 rows = self._conn.execute(
-                    "SELECT m.role, m.content, m.tool_call_id, m.tool_calls, m.tool_name, "
-                    "m.finish_reason, m.reasoning, m.reasoning_content, m.reasoning_details, "
-                    "m.codex_reasoning_items, m.codex_message_items "
+                    f"SELECT {select_columns.replace(', ', ', m.').replace('role', 'm.role', 1)} "
                     "FROM messages m JOIN sessions s ON s.id = m.session_id "
                     f"WHERE m.session_id IN ({placeholders}) AND s.source = ? "
                     "ORDER BY m.timestamp, m.id",
@@ -1759,6 +1774,8 @@ class SessionDB:
             if row["role"] in {"user", "assistant"} and isinstance(content, str):
                 content = sanitize_context(content).strip()
             msg = {"role": row["role"], "content": content}
+            if include_timestamps:
+                msg["timestamp"] = row["timestamp"]
             if row["tool_call_id"]:
                 msg["tool_call_id"] = row["tool_call_id"]
             if row["tool_name"]:
@@ -2078,10 +2095,15 @@ class SessionDB:
                 # For multi-token OR queries (e.g. "广西 OR 桂林 OR 漓江"),
                 # build one LIKE condition per non-operator token so each term
                 # is matched independently (#20494).
-                non_op_tokens = [
+                raw_tokens = [
                     t for t in raw_query.split()
                     if t.upper() not in {"AND", "OR", "NOT"}
                 ] or [raw_query]
+                # Deduplicate and cap attacker-controlled tokens so the
+                # fallback cannot exceed SQLite expression/variable limits.
+                non_op_tokens = list(dict.fromkeys(raw_tokens))[
+                    :self._CJK_LIKE_MAX_TOKENS
+                ]
                 token_clauses = []
                 like_params: list = []
                 for tok in non_op_tokens:
@@ -2117,8 +2139,13 @@ class SessionDB:
                 # instr() for snippet uses first search token
                 like_params = [non_op_tokens[0]] + like_params
                 with self._lock:
-                    like_cursor = self._conn.execute(like_sql, like_params)
-                    matches = [dict(row) for row in like_cursor.fetchall()]
+                    try:
+                        like_cursor = self._conn.execute(like_sql, like_params)
+                        like_rows = like_cursor.fetchall()
+                    except sqlite3.OperationalError:
+                        matches = []
+                    else:
+                        matches = [dict(row) for row in like_rows]
         else:
             with self._lock:
                 try:
@@ -2296,6 +2323,19 @@ class SessionDB:
         self._execute_write(_do)
 
     @staticmethod
+    def _safe_session_file_path(sessions_dir: Path, filename: str) -> Optional[Path]:
+        """Return a cleanup target only when it remains below sessions_dir."""
+        root = sessions_dir.resolve(strict=False)
+        if Path(filename).is_absolute():
+            return None
+        candidate = root / filename
+        try:
+            candidate.parent.resolve(strict=False).relative_to(root)
+        except (OSError, ValueError):
+            return None
+        return candidate
+
+    @staticmethod
     def _remove_session_files(sessions_dir: Optional[Path], session_id: str) -> None:
         """Remove on-disk transcript files for a session.
 
@@ -2306,15 +2346,25 @@ class SessionDB:
         """
         if sessions_dir is None:
             return
+        sessions_dir = Path(sessions_dir)
         for suffix in (".json", ".jsonl"):
-            p = sessions_dir / f"{session_id}{suffix}"
+            p = SessionDB._safe_session_file_path(sessions_dir, f"{session_id}{suffix}")
+            if p is None:
+                continue
             try:
                 p.unlink(missing_ok=True)
             except OSError:
                 pass
-        # request_dump files use session_id as a prefix component
+        # request_dump files use session_id as a prefix component. Iterate direct
+        # children instead of globbing untrusted text so metacharacters stay literal.
+        request_dump_prefix = f"request_dump_{session_id}_"
         try:
-            for p in sessions_dir.glob(f"request_dump_{session_id}_*.json"):
+            for p in sessions_dir.iterdir():
+                if not (
+                    p.name.startswith(request_dump_prefix)
+                    and p.name.endswith(".json")
+                ):
+                    continue
                 try:
                     p.unlink(missing_ok=True)
                 except OSError:
@@ -3012,4 +3062,3 @@ class SessionDB:
                 (error[:500], session_id),
             )
         self._execute_write(_do)
-
