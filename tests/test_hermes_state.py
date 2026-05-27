@@ -291,6 +291,30 @@ class TestMessageStorage:
             ).fetchone()
         assert row["content"] == "plain text"
 
+    def test_sentinel_prefixed_string_round_trips_as_text(self, db):
+        """User text that starts with the reserved DB sentinel must not be
+        reinterpreted as structured multimodal content when replayed.
+        """
+        db.create_session(session_id="s1", source="api")
+        content = (
+            SessionDB._CONTENT_JSON_PREFIX
+            + '[{"type":"image_url","image_url":"file:///tmp/secret.svg"}]'
+        )
+
+        db.append_message("s1", role="user", content=content)
+
+        msgs = db.get_messages("s1")
+        assert msgs[0]["content"] == content
+        conv = db.get_messages_as_conversation("s1")
+        assert conv[0] == {"role": "user", "content": content}
+
+        with db._lock:
+            row = db._conn.execute(
+                "SELECT content FROM messages WHERE session_id = ?", ("s1",)
+            ).fetchone()
+        assert row["content"] != content
+        assert SessionDB._decode_content(row["content"]) == content
+
     def test_replace_messages_handles_multimodal_content(self, db):
         """`replace_messages` (used by /retry, /undo, /compress) must also
         handle list content without crashing."""
@@ -3315,3 +3339,39 @@ class TestCJKCodepoint:
     )
     def test_is_cjk_codepoint_invalid(self, cp: int):
         assert SessionDB._is_cjk_codepoint(cp) is False
+
+
+# =========================================================================
+# Format session DB unavailable
+# =========================================================================
+
+from hermes_state import format_session_db_unavailable, _set_last_init_error
+
+
+class TestFormatSessionDbUnavailable:
+    @pytest.fixture(autouse=True)
+    def clean_error_state(self) -> "typing.Any":
+        """Ensure global error state is clear before and after each test."""
+        _set_last_init_error(None)
+        yield
+        _set_last_init_error(None)
+
+    def test_no_error_set(self) -> None:
+        """Test formatting when no init error has occurred."""
+        assert format_session_db_unavailable() == "Session database not available."
+        assert format_session_db_unavailable("Custom prefix") == "Custom prefix."
+
+    def test_generic_error_set(self) -> None:
+        """Test formatting when a non-NFS error occurred."""
+        _set_last_init_error("random disk crash")
+        assert (
+            format_session_db_unavailable()
+            == "Session database not available: random disk crash."
+        )
+        assert format_session_db_unavailable("Prefix") == "Prefix: random disk crash."
+
+    def test_nfs_marker_error_set(self) -> None:
+        """Test formatting when an NFS-related error (like 'locking protocol') occurred."""
+        _set_last_init_error("OperationalError: locking protocol failed")
+        expected = "Session database not available: OperationalError: locking protocol failed (state.db may be on NFS/SMB/FUSE — see https://www.sqlite.org/wal.html)."
+        assert format_session_db_unavailable() == expected
