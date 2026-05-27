@@ -164,7 +164,10 @@ class TestEditDiffPreview:
         target = tmp_path / "target.txt"
         target.write_text("ok\n", encoding="utf-8")
         link = tmp_path / "link.txt"
-        link.symlink_to(target)
+        try:
+            link.symlink_to(target)
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"symlinks unavailable in test environment: {exc}")
 
         snapshot = capture_local_edit_snapshot("write_file", {"path": str(link)})
 

@@ -291,8 +291,10 @@ def _resolved_path(path: str) -> Path:
 def _snapshot_text(path: Path) -> str | None:
     """Return UTF-8 file content, or None for missing/unreadable files."""
     try:
+        if path.is_symlink():
+            return None
         resolved = path.resolve()
-        if not resolved.is_file() or resolved.is_symlink():
+        if not resolved.is_file():
             return None
         max_bytes = 256 * 1024
         if resolved.stat().st_size > max_bytes:
@@ -1010,4 +1012,3 @@ def get_cute_tool_message(
 # =========================================================================
 # Honcho session line (one-liner with clickable OSC 8 hyperlink)
 # =========================================================================
-
