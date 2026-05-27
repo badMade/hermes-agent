@@ -268,8 +268,8 @@ class TestRunSingleChildTimeoutDump:
         assert "Diagnostic:" in result["error"]
         assert str(dump_path) in result["error"]
 
-    def test_timeout_cleanup_waits_until_child_thread_exits(self, hermes_home, monkeypatch):
-        """Timed-out children must not be closed while run_conversation is active."""
+    def test_timeout_returns_without_waiting_for_child_exit(self, hermes_home, monkeypatch):
+        """Timed-out children should return promptly even if child ignores interrupt."""
         from tools import delegate_tool
 
         monkeypatch.setattr(delegate_tool, "_get_child_timeout", lambda: 0.1)
@@ -308,8 +308,8 @@ class TestRunSingleChildTimeoutDump:
         elapsed = time.monotonic() - started
 
         assert result["status"] == "timeout"
-        assert elapsed >= 0.25
-        assert child.close_saw_run_finished is True
+        assert elapsed < 1.0
+        assert child.close_saw_run_finished is False
 
     def test_nonzero_api_calls_skips_dump_and_uses_old_message(self, hermes_home, monkeypatch):
         child = _StubChild(api_call_count=5, hang_seconds=10.0)

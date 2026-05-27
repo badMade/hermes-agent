@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Any, Dict, List, Optional
 
 from toolsets import TOOLSETS, resolve_toolset
@@ -1507,21 +1507,10 @@ def _run_single_child(
             list(file_state.known_reads(parent_task_id)) if parent_task_id else []
         )
 
-        # Run child in this worker thread and arm a cooperative timeout.
-        # Python cannot forcibly kill a running thread.  Running the child in a
-        # nested executor and returning on Future.result(timeout=...) would leave
-        # a timed-out subagent executing after cleanup.  The timer therefore only
-        # requests interruption and records diagnostics; cleanup/return happen
-        # after child.run_conversation has actually exited.
+        # Run child in a nested worker and enforce a hard timeout at the
+        # delegate-tool boundary. If the child ignores interrupts, we still
+        # return timeout to preserve parent progress/availability.
         child_timeout = _get_child_timeout()
-        _worker_thread = threading.current_thread()
-        _timeout_lock = threading.Lock()
-        _run_finished = threading.Event()
-        _timeout_state: Dict[str, Any] = {
-            "timed_out": False,
-            "diagnostic_path": None,
-            "api_calls": 0,
-        }
 
         def _read_child_api_calls() -> int:
             try:
@@ -1533,8 +1522,17 @@ def _run_single_child(
         def _build_timeout_result(
             duration: float, error_text: Optional[str] = None
         ) -> Dict[str, Any]:
-            child_api_calls = int(_timeout_state.get("api_calls") or 0)
-            diagnostic_path = _timeout_state.get("diagnostic_path")
+            child_api_calls = _read_child_api_calls()
+            diagnostic_path = None
+            if child_api_calls == 0:
+                diagnostic_path = _dump_subagent_timeout_diagnostic(
+                    child=child,
+                    task_index=task_index,
+                    timeout_seconds=float(child_timeout),
+                    duration_seconds=float(duration),
+                    worker_thread=getattr(_child_runner, "thread", None),
+                    goal=goal,
+                )
             if child_api_calls == 0:
                 _err = (
                     f"Subagent timed out after {child_timeout}s without "
@@ -1564,80 +1562,50 @@ def _run_single_child(
                 "diagnostic_path": diagnostic_path,
             }
 
-        def _on_child_timeout() -> None:
-            if _run_finished.is_set():
-                return
-            duration = round(time.monotonic() - child_start, 2)
-            child_api_calls = _read_child_api_calls()
-            diagnostic_path: Optional[str] = None
-            if child_api_calls == 0:
-                diagnostic_path = _dump_subagent_timeout_diagnostic(
-                    child=child,
-                    task_index=task_index,
-                    timeout_seconds=float(child_timeout),
-                    duration_seconds=float(duration),
-                    worker_thread=_worker_thread,
-                    goal=goal,
-                )
-                if diagnostic_path:
-                    logger.warning(
-                        "Subagent %d 0-API-call timeout — diagnostic written to %s",
-                        task_index,
-                        diagnostic_path,
-                    )
-            with _timeout_lock:
-                if _run_finished.is_set():
-                    return
-                _timeout_state["timed_out"] = True
-                _timeout_state["diagnostic_path"] = diagnostic_path
-                _timeout_state["api_calls"] = child_api_calls
+        def _child_runner() -> Dict[str, Any]:
+            _child_runner.thread = threading.current_thread()
+            _previous_cb = _get_thread_approval_cb()
+            _set_subagent_approval_cb(_get_subagent_approval_callback())
             try:
-                if hasattr(child, "interrupt"):
-                    child.interrupt()
-                elif hasattr(child, "_interrupt_requested"):
-                    child._interrupt_requested = True
-            except Exception:
-                pass
-            logger.warning(
-                "Subagent %d timed out after %.1fs; waiting for child to stop before cleanup",
-                task_index,
-                duration,
-            )
-            if child_progress_cb:
+                return child.run_conversation(
+                    user_message=goal,
+                    task_id=child_task_id,
+                )
+            finally:
+                _set_subagent_approval_cb(_previous_cb)
+
+        _child_runner.thread = None
+        with ThreadPoolExecutor(max_workers=1) as _timeout_executor:
+            _child_future = _timeout_executor.submit(_child_runner)
+            try:
+                result = _child_future.result(timeout=child_timeout)
+            except FutureTimeoutError:
+                duration = round(time.monotonic() - child_start, 2)
                 try:
-                    child_progress_cb(
-                        "subagent.complete",
-                        preview=f"Timed out after {duration}s",
-                        status="timeout",
-                        duration_seconds=duration,
-                        summary="",
-                    )
+                    if hasattr(child, "interrupt"):
+                        child.interrupt()
+                    elif hasattr(child, "_interrupt_requested"):
+                        child._interrupt_requested = True
                 except Exception:
                     pass
-
-        _timeout_timer = threading.Timer(child_timeout, _on_child_timeout)
-        _timeout_timer.daemon = True
-        _previous_approval_cb = _get_thread_approval_cb()
-        _set_subagent_approval_cb(_get_subagent_approval_callback())
-        _timeout_timer.start()
-        try:
-            result = child.run_conversation(
-                user_message=goal,
-                task_id=child_task_id,
-            )
-        except Exception as exc:
-            if _timeout_state.get("timed_out"):
-                duration = round(time.monotonic() - child_start, 2)
-                return _build_timeout_result(duration, str(exc))
-            raise
-        finally:
-            _run_finished.set()
-            _timeout_timer.cancel()
-            _set_subagent_approval_cb(_previous_approval_cb)
-
-        if _timeout_state.get("timed_out"):
-            duration = round(time.monotonic() - child_start, 2)
-            return _build_timeout_result(duration)
+                logger.warning(
+                    "Subagent %d timed out after %.1fs; returning timeout result",
+                    task_index,
+                    duration,
+                )
+                if child_progress_cb:
+                    try:
+                        child_progress_cb(
+                            "subagent.complete",
+                            preview=f"Timed out after {duration}s",
+                            status="timeout",
+                            duration_seconds=duration,
+                            summary="",
+                        )
+                    except Exception:
+                        pass
+                _timeout_executor.shutdown(wait=False, cancel_futures=True)
+                return _build_timeout_result(duration)
 
         # Flush any remaining batched progress to gateway
         if child_progress_cb and hasattr(child_progress_cb, "_flush"):
