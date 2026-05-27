@@ -301,17 +301,18 @@ class TestSpeakTextTempFiles:
         first = Path(voice._reserve_voice_tts_mp3_path())
         second = Path(voice._reserve_voice_tts_mp3_path())
 
-        assert first != second
-        assert first.parent == tmp_path / "hermes-home" / "cache" / "voice_tts"
-        assert first.name.startswith("tts_")
-        assert first.suffix == ".mp3"
-        assert "hermes_voice" not in str(first)
-        if os.name == "posix":
-            assert stat.S_IMODE(first.parent.stat().st_mode) == 0o700
-            assert stat.S_IMODE(first.stat().st_mode) == 0o600
-
-        first.unlink()
-        second.unlink()
+        try:
+            assert first != second
+            assert first.parent == tmp_path / "hermes-home" / "cache" / "voice_tts"
+            assert first.name.startswith("tts_")
+            assert first.suffix == ".mp3"
+            assert "hermes_voice" not in str(first)
+            if os.name == "posix":
+                assert stat.S_IMODE(first.parent.stat().st_mode) == 0o700
+                assert stat.S_IMODE(first.stat().st_mode) == 0o600
+        finally:
+            first.unlink(missing_ok=True)
+            second.unlink(missing_ok=True)
 
     def test_rejects_symlinked_tts_directory(self, tmp_path, monkeypatch):
         import hermes_cli.voice as voice

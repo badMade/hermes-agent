@@ -90,7 +90,15 @@ def _secure_voice_tts_dir() -> Path:
     """Return a private directory for transient voice TTS audio files."""
     from hermes_constants import get_hermes_home
 
-    tts_dir = get_hermes_home() / "cache" / "voice_tts"
+    # Reject symlinks on the parent cache directory to prevent redirection
+    # through an attacker-controlled symlink before voice_tts is created.
+    cache_dir = get_hermes_home() / "cache"
+    if cache_dir.is_symlink():
+        raise RuntimeError(
+            f"refusing symlinked voice TTS parent directory: {cache_dir}"
+        )
+
+    tts_dir = cache_dir / "voice_tts"
     if tts_dir.is_symlink():
         raise RuntimeError(f"refusing symlinked voice TTS directory: {tts_dir}")
 
@@ -101,13 +109,13 @@ def _secure_voice_tts_dir() -> Path:
 
     if os.name == "posix":
         st = tts_dir.stat()
-        if st.st_uid != os.getuid():
+        if st.st_uid != os.getuid():  # windows-footgun: ok
             raise RuntimeError(
                 "voice TTS directory is not owned by the current user: "
                 f"{tts_dir}"
             )
         mode = stat.S_IMODE(st.st_mode)
-        if mode & 0o077:
+        if mode != 0o700:
             tts_dir.chmod(0o700)
 
     return tts_dir
@@ -118,6 +126,8 @@ def _reserve_voice_tts_mp3_path() -> str:
     fd, path = tempfile.mkstemp(
         prefix="tts_", suffix=".mp3", dir=_secure_voice_tts_dir()
     )
+    if hasattr(os, "fchmod"):
+        os.fchmod(fd, 0o600)
     os.close(fd)
     return path
 
