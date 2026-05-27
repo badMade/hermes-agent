@@ -21,7 +21,11 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from gateway.run import GatewayRunner
+
 from urllib.parse import quote, unquote
 
 import httpx
@@ -233,6 +237,10 @@ class SignalAdapter(BasePlatformAdapter):
         self._recipient_uuid_by_number: Dict[str, str] = {}
         self._recipient_number_by_uuid: Dict[str, str] = {}
         self._recipient_cache_lock = asyncio.Lock()
+
+        # Set by GatewayRunner after instantiation so reaction hooks can
+        # consult the runner's authorization decision before emitting reactions.
+        self.gateway_runner: Optional["GatewayRunner"] = None
 
         logger.info("Signal adapter initialized: url=%s account=%s groups=%s",
                      self.http_url, redact_phone(self.account),
@@ -1442,10 +1450,17 @@ class SignalAdapter(BasePlatformAdapter):
     def _reactions_enabled(self, event: "MessageEvent" = None) -> bool:
         """Check if message reactions are enabled for this event.
 
-        Signal processing hooks run before the gateway message handler.  When
-        the adapter is attached to a gateway runner, mirror the runner's full
-        authorization decision before emitting any outbound reaction; otherwise
-        an allowlist-denied message could still make the bot account react.
+        Gates are evaluated in the following order:
+
+        1. ``SIGNAL_REACTIONS`` env-var — when set to ``false``/``0``/``no``
+           all reactions are globally disabled regardless of sender.
+        2. Gateway runner authorization (when the adapter is wired to a runner)
+           — mirrors the runner's full ``_is_user_authorized()`` decision.
+           Fails closed (returns ``False``) on exceptions.  When the runner
+           gate fires, the DM-allowlist fallback (step 3) is **skipped**.
+        3. DM allowlist fallback — when no runner is attached, compares the
+           sender's ``user_id`` against ``self.dm_allow_from``; a ``"*"``
+           entry allows all users.
         """
         if os.getenv("SIGNAL_REACTIONS", "true").lower() in {"false", "0", "no"}:
             return False
