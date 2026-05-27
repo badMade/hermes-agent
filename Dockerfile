@@ -50,7 +50,7 @@ COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
 ENV npm_config_install_links=false
 
 RUN npm install --prefer-offline --no-audit && \
-    npx playwright install --with-deps chromium --only-shell && \
+    npx playwright install --with-deps chromium --only-shell && rm -rf /tmp/camoufox* && \
     (cd web && npm install --prefer-offline --no-audit) && \
     (cd ui-tui && npm install --prefer-offline --no-audit) && \
     npm cache clean --force
@@ -76,7 +76,7 @@ RUN npm install --prefer-offline --no-audit && \
 # The editable link is created after the source copy below.
 COPY pyproject.toml uv.lock ./
 RUN touch ./README.md
-RUN uv sync --frozen --no-install-project --extra all && rm -rf ~/.cache/uv
+RUN uv sync --frozen --no-install-project --extra all && rm -rf ~/.cache/uv && rm -rf /tmp/camoufox*
 
 # ---------- Source code ----------
 # .dockerignore excludes node_modules, so the installs above survive.
