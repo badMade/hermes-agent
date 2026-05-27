@@ -1,6 +1,7 @@
 """Tests for the memory provider interface, manager, and builtin provider."""
 
 import json
+import re
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -116,27 +117,20 @@ class TestMemoryProviderABC:
     def test_handle_tool_call_raises_not_implemented(self):
         """Default handle_tool_call raises NotImplementedError."""
 
-        class MinimalProvider(MemoryProvider):
-            @property
-            def name(self):
-                return "test_provider"
+        class DefaultHandleToolCallProvider(FakeMemoryProvider):
+            def handle_tool_call(self, tool_name, args, **kwargs):
+                return MemoryProvider.handle_tool_call(
+                    self,
+                    tool_name,
+                    args,
+                    **kwargs,
+                )
 
-            def is_available(self):
-                return True
-
-            def initialize(self, session_id, **kw):
-                pass
-
-            def sync_turn(self, *a, **kw):
-                pass
-
-            def get_tool_schemas(self):
-                return []
-
-        p = MinimalProvider()
+        p = DefaultHandleToolCallProvider("test_provider")
+        message = "Provider test_provider does not handle tool test_tool"
         with pytest.raises(
             NotImplementedError,
-            match="Provider test_provider does not handle tool test_tool",
+            match=rf"^{re.escape(message)}$",
         ):
             p.handle_tool_call("test_tool", {"arg": "val"})
 
