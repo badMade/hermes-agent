@@ -95,7 +95,6 @@ class ProcessSession:
     task_id: str = ""                           # Task/sandbox isolation key
     session_key: str = ""                       # Gateway session key (for reset protection)
     pid: Optional[int] = None                   # OS process ID
-    pgid: Optional[int] = None                  # POSIX process group ID for local sessions
     process: Optional[subprocess.Popen] = None  # Popen handle (local only)
     env_ref: Any = None                         # Reference to the environment object
     cwd: Optional[str] = None                   # Working directory
@@ -433,18 +432,11 @@ class ProcessRegistry:
         return session
 
     @staticmethod
-    def _terminate_host_pid(pid: int, pgid: Optional[int] = None) -> None:
+    def _terminate_host_pid(pid: int) -> None:
         """Terminate a host-visible PID without requiring the original process handle."""
         if _IS_WINDOWS:
             os.kill(pid, signal.SIGTERM)
             return
-
-        if pgid is not None:
-            try:
-                os.killpg(pgid, signal.SIGTERM)  # windows-footgun: ok — guarded by _IS_WINDOWS above
-                return
-            except (OSError, ProcessLookupError, PermissionError):
-                pass
 
         import psutil
         try:
@@ -572,11 +564,6 @@ class ProcessRegistry:
 
         session.process = proc
         session.pid = proc.pid
-        if not _IS_WINDOWS:
-            try:
-                session.pgid = os.getpgid(proc.pid)
-            except (ProcessLookupError, OSError):
-                pass
 
         try:
             # Start output reader thread
@@ -876,11 +863,10 @@ class ProcessRegistry:
         7 minutes on Feishu).
 
         This helper closes that window: when `session.exited` is still False
-        but the direct child's `Popen.poll()` reports an exit code, flip
-        `session.exited` immediately. We intentionally do *not* read from
-        `proc.stdout` here: the reader thread may already be blocked in
-        `stdout.read()`, and concurrent reads on the same buffered stream can
-        block callers (poll/wait) behind the stream lock.
+        but the direct child's `Popen.poll()` reports an exit code, drain any
+        readable bytes non-blocking and flip `session.exited`. The orphaned
+        reader thread remains stuck on its blocking `read()` but is a daemon
+        thread and will be reaped with the process.
 
         Safe no-op on sessions without a local `Popen` (env/PTY), already-
         exited sessions, and detached-recovered sessions.
@@ -897,7 +883,37 @@ class ProcessRegistry:
         if rc is None:
             return  # Direct child still running — reader block is legitimate.
 
+        # Direct child exited. Try to drain any bytes the reader hasn't
+        # consumed yet. This is best-effort: if the pipe is held open by a
+        # descendant, the non-blocking read returns what's immediately
+        # available and we stop.
+        drained = ""
+        stdout = getattr(proc, "stdout", None)
+        if stdout is not None and not _IS_WINDOWS:
+            try:
+                import fcntl
+                fd = stdout.fileno()
+                flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+                fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                try:
+                    chunk = stdout.read()
+                    if chunk:
+                        drained = chunk if isinstance(chunk, str) else chunk.decode("utf-8", errors="replace")
+                except (BlockingIOError, OSError, ValueError):
+                    pass
+                finally:
+                    try:
+                        fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.debug("Non-blocking drain failed for %s: %s", session.id, e)
+
         with session._lock:
+            if drained:
+                session.output_buffer += drained
+                if len(session.output_buffer) > session.max_output_chars:
+                    session.output_buffer = session.output_buffer[-session.max_output_chars:]
             session.exited = True
             session.exit_code = rc
         logger.info(
@@ -1068,19 +1084,22 @@ class ProcessRegistry:
                     if session.pid:
                         os.kill(session.pid, signal.SIGTERM)
             elif session.process:
-                # Local process -- kill the POSIX process group created at spawn,
-                # so double-forked descendants cannot outlive explicit cleanup.
+                # Local process -- kill the process tree
                 try:
                     if _IS_WINDOWS:
                         session.process.terminate()
                     else:
+                        import psutil
                         try:
-                            pgid = session.pgid
-                            if pgid is None:
-                                pgid = os.getpgid(session.process.pid)
-                            os.killpg(pgid, signal.SIGTERM)  # windows-footgun: ok — guarded by _IS_WINDOWS above
-                        except (ProcessLookupError, PermissionError, OSError):
-                            session.process.terminate()
+                            parent = psutil.Process(session.process.pid)
+                            for child in parent.children(recursive=True):
+                                try:
+                                    child.terminate()
+                                except psutil.NoSuchProcess:
+                                    pass
+                            parent.terminate()
+                        except psutil.NoSuchProcess:
+                            pass
                 except (ProcessLookupError, PermissionError):
                     session.process.kill()
             elif session.env_ref and session.pid:
@@ -1096,7 +1115,7 @@ class ProcessRegistry:
                         "status": "already_exited",
                         "exit_code": session.exit_code,
                     }
-                self._terminate_host_pid(session.pid, session.pgid)
+                self._terminate_host_pid(session.pid)
             else:
                 return {
                     "status": "error",
@@ -1325,7 +1344,6 @@ class ProcessRegistry:
                             "session_id": s.id,
                             "command": s.command,
                             "pid": s.pid,
-                            "pgid": s.pgid,
                             "pid_scope": s.pid_scope,
                             "cwd": s.cwd,
                             "started_at": s.started_at,
@@ -1390,7 +1408,6 @@ class ProcessRegistry:
                     task_id=entry.get("task_id", ""),
                     session_key=entry.get("session_key", ""),
                     pid=pid,
-                    pgid=entry.get("pgid"),
                     pid_scope=pid_scope,
                     cwd=entry.get("cwd"),
                     started_at=entry.get("started_at", time.time()),
