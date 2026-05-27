@@ -17,6 +17,7 @@ import pytest
 
 from plugins.memory.hindsight import (
     HindsightMemoryProvider,
+    _DEFAULT_RETAIN_QUEUE_MAXSIZE,
     RECALL_SCHEMA,
     REFLECT_SCHEMA,
     RETAIN_SCHEMA,
@@ -922,6 +923,52 @@ class TestSyncTurn:
 
 
 class TestShutdownRace:
+
+    def test_retain_queue_is_bounded(self, provider):
+        assert provider._retain_queue.maxsize == _DEFAULT_RETAIN_QUEUE_MAXSIZE
+
+    def test_shutdown_unregisters_atexit_and_clears_retained_state(self, provider, monkeypatch):
+        registered = []
+        unregistered = []
+
+        monkeypatch.setattr(
+            "plugins.memory.hindsight.atexit.register",
+            lambda callback: registered.append(callback),
+        )
+        monkeypatch.setattr(
+            "plugins.memory.hindsight.atexit.unregister",
+            lambda callback: unregistered.append(callback),
+        )
+
+        provider.sync_turn("secret user text", "secret assistant text")
+        provider._retain_queue.join()
+        assert registered
+        assert provider._session_turns
+        assert provider._atexit_registered is True
+
+        provider.shutdown()
+
+        assert unregistered
+        assert provider._atexit_registered is False
+        assert provider._session_turns == []
+        assert provider._turn_counter == 0
+        assert provider._turn_index == 0
+        assert provider._retain_queue.empty()
+
+    def test_full_retain_queue_drops_pending_closures_before_latest(self, provider, monkeypatch):
+        monkeypatch.setattr(provider, "_ensure_writer", lambda: None)
+        monkeypatch.setattr(provider, "_register_atexit", lambda: None)
+
+        for _ in range(_DEFAULT_RETAIN_QUEUE_MAXSIZE):
+            provider._retain_queue.put_nowait(lambda: None)
+
+        latest = object()
+
+        assert provider._enqueue_retain_job(latest) is True
+        assert provider._retain_queue.qsize() == 1
+        assert provider._retain_queue.get_nowait() is latest
+        provider._retain_queue.task_done()
+
     def test_sync_turn_uses_single_writer_thread(self, provider):
         """All retains run through one long-lived writer thread."""
         provider.sync_turn("a", "b")
@@ -1341,10 +1388,13 @@ class TestBankIdTemplate:
         assert _sanitize_bank_segment("hermes") == "hermes"
         assert _sanitize_bank_segment("my-agent_1") == "my-agent_1"
 
-    def test_sanitize_bank_segment_strips_unsafe(self):
-        assert _sanitize_bank_segment("josh@example.com") == "josh-example-com"
-        assert _sanitize_bank_segment("chat:#general") == "chat-general"
-        assert _sanitize_bank_segment("  spaces  ") == "spaces"
+    def test_sanitize_bank_segment_encodes_unsafe_without_collisions(self):
+        assert _sanitize_bank_segment("josh@example.com") == "josh~40example~2Ecom"
+        assert _sanitize_bank_segment("chat:#general") == "chat~3A~23general"
+        assert _sanitize_bank_segment("  spaces  ") == "~20~20spaces~20~20"
+        assert _sanitize_bank_segment("a-b@c.d") != _sanitize_bank_segment("a@b-c.d")
+        assert _sanitize_bank_segment("@a-b:c.d") != _sanitize_bank_segment("@a:b-c.d")
+        assert _sanitize_bank_segment("~40") != _sanitize_bank_segment("@")
 
     def test_sanitize_bank_segment_empty(self):
         assert _sanitize_bank_segment("") == ""
@@ -1401,7 +1451,22 @@ class TestBankIdTemplate:
             profile="", workspace="", platform="",
             user="josh@example.com", session="",
         )
-        assert result == "user-josh-example-com"
+        assert result == "user-josh~40example~2Ecom"
+
+    def test_resolve_user_template_keeps_distinct_punctuation_ids_isolated(self):
+        first = _resolve_bank_id_template(
+            "hermes-{user}", fallback="hermes",
+            profile="", workspace="", platform="email",
+            user="a-b@c.d", session="",
+        )
+        second = _resolve_bank_id_template(
+            "hermes-{user}", fallback="hermes",
+            profile="", workspace="", platform="email",
+            user="a@b-c.d", session="",
+        )
+        assert first == "hermes-a-b~40c~2Ed"
+        assert second == "hermes-a~40b-c~2Ed"
+        assert first != second
 
     def test_resolve_invalid_template_returns_fallback(self):
         # Unknown placeholder should fall back without raising
