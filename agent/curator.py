@@ -492,7 +492,7 @@ def _reports_root() -> Path:
 
 def _secure_report_dir(path: Path, *, exist_ok: bool = True) -> None:
     """Create a curator report directory with owner-only permissions."""
-    path.mkdir(parents=True, exist_ok=exist_ok)
+    path.mkdir(parents=True, mode=0o700, exist_ok=exist_ok)
     try:
         path.chmod(0o700)
     except OSError as e:
@@ -506,15 +506,20 @@ def _redact_report_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_redact_report_value(v) for v in value]
     if isinstance(value, tuple):
-        return [_redact_report_value(v) for v in value]
+        return tuple(_redact_report_value(v) for v in value)
     if isinstance(value, dict):
         return {k: _redact_report_value(v) for k, v in value.items()}
     return value
 
 
 def _write_private_text(path: Path, text: str) -> None:
-    """Write text with 0600 permissions, independent of process umask."""
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    """Write text with 0600 permissions, independent of process umask.
+
+    Uses a sibling temp file + ``os.replace`` so concurrent readers never
+    observe a partially-written file.
+    """
+    tmp_path = path.parent / (path.name + ".tmp")
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             fd = -1
@@ -522,10 +527,7 @@ def _write_private_text(path: Path, text: str) -> None:
     finally:
         if fd != -1:
             os.close(fd)
-    try:
-        path.chmod(0o600)
-    except OSError as e:
-        logger.debug("Curator report chmod failed for %s: %s", path, e)
+    os.replace(str(tmp_path), str(path))
 
 def _needle_in_path_component(needle: str, path: str) -> bool:
     """Check if *needle* is a complete filename stem or directory name in *path*.

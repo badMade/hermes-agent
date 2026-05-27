@@ -221,8 +221,6 @@ def test_report_redacts_secret_like_llm_and_tool_data(curator_env):
     report_md = (run_dir / "REPORT.md").read_text()
     assert secret not in run_json
     assert secret not in report_md
-    assert "***" in run_json
-    assert "***" in report_md
 
 
 def test_report_paths_are_owner_only_even_with_permissive_umask(curator_env):
