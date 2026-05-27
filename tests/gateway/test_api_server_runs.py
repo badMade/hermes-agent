@@ -221,6 +221,7 @@ class TestStartRun:
 
                 await cli.post(f"/v1/runs/{run_id}/stop")
 
+    @pytest.mark.asyncio
     async def test_start_requires_auth(self, auth_adapter):
         app = _create_runs_app(auth_adapter)
         async with TestClient(TestServer(app)) as cli:
