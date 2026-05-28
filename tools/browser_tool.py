@@ -115,14 +115,9 @@ _BROWSER_EVAL_NAV_OR_NETWORK_RE = re.compile(
 
 def _browser_url_security_block(url: str, *, auto_local_this_nav: bool = False) -> Optional[Dict[str, Any]]:
     """Return a browser policy block response for a URL, or None when allowed."""
-    import urllib.parse
-    from agent.redact import _PREFIX_RE
+    from agent.redact import url_contains_secret
 
-    url_decoded = urllib.parse.unquote(url)
-    if (
-        _PREFIX_RE.search(url)
-        or _PREFIX_RE.search(url_decoded)
-    ):
+    if url_contains_secret(url):
         return {
             "success": False,
             "error": (
@@ -141,8 +136,6 @@ def _browser_url_security_block(url: str, *, auto_local_this_nav: bool = False) 
             return {"success": False, "error": "Blocked: URL targets a private or internal address"}
 
     if (
-        not _is_local_backend()
-        and
         not auto_local_this_nav
         and not _allow_private_urls()
         and not _is_safe_url(url)
@@ -2363,8 +2356,7 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
             })
 
         if (
-            not _is_local_backend()
-            and not auto_local_this_nav
+            not auto_local_this_nav
             and not _allow_private_urls()
             and final_url and final_url != url and not _is_safe_url(final_url)
         ):
