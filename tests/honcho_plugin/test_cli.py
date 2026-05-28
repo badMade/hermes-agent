@@ -157,20 +157,40 @@ class TestCmdStatus:
 
 
 class TestCmdSetup:
-    def test_workspace_default_uses_active_host_key_for_new_profile(self, monkeypatch):
+    def test_workspace_default_uses_active_host_key_for_new_profile(self, monkeypatch, tmp_path):
         import plugins.memory.honcho.cli as honcho_cli
 
         cfg = {}
         prompts = []
+        cfg_path = tmp_path / "honcho.json"
 
         monkeypatch.setattr(honcho_cli, "_read_config", lambda: cfg)
-        monkeypatch.setattr(honcho_cli, "_local_config_path", lambda: __import__("pathlib").Path("/tmp/honcho.json"))
-        monkeypatch.setattr(honcho_cli, "_config_path", lambda: __import__("pathlib").Path("/tmp/honcho.json"))
+        monkeypatch.setattr(honcho_cli, "_local_config_path", lambda: cfg_path)
+        monkeypatch.setattr(honcho_cli, "_config_path", lambda: cfg_path)
         monkeypatch.setattr(honcho_cli, "_ensure_sdk_installed", lambda: True)
         monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes.coder")
         monkeypatch.setattr(honcho_cli, "_write_config", lambda new_cfg: None)
-        monkeypatch.setattr(honcho_cli, "_copy_api_key_to_local_env", lambda _cfg: None)
-        monkeypatch.setattr(honcho_cli, "_write_diagnostic_hints", lambda _cfg: None)
+        monkeypatch.setattr("hermes_cli.config.load_config", lambda: {})
+        monkeypatch.setattr("hermes_cli.config.save_config", lambda _cfg: None)
+
+        class FakeConfig:
+            workspace_id = "hermes.coder"
+            peer_name = "user"
+            ai_peer = "hermes"
+            observation_mode = "directional"
+            write_frequency = "async"
+            recall_mode = "hybrid"
+            session_strategy = "per-session"
+
+            def resolve_session_name(self):
+                return "hermes"
+
+        monkeypatch.setattr(
+            "plugins.memory.honcho.client.HonchoClientConfig.from_global_config",
+            lambda host=None: FakeConfig(),
+        )
+        monkeypatch.setattr("plugins.memory.honcho.client.reset_honcho_client", lambda: None)
+        monkeypatch.setattr("plugins.memory.honcho.client.get_honcho_client", lambda _cfg: object())
 
         def _prompt(label, default="", secret=False):
             prompts.append((label, default))
