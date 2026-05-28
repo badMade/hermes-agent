@@ -2066,15 +2066,9 @@ class TestPluginAPIAuth:
         assert resp.status_code == 401
 
         # With auth: handler runs.
-        # But wait, what if the SPA fallback catch-all is swallowing our injected route?
-        # The SPA route is mounted at the end. Since include_router appends,
-        # it gets placed AFTER the catch-all `/{full_path:path}` rule, meaning
-        # our new route is unreachable (the catch-all handles it and returns 404).
-
-        # So let's insert it before the SPA fallback.
+        # Use a mock route here to prevent 404 if the Kanban plugin is disabled or missing
         import hermes_cli.web_server as ws
         from fastapi import APIRouter
-        from starlette.testclient import TestClient
 
         router = APIRouter()
 
@@ -2082,6 +2076,7 @@ class TestPluginAPIAuth:
         def board():
             return {}
 
+        # Clear out existing routes that might be shadowing this
         ws.app.router.routes = [
             r
             for r in ws.app.router.routes
@@ -2097,6 +2092,8 @@ class TestPluginAPIAuth:
         new_route = routes[-1]
         routes.pop()
         routes.insert(0, new_route)
+
+        from starlette.testclient import TestClient
 
         auth_client = TestClient(ws.app)
         auth_client.headers[ws._SESSION_HEADER_NAME] = ws._SESSION_TOKEN
