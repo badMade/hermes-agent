@@ -290,7 +290,7 @@ ADD_RESOURCE_SCHEMA = {
     "name": "viking_add_resource",
     "description": (
         "Add a remote URL to the OpenViking knowledge base. "
-        "Resources must be public http(s), git, or ssh URLs reachable by OpenViking. "
+        "Only http://, https://, git@, ssh://, or git:// URLs are accepted. "
         "Local filesystem paths and file:// URIs are not allowed. "
         "The system automatically parses, indexes, and generates summaries."
     ),
@@ -859,10 +859,6 @@ class OpenVikingMemoryProvider(MemoryProvider):
         url = args.get("url", "")
         if not url:
             return tool_error("url is required")
-        local_path_error = (
-            "Local filesystem paths are not allowed for viking_add_resource; "
-            "provide a remote URL instead."
-        )
 
         if args.get("to") and args.get("parent"):
             return tool_error("Cannot specify both 'to' and 'parent'")
@@ -872,13 +868,12 @@ class OpenVikingMemoryProvider(MemoryProvider):
             if key in args and args[key] not in (None, ""):
                 payload[key] = args[key]
 
-        parsed_url = urlparse(url)
-        if parsed_url.scheme == "file":
-            return tool_error(local_path_error)
-        if parsed_url.scheme and not _is_windows_absolute_path(url) and not _is_remote_resource_source(url):
-            return tool_error(f"Unsupported resource URL scheme: {parsed_url.scheme}")
-        if _is_local_path_reference(url):
-            return tool_error(local_path_error)
+        if not _is_remote_resource_source(url):
+            return tool_error(
+                "Only http://, https://, git@, ssh://, or git:// URLs are accepted for "
+                "viking_add_resource. Local filesystem paths and file:// URIs are not allowed."
+            )
+
         payload["path"] = url
         resp = self._client.post("/api/v1/resources", payload)
         result = resp.get("result", {})
