@@ -74,6 +74,8 @@ from gateway.platforms.helpers import strip_markdown
 
 logger = logging.getLogger(__name__)
 
+_QQ_MEDIA_DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024
+
 
 class QQCloseError(Exception):
     """Raised when QQ WebSocket closes with a specific code.
@@ -1720,13 +1722,13 @@ class QQAdapter(BasePlatformAdapter):
             return None
 
         try:
-            resp = await self._http_client.get(
+            data = await self._download_limited_bytes(
                 url,
-                timeout=30.0,
-                headers=self._qq_media_headers(),
+                headers=self._qq_media_headers(url),
+                context="attachment",
             )
-            resp.raise_for_status()
-            data = resp.content
+            if data is None:
+                return None
         except Exception as exc:
             logger.debug(
                 "[%s] Download failed for %s: %s", self._log_tag, url[:80], exc
@@ -1766,16 +1768,84 @@ class QQAdapter(BasePlatformAdapter):
             return True
         return False
 
-    def _qq_media_headers(self) -> Dict[str, str]:
+    def _qq_media_headers(self, url: str = "") -> Dict[str, str]:
         """Return Authorization headers for QQ multimedia CDN downloads.
 
         QQ's multimedia URLs (multimedia.nt.qq.com.cn) require the bot's
         access token in an Authorization header, otherwise the download
         returns a non-200 status.
         """
-        if self._access_token:
+        if not self._access_token:
+            return {}
+
+        hostname = (urlparse(url).hostname or "").lower()
+        if hostname == "multimedia.nt.qq.com.cn":
             return {"Authorization": f"QQBot {self._access_token}"}
+
         return {}
+
+    async def _download_limited_bytes(
+        self,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        context: str = "attachment",
+    ) -> Optional[bytes]:
+        """Download bytes with a hard size cap, returning None on overflow/failure."""
+        if not self._http_client:
+            return None
+
+        request_headers = headers or {}
+        try:
+            async with self._http_client.stream(
+                "GET",
+                url,
+                headers=request_headers,
+                follow_redirects=True,
+            ) as resp:
+                resp.raise_for_status()
+                content_length = resp.headers.get("content-length")
+                if content_length is not None:
+                    try:
+                        if int(content_length) > _QQ_MEDIA_DOWNLOAD_MAX_BYTES:
+                            logger.warning(
+                                "[%s] %s download too large by header: %s bytes",
+                                self._log_tag,
+                                context,
+                                content_length,
+                            )
+                            return None
+                    except ValueError:
+                        logger.warning(
+                            "[%s] %s download has invalid content-length: %r",
+                            self._log_tag,
+                            context,
+                            content_length,
+                        )
+                        return None
+
+                chunks: List[bytes] = []
+                total = 0
+                async for chunk in resp.aiter_bytes():
+                    total += len(chunk)
+                    if total > _QQ_MEDIA_DOWNLOAD_MAX_BYTES:
+                        logger.warning(
+                            "[%s] %s download exceeded size limit (%d bytes)",
+                            self._log_tag,
+                            context,
+                            _QQ_MEDIA_DOWNLOAD_MAX_BYTES,
+                        )
+                        return None
+                    chunks.append(chunk)
+                return b"".join(chunks)
+        except Exception as exc:
+            logger.debug(
+                "[%s] %s download failed for %s: %s",
+                self._log_tag,
+                context,
+                url[:80],
+                exc,
+            )
+            return None
 
     async def _stt_voice_attachment(
             self,
@@ -1823,7 +1893,7 @@ class QQAdapter(BasePlatformAdapter):
                 logger.warning("[%s] STT: no HTTP client", self._log_tag)
                 return None
 
-            download_headers = self._qq_media_headers()
+            download_headers = self._qq_media_headers(download_url)
             logger.debug(
                 "[%s] STT: downloading voice from %s (pre_wav=%s, headers=%s)",
                 self._log_tag,
@@ -1831,19 +1901,19 @@ class QQAdapter(BasePlatformAdapter):
                 is_pre_wav,
                 bool(download_headers),
             )
-            resp = await self._http_client.get(
+            audio_data = await self._download_limited_bytes(
                 download_url,
-                timeout=30.0,
                 headers=download_headers,
-                follow_redirects=True,
+                context="voice",
             )
-            resp.raise_for_status()
-            audio_data = resp.content
+            if audio_data is None:
+                logger.warning("[%s] STT: failed to download voice payload", self._log_tag)
+                return None
             logger.debug(
                 "[%s] STT: downloaded %d bytes, content_type=%s",
                 self._log_tag,
                 len(audio_data),
-                resp.headers.get("content-type", "unknown"),
+                "unknown",
             )
 
             if len(audio_data) < 10:
