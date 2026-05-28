@@ -192,6 +192,24 @@ class TestVoiceAttachmentSSRFProtection:
         assert kwargs.get("event_hooks", {}).get("response") == [_ssrf_redirect_guard]
 
 
+class TestQQMediaHeaders:
+    def _make_adapter(self):
+        from gateway.platforms.qqbot import QQAdapter
+        adapter = QQAdapter(_make_config(app_id="a", client_secret="b"))
+        adapter._access_token = "token"
+        return adapter
+
+    def test_trusted_media_host_gets_auth(self):
+        adapter = self._make_adapter()
+        assert adapter._qq_media_headers("https://multimedia.nt.qq.com.cn/download?id=1") == {
+            "Authorization": "QQBot token"
+        }
+
+    def test_untrusted_host_gets_no_auth(self):
+        adapter = self._make_adapter()
+        assert adapter._qq_media_headers("https://example.com/file") == {}
+
+
 # ---------------------------------------------------------------------------
 # WebSocket proxy handling
 # ---------------------------------------------------------------------------

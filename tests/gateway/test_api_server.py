@@ -31,6 +31,7 @@ from gateway.platforms.api_server import (
     _IdempotencyCache,
     _CORS_HEADERS,
     _derive_chat_session_id,
+    _new_chat_session_id,
     check_api_server_requirements,
     cors_middleware,
     security_headers_middleware,
@@ -195,6 +196,15 @@ class TestIdempotencyCache:
 
         gate.set()
         assert await second == "response"
+
+
+class TestNewChatSessionId:
+    def test_returns_unique_api_prefixed_ids(self):
+        a = _new_chat_session_id()
+        b = _new_chat_session_id()
+        assert a.startswith("api-")
+        assert b.startswith("api-")
+        assert a != b
 
 
 # ---------------------------------------------------------------------------
