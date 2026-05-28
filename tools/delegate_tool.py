@@ -34,7 +34,7 @@ from tools.terminal_tool import (
     _get_approval_callback as _get_thread_approval_cb,
     set_approval_callback as _set_subagent_approval_cb,
 )
-from utils import base_url_hostname, is_truthy_value
+from utils import base_url_host_matches, base_url_hostname, is_truthy_value
 
 
 # Tools that children must never have access to
@@ -1097,18 +1097,27 @@ def _build_child_agent(
     parent_fallback = getattr(parent_agent, "_fallback_chain", None) or None
 
     # Inherit the parent's OpenRouter provider-preference filters by default
-    # (so subagents routed to the same provider honour the same routing
-    # constraints).  BUT: when `delegation.provider` is set the user is
-    # explicitly asking the child to run on a different provider, and
-    # parent-level OpenRouter filters (e.g. `only=["Anthropic"]`) would
-    # silently force the child back onto the parent's provider. Clear the
-    # filters in that case so the delegated provider is honoured.
+    # so child OpenRouter calls preserve operator allow/deny policy.  Clear
+    # them only for explicit non-OpenRouter provider overrides; OpenRouter
+    # routing filters are meaningless there and can incorrectly steer the
+    # child back through the parent's OpenRouter preferences.
     child_providers_allowed = getattr(parent_agent, "providers_allowed", None)
     child_providers_ignored = getattr(parent_agent, "providers_ignored", None)
     child_providers_order = getattr(parent_agent, "providers_order", None)
     child_provider_sort = getattr(parent_agent, "provider_sort", None)
     child_openrouter_min_coding_score = getattr(parent_agent, "openrouter_min_coding_score", None)
-    if override_provider:
+    # For provider overrides, detect OpenRouter only from the override target.
+    # If we fell back to effective_base_url here, a non-OpenRouter override with
+    # no override base URL would inherit the parent's OpenRouter URL and
+    # incorrectly preserve parent OpenRouter routing filters.
+    openrouter_detection_base_url = (
+        override_base_url if override_provider else effective_base_url
+    )
+    child_targets_openrouter = (
+        str(effective_provider or "").strip().lower() == "openrouter"
+        or base_url_host_matches(openrouter_detection_base_url or "", "openrouter.ai")
+    )
+    if override_provider and not child_targets_openrouter:
         child_providers_allowed = None
         child_providers_ignored = None
         child_providers_order = None
