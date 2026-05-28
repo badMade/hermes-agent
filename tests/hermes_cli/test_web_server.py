@@ -1843,6 +1843,12 @@ class TestPluginAPIAuth:
 
         monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
 
+        # Mock route to avoid 404
+        from fastapi.routing import APIRoute
+        async def mock_scan_status():
+            return {"status": "ok"}
+        app.router.routes.insert(0, APIRoute("/api/plugins/hermes-achievements/scan-status", endpoint=mock_scan_status, methods=["GET"]))
+
         self.client = TestClient(app)
         self.auth_client = TestClient(app)
         self.auth_client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
