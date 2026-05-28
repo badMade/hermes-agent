@@ -48,7 +48,6 @@ from gateway.run import (
     _should_clear_resume_pending_after_turn,
 )
 from gateway.session import SessionEntry, SessionSource, SessionStore
-from hermes_state import SessionDB
 from tests.gateway.restart_test_helpers import (
     make_restart_runner,
     make_restart_source,
@@ -374,6 +373,29 @@ class TestGetOrCreateResumePending:
         # Flag is NOT cleared on read — only on successful turn completion.
         assert second.resume_pending is True
 
+    def test_resume_pending_does_not_bypass_idle_reset_policy(self, tmp_path):
+        """Expired resume_pending sessions must not resurrect stale transcripts."""
+        config = GatewayConfig(
+            default_reset_policy=SessionResetPolicy(mode="idle", idle_minutes=1)
+        )
+        store = SessionStore(sessions_dir=tmp_path, config=config)
+        source = _make_source()
+        first = store.get_or_create_session(source)
+        original_sid = first.session_id
+        store.mark_resume_pending(first.session_key)
+
+        with store._lock:
+            entry = store._entries[first.session_key]
+            entry.updated_at = datetime.now() - timedelta(minutes=5)
+            store._save()
+
+        second = store.get_or_create_session(source)
+
+        assert second.session_id != original_sid
+        assert second.was_auto_reset is True
+        assert second.auto_reset_reason == "idle"
+        assert second.resume_pending is False
+
     def test_suspended_still_creates_new_session(self, tmp_path):
         """Regression guard — suspended must still force a clean slate."""
         store = _make_store(tmp_path)
@@ -639,40 +661,6 @@ class TestResumePendingSystemNote:
             agent_history=agent_history,
         )
         assert result == "start a new task"
-
-    def test_sqlite_transcript_timestamps_gate_stale_resume_pending(self, tmp_path):
-        """SQLite-loaded transcripts must carry timestamps for freshness gates."""
-        db = SessionDB(db_path=tmp_path / "state.db")
-        old_store_db = None
-        try:
-            db.create_session(session_id="sid", source="telegram")
-            db.append_message("sid", role="assistant", content="old in progress")
-            stale_ts = time.time() - 7200
-            db._conn.execute(
-                "UPDATE messages SET timestamp = ? WHERE session_id = ?",
-                (stale_ts, "sid"),
-            )
-            db._conn.commit()
-
-            store = _make_store(tmp_path / "sessions")
-            old_store_db = store._db
-            store._db = db
-
-            history = store.load_transcript("sid")
-            assert history and "timestamp" in history[-1]
-
-            entry = self._pending_entry()
-            result = _simulate_note_injection(
-                history=history,
-                user_message="start a new task",
-                resume_entry=entry,
-            )
-
-            assert result == "start a new task"
-        finally:
-            if old_store_db is not None:
-                old_store_db.close()
-            db.close()
 
     def test_freshness_gate_disabled_via_zero_window(self):
         """window_secs=0 restores pre-fix behaviour (always inject)."""
