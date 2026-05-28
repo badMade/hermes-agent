@@ -5994,6 +5994,12 @@ class AIAgent:
                     role,
                 )
                 continue
+            if any(str(key).startswith("_hermes_") for key in msg):
+                msg = {
+                    key: value
+                    for key, value in msg.items()
+                    if not str(key).startswith("_hermes_")
+                }
             filtered.append(msg)
         messages = filtered
 
