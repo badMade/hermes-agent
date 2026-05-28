@@ -1,106 +1,142 @@
-name: Self-Heal Pipeline
+name: Self-Heal Auto Repair
 
 on:
-  schedule:
-    - cron: "0 2 * * *" # AUTO-UPDATED: Synced with self-heal-schedule.yml
   workflow_dispatch:
   workflow_run:
-    workflows: ["Tests"]
+    workflows: ["ci"]
     types:
       - completed
-    branches: [main]
+  schedule:
+    # AUTO-UPDATED
+    - cron: "0 2 * * *"
+
+concurrency:
+  group: selfheal-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
   pull-requests: write
   actions: read
 
-concurrency:
-  group: selfheal-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   repair:
-    # Only run on CI failure or schedule/dispatch
     if: >
-      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure')
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure') ||
+      (github.event_name == 'schedule' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify branch and gates
+        run: |
+          ref="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}"
+          if [[ "$ref" == *selfheal-* ]]; then
+            echo "Skipping loop prevention"
+            exit 0
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Setup python
+        uses: actions/setup-python@v5
         with:
-          fetch-depth: 0
-          persist-credentials: false
+          python-version: "3.12"
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-
-      - name: Set up Python 3.11
-        run: uv python install 3.11
-
-      - name: Pre-healthcheck
-        id: pre_healthcheck
+      - name: Run healthcheck (pre)
+        id: prehealth
         run: |
           if scripts/healthcheck.sh; then
-            echo "status=pass" >> "$GITHUB_OUTPUT"
+            echo "pre_failed=false" >> "$GITHUB_OUTPUT"
           else
-            echo "status=fail" >> "$GITHUB_OUTPUT"
+            echo "pre_failed=true" >> "$GITHUB_OUTPUT"
           fi
-        continue-on-error: true
 
-      - name: Upload pre-healthcheck logs
-        if: steps.pre_healthcheck.outputs.status == 'fail'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: pre-healthcheck-logs
-          path: .lint-reports/
-
-      - name: Run self-heal pipeline
+      - name: Run repair steps
         id: repair
-        run: scripts/self_heal.py
-
-      - name: Check for meaningful diff
-        id: diff
         run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "has_diff=true" >> "$GITHUB_OUTPUT"
+          if scripts/self_heal.sh; then
+            echo "fixed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_diff=false" >> "$GITHUB_OUTPUT"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check for duplicate open PRs
-        id: check_pr
+      - name: Check Diff constraints
+        id: gates
+        run: |
+          diff_files=$(git diff --name-only)
+          if echo "$diff_files" | grep -qE "^\.github/workflows/.*yml$|.*\.env$|^migrations/"; then
+            echo "Disallowed paths modified, aborting"
+            git reset --hard
+            echo "pass=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "pass=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "${{ steps.prehealth.outputs.pre_failed }}" == "false" ]]; then
+            # Meaningful diff check: > whitespace
+            diff_lines=$(git diff -U0 | grep -v '^@@' | grep -v '^---' | grep -v '^+++' | sed -E 's/^[+-]//' | tr -d ' \t' | wc -l)
+            if [ "$diff_lines" -eq 0 ]; then
+               echo "Diff is only whitespace when pre-healthcheck passed, ignoring."
+               echo "pass=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          # Check for high-entropy secrets using a naive generic heuristic
+          if git diff | grep -E "AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36}"; then
+             echo "High entropy string detected"
+             echo "pass=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cleanup Stale PRs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Search for open PRs with the label 'self-heal'
-          COUNT=$(gh pr list --label "self-heal" --state open --json number --jq 'length')
-          if [ "$COUNT" -gt 0 ]; then
+          gh pr list --state open --label "self-heal" --json number,createdAt | jq -c '.[]' | while read -r pr; do
+            num=$(echo "$pr" | jq -r '.number')
+            created=$(echo "$pr" | jq -r '.createdAt')
+            if [[ $(date -d "$created" +%s) -lt $(date -d "7 days ago" +%s) ]]; then
+              gh pr close "$num" --comment "Auto-closing stale self-heal PR"
+            fi
+          done
+
+      - name: Check duplicate PRs
+        if: steps.repair.outputs.fixed == 'true' && steps.gates.outputs.pass == 'true'
+        id: duplicate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh pr list --state open --label "self-heal" | grep -q "Self-Heal"; then
             echo "duplicate=true" >> "$GITHUB_OUTPUT"
           else
             echo "duplicate=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Set PR Title
+        id: title
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "val=[Self-Heal Scheduled] Drift fixes" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "val=[Self-Heal Reactive] CI fix" >> "$GITHUB_OUTPUT"
+          else
+            echo "val=[Self-Heal Manual] Repair" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create PR
-        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c
-        if: >
-          steps.diff.outputs.has_diff == 'true' &&
-          steps.check_pr.outputs.duplicate == 'false' &&
-          !startsWith(github.ref, 'refs/heads/selfheal-')
+        uses: peter-evans/create-pull-request@v6
+        if: steps.repair.outputs.fixed == 'true' && steps.gates.outputs.pass == 'true' && steps.duplicate.outputs.duplicate == 'false'
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: apply self-heal fixes"
           branch: selfheal-repair
-          delete-branch: true
-          title: "Self-Heal automated fixes"
+          title: "${{ steps.title.outputs.val }}"
           body: |
-            This PR contains automated fixes generated by the Self-Heal Agent.
-            Trigger: ${{ github.event_name }}.
-            Drift summary: changes applied to allowed paths.
-            Link to context: see Claude chat.
-          labels: |
-            automation
-            self-heal
+            Self-Heal triggered by ${{ github.event_name }}. Drift fixed.
+            [Reviewers checklist in SELF_HEAL_SETUP.md]
+            Link to chat: Claude/Jules chat
+          labels: "automation,self-heal"
+          commit-message: "${{ steps.title.outputs.val }}"
+          delete-branch: true
