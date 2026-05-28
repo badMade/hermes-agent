@@ -550,6 +550,11 @@ def _make_request_fingerprint(
     return sha256(repr(subset).encode("utf-8")).hexdigest()
 
 
+def _new_chat_session_id() -> str:
+    """Return a fresh, random API session identifier in the api-<hex16> format."""
+    return f"api-{uuid.uuid4().hex[:16]}"
+
+
 def _derive_chat_session_id(
     system_prompt: Optional[str],
     first_user_message: str,
