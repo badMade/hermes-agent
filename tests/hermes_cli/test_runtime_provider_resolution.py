@@ -1959,6 +1959,46 @@ class TestAzureFoundryResolution:
 # ──────────────────────────────────────────────────────────────────────────
 
 
+class TestAzureAnthropicExplicitBaseUrlValidation:
+    def _patch_common(self, monkeypatch):
+        monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
+        monkeypatch.setattr(rp, "_get_model_config", lambda: {})
+        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+
+    def test_explicit_azure_anthropic_accepts_azure_host(self, monkeypatch):
+        self._patch_common(monkeypatch)
+        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-key")
+
+        resolved = rp.resolve_runtime_provider(
+            requested="anthropic",
+            explicit_base_url="https://my-resource.services.ai.azure.com/anthropic",
+        )
+
+        assert resolved["source"] == "azure-explicit"
+        assert resolved["api_key"] == "azure-key"
+        assert resolved["base_url"] == "https://my-resource.services.ai.azure.com/anthropic"
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "https://attacker.example/azure.com/v1",
+            "https://azure.com.attacker.example/v1",
+            "http://my-resource.services.ai.azure.com/anthropic",
+        ],
+    )
+    def test_explicit_azure_anthropic_rejects_path_and_lookalike_hosts(
+        self, monkeypatch, base_url
+    ):
+        self._patch_common(monkeypatch)
+        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-secret")
+
+        with pytest.raises(rp.AuthError, match="untrusted explicit base_url"):
+            rp.resolve_runtime_provider(
+                requested="anthropic",
+                explicit_base_url=base_url,
+            )
+
+
 class TestAzureAnthropicUrlSubstringLeak:
     def test_configured_path_injection_does_not_use_azure_key(self, monkeypatch):
         monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-secret-should-not-leak")
@@ -1983,6 +2023,23 @@ class TestAzureAnthropicUrlSubstringLeak:
         monkeypatch.setattr(rp, "_get_model_config", lambda: {
             "provider": "anthropic",
             "base_url": "https://azure.com.attacker.example/anthropic",
+        })
+        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+        monkeypatch.setattr(
+            "agent.anthropic_adapter.resolve_anthropic_token",
+            lambda: "token-from-safe-resolver",
+        )
+
+        resolved = rp.resolve_runtime_provider(requested="anthropic")
+
+        assert resolved["api_key"] == "token-from-safe-resolver"
+
+    def test_configured_http_azure_host_does_not_use_azure_key(self, monkeypatch):
+        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-secret-should-not-leak")
+        monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
+        monkeypatch.setattr(rp, "_get_model_config", lambda: {
+            "provider": "anthropic",
+            "base_url": "http://my-resource.services.ai.azure.com/anthropic",
         })
         monkeypatch.setattr(rp, "load_pool", lambda provider: None)
         monkeypatch.setattr(

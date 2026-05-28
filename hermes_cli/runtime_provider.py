@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +45,16 @@ def _loopback_hostname(host: str) -> bool:
 _AZURE_ENDPOINT_DOMAINS = ("openai.azure.com", "services.ai.azure.com")
 
 
+def _has_https_scheme(base_url: str) -> bool:
+    raw = (base_url or "").strip()
+    if not raw:
+        return False
+    parsed = urlparse(raw if "://" in raw else f"//{raw}")
+    return parsed.scheme.lower() == "https"
+
+
 def _is_azure_endpoint(base_url: str) -> bool:
-    return any(
+    return _has_https_scheme(base_url) and any(
         base_url_host_matches(base_url, domain)
         for domain in _AZURE_ENDPOINT_DOMAINS
     )
@@ -67,6 +76,16 @@ def _config_base_url_trustworthy_for_bare_custom(cfg_base_url: str, cfg_provider
     if base_url_host_matches(bu, "openrouter.ai"):
         return False
     return _loopback_hostname(base_url_hostname(bu))
+
+
+def _is_azure_endpoint_url(base_url: str) -> bool:
+    """Return True only for Azure-owned hostnames, not path/lookalike matches."""
+    return _is_azure_endpoint(base_url)
+
+
+def _is_anthropic_credential_endpoint_url(base_url: str) -> bool:
+    """Return True for endpoints allowed to receive default Anthropic credentials."""
+    return base_url_hostname(base_url) == "api.anthropic.com" or _is_azure_endpoint(base_url)
 
 
 def _detect_api_mode_for_url(base_url: str) -> Optional[str]:
@@ -784,6 +803,13 @@ def _resolve_explicit_runtime(
         base_url = explicit_base_url or cfg_base_url or "https://api.anthropic.com"
         api_key = explicit_api_key
         if not api_key:
+            if explicit_base_url and not _is_anthropic_credential_endpoint_url(base_url):
+                raise AuthError(
+                    "Refusing to use default Anthropic credentials with an untrusted "
+                    "explicit base_url. Pass an explicit API key for custom Anthropic "
+                    "gateways, or use api.anthropic.com / an Azure endpoint."
+                )
+
             from agent.anthropic_adapter import resolve_anthropic_token
 
             api_key = resolve_anthropic_token()
