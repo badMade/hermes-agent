@@ -1813,6 +1813,12 @@ class QQAdapter(BasePlatformAdapter):
                         )
                         return None
                 except ValueError:
+                    logger.debug(
+                        "[%s] Skipping %s download with invalid Content-Length %r",
+                        self._log_tag,
+                        context,
+                        content_length,
+                    )
                     return None
 
             chunks: List[bytes] = []
