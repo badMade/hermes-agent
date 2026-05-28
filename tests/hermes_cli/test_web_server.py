@@ -1841,7 +1841,24 @@ class TestPluginAPIAuth:
         from hermes_constants import get_hermes_home
         from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
-        monkeypatch.setattr(hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db")
+        import hermes_cli.config
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(
+            web_server, "_dashboard_plugin_is_enabled", lambda n, d: True
+        )
+        web_server._dashboard_plugins_cache = None
+        plugins = web_server._get_dashboard_plugins(force_rescan=True)
+        if plugins:
+            app.router.routes = [
+                r
+                for r in app.router.routes
+                if not (hasattr(r, "path") and r.path == "/{full_path:path}")
+            ]
+            web_server._mount_plugin_api_routes()
+        monkeypatch.setattr(
+            hermes_state, "DEFAULT_DB_PATH", get_hermes_home() / "state.db"
+        )
 
         self.client = TestClient(app)
         self.auth_client = TestClient(app)
