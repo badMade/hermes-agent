@@ -1730,6 +1730,28 @@ class TestBuildAssistantMessage:
         result = agent._build_assistant_message(msg, "stop")
         assert result["reasoning_content"] == "structured provider scratchpad"
 
+    def test_streaming_tool_call_reasoning_not_synthesized(self, agent):
+        """Tool-call turns without native reasoning_content keep leak-guard shape."""
+        tc = _mock_tool_call(name="terminal", arguments='{"cmd":"pwd"}', call_id="c4")
+        msg = _mock_assistant_msg(
+            content="",
+            reasoning="prior provider private thinking",
+            tool_calls=[tc],
+        )
+        assert not hasattr(msg, "reasoning_content")
+
+        result = agent._build_assistant_message(msg, "tool_calls")
+
+        assert result["reasoning"] == "prior provider private thinking"
+        assert result["tool_calls"]
+        assert "reasoning_content" not in result
+
+        agent.provider = "deepseek"
+        agent.model = "deepseek-v4-flash"
+        api_msg = {}
+        agent._copy_reasoning_content_for_api(result, api_msg)
+        assert api_msg["reasoning_content"] == " "
+
     def test_no_reasoning_text_leaves_field_absent(self, agent):
         """Non-thinking turns with no reasoning leave reasoning_content absent.
 
