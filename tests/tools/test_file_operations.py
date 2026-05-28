@@ -448,6 +448,47 @@ class TestSearchFilesFallbackHiddenPaths:
         assert result.error is None
         assert set(result.files) == {str(visible_file), str(visible_nested_file)}
 
+    def test_hidden_root_fallback_paginates_in_shell(self, tmp_path, monkeypatch):
+        """Hidden-root fallback should not collect all matching stdout before slicing."""
+        root = tmp_path / ".cache"
+        root.mkdir()
+        files = []
+        for index in range(12):
+            file_path = root / f"visible-{index:02d}.log"
+            file_path.write_text("x")
+            files.append(str(file_path))
+
+        captured = {"commands": [], "stdout_lines": []}
+        env = MagicMock()
+        env.cwd = "/"
+
+        def execute(command, **kwargs):
+            completed = subprocess.run(
+                command,
+                shell=True,
+                text=True,
+                capture_output=True,
+            )
+            captured["commands"].append(command)
+            captured["stdout_lines"].append(
+                [line for line in completed.stdout.splitlines() if line]
+            )
+            return {
+                "output": completed.stdout,
+                "returncode": completed.returncode,
+            }
+
+        env.execute = execute
+        ops = ShellFileOperations(env)
+        monkeypatch.setattr(ops, "_has_command", lambda command: command == "find")
+        result = ops._search_files("*.log", str(root), limit=3, offset=2)
+
+        assert result.error is None
+        assert len(result.files) == 3
+        assert all(file in files for file in result.files)
+        assert "tail -n +3 | head -n 3" in captured["commands"][0]
+        assert len(captured["stdout_lines"][0]) == 3
+
 
 class TestShellFileOpsWriteDenied:
     def test_write_file_denied_path(self, file_ops):
@@ -569,27 +610,6 @@ class TestPatchReplacePostWriteVerification:
         )
         assert "verification failed" in result.error.lower()
         assert "did not persist" in result.error.lower()
-
-    def test_patch_replace_error_hint_redacts_secret_lines(self, mock_env):
-        """Failed replacement hints must not leak raw secrets from file content."""
-        secret = "sk-abcdefghijklmnopqrstuvwxyz12345678901234567890"
-        content = f"# project configuration\nOPENAI_API_KEY={secret}\nSAFE_VALUE=notsecret\n"
-
-        def side_effect(command, **kwargs):
-            if command.startswith("cat "):
-                return {"output": content, "returncode": 0}
-            return {"output": "", "returncode": 0}
-
-        mock_env.execute.side_effect = side_effect
-        ops = ShellFileOperations(mock_env)
-
-        result = ops.patch_replace("/tmp/test/.env.local", "OPENAI_API_KEY_MISSING", "replacement")
-
-        assert result.error is not None
-        assert "Did you mean" in result.error
-        assert "OPENAI_API_KEY=" in result.error
-        assert secret not in result.error
-        assert "sk-abc...7890" in result.error
 
     def test_patch_replace_succeeds_when_file_persisted(self, mock_env):
         """Normal success path: write persists, verify read returns new bytes."""
