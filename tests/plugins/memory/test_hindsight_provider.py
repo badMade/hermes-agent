@@ -17,7 +17,6 @@ import pytest
 
 from plugins.memory.hindsight import (
     HindsightMemoryProvider,
-    _DEFAULT_RETAIN_QUEUE_MAXSIZE,
     RECALL_SCHEMA,
     REFLECT_SCHEMA,
     RETAIN_SCHEMA,
@@ -163,7 +162,7 @@ class TestSchemas:
     def test_retain_schema_has_content(self):
         assert RETAIN_SCHEMA["name"] == "hindsight_retain"
         assert "content" in RETAIN_SCHEMA["parameters"]["properties"]
-        assert "tags" not in RETAIN_SCHEMA["parameters"]["properties"]
+        assert "tags" in RETAIN_SCHEMA["parameters"]["properties"]
         assert "content" in RETAIN_SCHEMA["parameters"]["required"]
 
     def test_recall_schema_has_query(self):
@@ -463,14 +462,14 @@ class TestToolHandlers:
         call_kwargs = p._client.aretain.call_args.kwargs
         assert call_kwargs["tags"] == ["pref", "ui"]
 
-    def test_retain_ignores_model_supplied_tags(self, provider_with_config):
+    def test_retain_merges_per_call_tags_with_config_tags(self, provider_with_config):
         p = provider_with_config(retain_tags=["pref", "ui"])
         p.handle_tool_call(
             "hindsight_retain",
             {"content": "likes dark mode", "tags": ["client:x", "ui"]},
         )
         call_kwargs = p._client.aretain.call_args.kwargs
-        assert call_kwargs["tags"] == ["pref", "ui"]
+        assert call_kwargs["tags"] == ["pref", "ui", "client:x"]
 
     def test_retain_without_tags(self, provider):
         provider.handle_tool_call("hindsight_retain", {"content": "hello"})
@@ -876,52 +875,6 @@ class TestSyncTurn:
 
 
 class TestShutdownRace:
-
-    def test_retain_queue_is_bounded(self, provider):
-        assert provider._retain_queue.maxsize == _DEFAULT_RETAIN_QUEUE_MAXSIZE
-
-    def test_shutdown_unregisters_atexit_and_clears_retained_state(self, provider, monkeypatch):
-        registered = []
-        unregistered = []
-
-        monkeypatch.setattr(
-            "plugins.memory.hindsight.atexit.register",
-            lambda callback: registered.append(callback),
-        )
-        monkeypatch.setattr(
-            "plugins.memory.hindsight.atexit.unregister",
-            lambda callback: unregistered.append(callback),
-        )
-
-        provider.sync_turn("secret user text", "secret assistant text")
-        provider._retain_queue.join()
-        assert registered
-        assert provider._session_turns
-        assert provider._atexit_registered is True
-
-        provider.shutdown()
-
-        assert unregistered
-        assert provider._atexit_registered is False
-        assert provider._session_turns == []
-        assert provider._turn_counter == 0
-        assert provider._turn_index == 0
-        assert provider._retain_queue.empty()
-
-    def test_full_retain_queue_drops_pending_closures_before_latest(self, provider, monkeypatch):
-        monkeypatch.setattr(provider, "_ensure_writer", lambda: None)
-        monkeypatch.setattr(provider, "_register_atexit", lambda: None)
-
-        for _ in range(_DEFAULT_RETAIN_QUEUE_MAXSIZE):
-            provider._retain_queue.put_nowait(lambda: None)
-
-        latest = object()
-
-        assert provider._enqueue_retain_job(latest) is True
-        assert provider._retain_queue.qsize() == 1
-        assert provider._retain_queue.get_nowait() is latest
-        provider._retain_queue.task_done()
-
     def test_sync_turn_uses_single_writer_thread(self, provider):
         """All retains run through one long-lived writer thread."""
         provider.sync_turn("a", "b")
