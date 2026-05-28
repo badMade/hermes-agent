@@ -552,6 +552,12 @@ def _new_chat_session_id() -> str:
     return f"api-{uuid.uuid4().hex}"
 
 
+def _derive_chat_session_id(session_key: str) -> str:
+    """Derive a stable API chat session ID from a caller-provided session key."""
+    digest = hashlib.sha256(str(session_key).encode("utf-8")).hexdigest()
+    return f"api-{digest[:16]}"
+
+
 _CRON_AVAILABLE = False
 try:
     from cron.jobs import (
