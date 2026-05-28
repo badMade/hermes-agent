@@ -1810,7 +1810,7 @@ class QQAdapter(BasePlatformAdapter):
                         return None
                 except ValueError:
                     pass
-            chunks: list[bytes] = []
+            chunks: List[bytes] = []
             total = 0
             async for chunk in resp.aiter_bytes():
                 total += len(chunk)
