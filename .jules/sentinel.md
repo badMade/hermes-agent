@@ -7,3 +7,8 @@
 **Vulnerability:** SQL Injection via string-interpolated subqueries with LIMIT. The `query` function in `optional-skills/mcp/fastmcp/templates/database_server.py` wrapped user SQL in a subquery: `SELECT * FROM ({sql}) LIMIT N`. This allowed malicious users to bypass simple checks (e.g. ensuring it starts with SELECT) and inject additional clauses or statements by manipulating the closing parenthesis.
 **Learning:** SQLite does not natively support parameterization for the FROM clause (e.g., subqueries or table names). Attempting to string-interpolate user input into a subquery creates an injection vector, especially when trying to enforce a LIMIT clause on user-provided queries.
 **Prevention:** To prevent SQL injection when applying limits to user-provided SQL queries, execute the raw user query directly and restrict the output rows in Python using `cursor.fetchmany(limit)` instead of trying to wrap the query in another SELECT with a LIMIT clause.
+
+## 2025-02-09 - Security Enhancement: XML External Entity (XXE) Prevention
+**Vulnerability:** Use of the standard library `xml.etree.ElementTree` to parse untrusted XML data (e.g., from Webhooks and external APIs).
+**Learning:** `xml.etree.ElementTree` does not protect against XML External Entity (XXE) and billion laughs attacks by default. Python's official documentation advises against using it for untrusted data.
+**Prevention:** Always use `defusedxml.ElementTree` or `defusedxml.minidom` (which is included in `uv.lock` and added to `pyproject.toml`) when parsing XML from external sources.
