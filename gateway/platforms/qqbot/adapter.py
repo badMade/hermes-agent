@@ -1776,7 +1776,11 @@ class QQAdapter(BasePlatformAdapter):
         """
         if not self._access_token:
             return {}
-        if self._TRUSTED_QQ_MEDIA_HOST in url.lower():
+        try:
+            hostname = urlparse(url).hostname
+        except Exception:
+            return {}
+        if hostname and hostname.lower() == self._TRUSTED_QQ_MEDIA_HOST:
             return {"Authorization": f"QQBot {self._access_token}"}
         return {}
 
