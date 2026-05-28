@@ -1798,6 +1798,7 @@ class QQAdapter(BasePlatformAdapter):
         async with self._http_client.stream(
             "GET", url, headers=request_headers, timeout=30.0, follow_redirects=True
         ) as resp:
+            resp.raise_for_status()
             cl = resp.headers.get("content-length")
             if cl is not None:
                 try:
