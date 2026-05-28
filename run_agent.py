@@ -84,6 +84,16 @@ def _load_openai_cls() -> type:
     return _OPENAI_CLS_CACHE
 
 
+
+def _safe_session_path_component(session_id: str) -> str:
+    """Return a filesystem-safe component for session-scoped log filenames."""
+    raw = str(session_id or "")
+    if re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", raw):
+        return raw
+    digest = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"unsafe-{digest}"
+
+
 class _OpenAIProxy:
     """Module-level proxy that looks like ``openai.OpenAI`` but imports lazily."""
 
@@ -1484,6 +1494,10 @@ class AIAgent:
         # commentary when the provider later returns it as a completed interim
         # assistant message.
         self._current_streamed_assistant_text = ""
+        # Per-turn cache for whether a transform_llm_output hook is registered.
+        # Computed once on the first delta of each streaming turn and reset by
+        # _reset_stream_delivery_tracking() so the next turn re-evaluates.
+        self._transform_hook_enabled_cache: "Optional[bool]" = None
 
         # Optional current-turn user-message override used when the API-facing
         # user message intentionally differs from the persisted transcript
@@ -1856,7 +1870,7 @@ class AIAgent:
         hermes_home = get_hermes_home()
         self.logs_dir = hermes_home / "sessions"
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
+        self.session_log_file = self.logs_dir / f"session_{_safe_session_path_component(self.session_id)}.json"
         
         # Track conversation messages for session logging
         self._session_messages: List[Dict[str, Any]] = []
@@ -2003,7 +2017,7 @@ class AIAgent:
         # through get_tool_definitions()).  Duplicate function names cause
         # 400 errors on providers that enforce unique names (e.g. Xiaomi
         # MiMo via Nous Portal).
-        if self._memory_manager and self.tools is not None:
+        if self._memory_provider_tools_allowed() and self.tools is not None:
             _existing_tool_names = {
                 t.get("function", {}).get("name")
                 for t in self.tools
@@ -2326,8 +2340,9 @@ class AIAgent:
             except Exception as _ce_err:
                 logger.debug("Context engine on_session_start: %s", _ce_err)
 
+        from gateway.session_context import get_terminal_cwd
         self._subdirectory_hints = SubdirectoryHintTracker(
-            working_dir=os.getenv("TERMINAL_CWD") or None,
+            working_dir=get_terminal_cwd() or None,
         )
         self._user_turn_count = 0
 
@@ -5069,7 +5084,7 @@ class AIAgent:
                 dump_payload["error"] = error_info
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            dump_file = self.logs_dir / f"request_dump_{self.session_id}_{timestamp}.json"
+            dump_file = self.logs_dir / f"request_dump_{_safe_session_path_component(self.session_id)}_{timestamp}.json"
             dump_file.write_text(
                 json.dumps(dump_payload, ensure_ascii=False, indent=2, default=str),
                 encoding="utf-8",
@@ -5866,11 +5881,12 @@ class AIAgent:
             context_parts.append(system_message)
 
         if not self.skip_context_files:
-            # Use TERMINAL_CWD for context file discovery when set (gateway
-            # mode).  The gateway process runs from the hermes-agent install
-            # dir, so os.getcwd() would pick up the repo's AGENTS.md and
-            # other dev files — inflating token usage by ~10k for no benefit.
-            _context_cwd = os.getenv("TERMINAL_CWD") or None
+            # Use session-scoped TERMINAL_CWD for context file discovery when
+            # set (gateway/cron mode). Falling back to os.getcwd() in the
+            # gateway process would pick up the repo's AGENTS.md and other
+            # dev files — inflating token usage by ~10k for no benefit.
+            from gateway.session_context import get_terminal_cwd
+            _context_cwd = get_terminal_cwd() or None
             context_files_prompt = build_context_files_prompt(
                 cwd=_context_cwd, skip_soul=_soul_loaded)
             if context_files_prompt:
@@ -7466,12 +7482,15 @@ class AIAgent:
                 if ctx_scrubber is not None:
                     think_tail = ctx_scrubber.feed(think_tail)
                 if think_tail:
-                    callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
-                    for cb in callbacks:
-                        try:
-                            cb(think_tail)
-                        except Exception:
-                            pass
+                    if self._llm_output_transform_hook_enabled():
+                        self._deferred_stream_due_to_transform = True
+                    else:
+                        callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
+                        for cb in callbacks:
+                            try:
+                                cb(think_tail)
+                            except Exception:
+                                pass
                     self._record_streamed_assistant_text(think_tail)
         # Flush any benign partial-tag tail held by the context scrubber so it
         # reaches the UI before we clear state for the next model call.  If
@@ -7480,14 +7499,20 @@ class AIAgent:
         if scrubber is not None:
             tail = scrubber.flush()
             if tail:
-                callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
-                for cb in callbacks:
-                    try:
-                        cb(tail)
-                    except Exception:
-                        pass
+                if self._llm_output_transform_hook_enabled():
+                    self._deferred_stream_due_to_transform = True
+                else:
+                    callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
+                    for cb in callbacks:
+                        try:
+                            cb(tail)
+                        except Exception:
+                            pass
                 self._record_streamed_assistant_text(tail)
         self._current_streamed_assistant_text = ""
+        # Invalidate the per-turn hook-presence cache so the next streaming
+        # turn re-evaluates whether a transform_llm_output hook is registered.
+        self._transform_hook_enabled_cache = None
 
     def _record_streamed_assistant_text(self, text: str) -> None:
         """Accumulate visible assistant text emitted through stream callbacks."""
@@ -7495,6 +7520,57 @@ class AIAgent:
             self._current_streamed_assistant_text = (
                 getattr(self, "_current_streamed_assistant_text", "") + text
             )
+
+    def _llm_output_transform_hook_enabled(self) -> bool:
+        """Return True when streaming must wait for output transformation.
+
+        The result is cached for the duration of the current streaming turn to
+        avoid a repeated import + lookup on every emitted delta.  The cache is
+        cleared by _reset_stream_delivery_tracking() at the end of each turn.
+        """
+        cached = getattr(self, "_transform_hook_enabled_cache", None)
+        if cached is not None:
+            return cached
+        try:
+            from hermes_cli.plugins import has_hook as _has_hook
+
+            result = bool(_has_hook("transform_llm_output"))
+        except Exception as exc:
+            logger.debug("transform_llm_output hook check failed: %s", exc)
+            result = False
+        self._transform_hook_enabled_cache = result
+        return result
+
+    def _apply_transform_llm_output_hook(self, response_text: str) -> str:
+        """Apply the first non-empty transform_llm_output hook result."""
+        if not response_text:
+            return response_text
+        try:
+            from hermes_cli.plugins import invoke_hook as _invoke_hook
+
+            transform_results = _invoke_hook(
+                "transform_llm_output",
+                response_text=response_text,
+                session_id=self.session_id or "",
+                model=self.model,
+                platform=getattr(self, "platform", None) or "",
+            )
+            for hook_result in transform_results:
+                if isinstance(hook_result, str) and hook_result:
+                    return hook_result
+        except Exception as exc:
+            logger.warning("transform_llm_output hook failed: %s", exc)
+        return response_text
+
+    @staticmethod
+    def _replace_latest_assistant_content(messages: list, content: str) -> None:
+        """Replace the persisted final assistant content with transformed text."""
+        if not content:
+            return
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and msg.get("role") == "assistant" and "content" in msg:
+                msg["content"] = content
+                return
 
     @staticmethod
     def _normalize_interim_visible_text(text: str) -> str:
@@ -7569,6 +7645,10 @@ class AIAgent:
             ):
                 text = text.lstrip("\n")
         if not text:
+            return
+        if self._llm_output_transform_hook_enabled():
+            self._deferred_stream_due_to_transform = True
+            self._record_streamed_assistant_text(text)
             return
         callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
         delivered = False
@@ -7871,11 +7951,15 @@ class AIAgent:
                     # suppressed by the CLI's _stream_delta when the stream
                     # box is already closed (tool boundary flush).
                     elif self.stream_delta_callback:
-                        try:
-                            self.stream_delta_callback(delta.content)
+                        if self._llm_output_transform_hook_enabled():
+                            self._deferred_stream_due_to_transform = True
                             self._record_streamed_assistant_text(delta.content)
-                        except Exception:
-                            pass
+                        else:
+                            try:
+                                self.stream_delta_callback(delta.content)
+                            except Exception:
+                                pass
+                            self._record_streamed_assistant_text(delta.content)
 
                 # Accumulate tool call deltas — notify display on first name
                 if delta and delta.tool_calls:
@@ -10267,7 +10351,7 @@ class AIAgent:
                 except Exception:
                     pass
                 # Update session_log_file to point to the new session's JSON file
-                self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
+                self.session_log_file = self.logs_dir / f"session_{_safe_session_path_component(self.session_id)}.json"
                 self._session_db_created = False
                 self._session_db.create_session(
                     session_id=self.session_id,
@@ -10423,6 +10507,18 @@ class AIAgent:
         finally:
             self._executing_tools = False
 
+    def _memory_provider_tools_allowed(self) -> bool:
+        """Return True when provider-backed memory tools are in this agent's toolset."""
+        return bool(self._memory_manager and "memory" in self.valid_tool_names)
+
+    def _is_allowed_memory_provider_tool(self, function_name: str) -> bool:
+        """Return True only for provider memory tools exposed to this agent."""
+        return bool(
+            self._memory_manager
+            and function_name in self.valid_tool_names
+            and self._memory_manager.has_tool(function_name)
+        )
+
     def _dispatch_delegate_task(self, function_args: dict) -> str:
         """Single call site for delegate_task dispatch.
 
@@ -10436,8 +10532,6 @@ class AIAgent:
             toolsets=function_args.get("toolsets"),
             tasks=function_args.get("tasks"),
             max_iterations=function_args.get("max_iterations"),
-            acp_command=function_args.get("acp_command"),
-            acp_args=function_args.get("acp_args"),
             role=function_args.get("role"),
             parent_agent=self,
         )
@@ -10509,7 +10603,7 @@ class AIAgent:
                 except Exception:
                     pass
             return result
-        elif self._memory_manager and self._memory_manager.has_tool(function_name):
+        elif self._is_allowed_memory_provider_tool(function_name):
             return self._memory_manager.handle_tool_call(function_name, function_args)
         elif function_name == "clarify":
             from tools.clarify_tool import clarify_tool as _clarify_tool
@@ -10606,9 +10700,10 @@ class AIAgent:
             # Checkpoint before destructive terminal commands
             if function_name == "terminal" and self._checkpoint_mgr.enabled:
                 try:
+                    from gateway.session_context import get_terminal_cwd
                     cmd = function_args.get("command", "")
                     if _is_destructive_command(cmd):
-                        cwd = function_args.get("workdir") or os.getenv("TERMINAL_CWD", os.getcwd())
+                        cwd = function_args.get("workdir") or get_terminal_cwd(os.getcwd())
                         self._checkpoint_mgr.ensure_checkpoint(
                             cwd, f"before terminal: {cmd[:60]}"
                         )
@@ -11065,9 +11160,10 @@ class AIAgent:
             # Checkpoint before destructive terminal commands
             if not _execution_blocked and function_name == "terminal" and self._checkpoint_mgr.enabled:
                 try:
+                    from gateway.session_context import get_terminal_cwd
                     cmd = function_args.get("command", "")
                     if _is_destructive_command(cmd):
-                        cwd = function_args.get("workdir") or os.getenv("TERMINAL_CWD", os.getcwd())
+                        cwd = function_args.get("workdir") or get_terminal_cwd(os.getcwd())
                         self._checkpoint_mgr.ensure_checkpoint(
                             cwd, f"before terminal: {cmd[:60]}"
                         )
@@ -11197,7 +11293,7 @@ class AIAgent:
                         spinner.stop(cute_msg)
                     elif self._should_emit_quiet_tool_messages():
                         self._vprint(f"  {cute_msg}")
-            elif self._memory_manager and self._memory_manager.has_tool(function_name):
+            elif self._is_allowed_memory_provider_tool(function_name):
                 # Memory provider tools (hindsight_retain, honcho_search, etc.)
                 # These are not in the tool registry — route through MemoryManager.
                 spinner = None
@@ -13875,6 +13971,9 @@ class AIAgent:
                             self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
                             restart_with_compressed_messages = True
+                            # Fix: reset retry counters after compression so the model
+                            # gets a fresh budget on the compressed context.
+                            retry_count = 0
                             break
                         else:
                             self._vprint(f"{self.log_prefix}❌ Payload too large and cannot compress further.", force=True)
@@ -13914,7 +14013,7 @@ class AIAgent:
                         # Note: max_tokens = output token cap (one response).
                         #       context_length = total window (input + output combined).
                         available_out = parse_available_output_tokens_from_error(error_msg)
-                        if available_out is not None:
+                        if available_out is not None and available_out >= 512:
                             # Error is purely about the output cap being too large.
                             # Cap output to the available space and retry without
                             # touching context_length or triggering compression.
@@ -14033,6 +14132,9 @@ class AIAgent:
                                 self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
                             restart_with_compressed_messages = True
+                            # Fix: reset retry counters after compression so the model
+                            # gets a fresh budget on the compressed context.
+                            retry_count = 0
                             break
                         else:
                             # Can't compress further and already at minimum tier
@@ -15269,8 +15371,22 @@ class AIAgent:
         # Persist session to both JSON log and SQLite only after private retry
         # scaffolding has been removed. Otherwise a later user "continue" turn
         # can replay assistant("(empty)") / recovery nudges and fall into the
-        # same empty-response loop again.
+        # same empty-response loop again. Apply output transformations first so
+        # stored transcripts and delayed streaming surfaces see the same text.
         self._drop_trailing_empty_response_scaffolding(messages)
+        if final_response and not interrupted:
+            transformed_response = self._apply_transform_llm_output_hook(final_response)
+            if transformed_response != final_response:
+                final_response = transformed_response
+                self._replace_latest_assistant_content(messages, final_response)
+        if getattr(self, "_deferred_stream_due_to_transform", False) and final_response and not interrupted:
+            callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
+            for cb in callbacks:
+                try:
+                    cb(final_response)
+                except Exception:
+                    pass
+        self._deferred_stream_due_to_transform = False
         self._persist_session(messages, conversation_history)
 
         # ── Turn-exit diagnostic log ─────────────────────────────────────
@@ -15316,27 +15432,6 @@ class AIAgent:
             )
         else:
             logger.info(_diag_msg, *_diag_args)
-
-        # Plugin hook: transform_llm_output
-        # Fired once per turn after the tool-calling loop completes.
-        # Plugins can transform the LLM's output text before it's returned.
-        # First hook to return a string wins; None/empty return leaves text unchanged.
-        if final_response and not interrupted:
-            try:
-                from hermes_cli.plugins import invoke_hook as _invoke_hook
-                _transform_results = _invoke_hook(
-                    "transform_llm_output",
-                    response_text=final_response,
-                    session_id=self.session_id or "",
-                    model=self.model,
-                    platform=getattr(self, "platform", None) or "",
-                )
-                for _hook_result in _transform_results:
-                    if isinstance(_hook_result, str) and _hook_result:
-                        final_response = _hook_result
-                        break  # First non-empty string wins
-            except Exception as exc:
-                logger.warning("transform_llm_output hook failed: %s", exc)
 
         # Plugin hook: post_llm_call
         # Fired once per turn after the tool-calling loop completes.
