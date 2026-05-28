@@ -720,7 +720,7 @@ class APIServerAdapter(BasePlatformAdapter):
             return None  # No key configured — allow all (local-only use)
         try:
             from hermes_cli.auth import has_usable_secret
-            if not has_usable_secret(self._api_key, min_length=1):
+            if not has_usable_secret(self._api_key, min_length=4):
                 return web.json_response(
                     {"error": {"message": "Invalid API key", "type": "invalid_request_error", "code": "invalid_api_key"}},
                     status=401,
