@@ -246,6 +246,11 @@ RETAIN_SCHEMA = {
         "properties": {
             "content": {"type": "string", "description": "The information to store."},
             "context": {"type": "string", "description": "Short label (e.g. 'user preference', 'project decision')."},
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional per-call tags to merge with configured default retain tags.",
+            },
         },
         "required": ["content"],
     },
@@ -1490,6 +1495,7 @@ class HindsightMemoryProvider(MemoryProvider):
                 retain_kwargs = self._build_retain_kwargs(
                     content,
                     context=context,
+                    tags=args.get("tags"),
                 )
                 logger.debug("Tool hindsight_retain: bank=%s, content_len=%d, context=%s",
                              self._bank_id, len(content), context)
