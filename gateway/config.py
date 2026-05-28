@@ -678,6 +678,8 @@ def load_gateway_config() -> GatewayConfig:
                 gw_data = json.load(f) or {}
             legacy_platforms = gw_data.get("platforms")
             if isinstance(legacy_platforms, dict):
+                # Preserve an explicit legacy Slack disable so an env token
+                # still populates config.token without auto-enabling Slack.
                 legacy_slack = legacy_platforms.get(Platform.SLACK.value)
                 if isinstance(legacy_slack, dict) and "enabled" in legacy_slack:
                     legacy_extra = legacy_slack.get("extra")
