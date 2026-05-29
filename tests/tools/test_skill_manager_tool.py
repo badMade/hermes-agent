@@ -32,7 +32,8 @@ def _skill_dir(tmp_path):
     """Patch both SKILLS_DIR and get_all_skills_dirs so _find_skill searches
     only the temp directory — not the real ~/.hermes/skills/."""
     with patch("tools.skill_manager_tool.SKILLS_DIR", tmp_path), \
-         patch("agent.skill_utils.get_all_skills_dirs", return_value=[tmp_path]):
+         patch("agent.skill_utils.get_all_skills_dirs", return_value=[tmp_path]), \
+         patch("tools.skill_usage._skills_dir", return_value=tmp_path):
         yield
 
 
@@ -377,8 +378,10 @@ class TestDeleteSkill:
             _create_skill("narrow", VALID_SKILL_CONTENT)
             result = _delete_skill("narrow", absorbed_into="umbrella")
         assert result["success"] is True
+        assert "archived" in result["message"]
         assert "absorbed into 'umbrella'" in result["message"]
         assert not (tmp_path / "narrow").exists()
+        assert (tmp_path / ".archive" / "narrow").exists()
         assert (tmp_path / "umbrella").exists()
 
     def test_delete_with_absorbed_into_empty_string_means_pruned(self, tmp_path):
@@ -386,6 +389,8 @@ class TestDeleteSkill:
             _create_skill("stale-skill", VALID_SKILL_CONTENT)
             result = _delete_skill("stale-skill", absorbed_into="")
         assert result["success"] is True
+        assert "archived" in result["message"]
+        assert (tmp_path / ".archive" / "stale-skill").exists()
         # Empty absorbed_into is explicit prune — no "absorbed into" suffix in message
         assert "absorbed into" not in result["message"]
 
@@ -412,6 +417,8 @@ class TestDeleteSkill:
             _create_skill("narrow", VALID_SKILL_CONTENT)
             result = _delete_skill("narrow", absorbed_into="   ")
         assert result["success"] is True
+        assert "archived" in result["message"]
+        assert (tmp_path / ".archive" / "narrow").exists()
         assert "absorbed into" not in result["message"]
 
     def test_delete_without_absorbed_into_backward_compat(self, tmp_path):
@@ -576,7 +583,23 @@ class TestSkillManageDispatcher:
             raw = skill_manage(action="delete", name="narrow", absorbed_into="umbrella")
         result = json.loads(raw)
         assert result["success"] is True
+        assert "archived" in result["message"]
         assert "absorbed into 'umbrella'" in result["message"]
+        assert (tmp_path / ".archive" / "narrow").exists()
+
+    def test_delete_via_dispatcher_keeps_usage_for_archived_skill(self, tmp_path):
+        with _skill_dir(tmp_path):
+            skill_manage(action="create", name="umbrella", content=VALID_SKILL_CONTENT)
+            skill_manage(action="create", name="narrow", content=VALID_SKILL_CONTENT)
+            from tools.skill_usage import mark_agent_created, load_usage
+            mark_agent_created("narrow")
+
+            raw = skill_manage(action="delete", name="narrow", absorbed_into="umbrella")
+            usage = load_usage()
+
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert usage["narrow"]["state"] == "archived"
 
     def test_delete_via_dispatcher_rejects_missing_absorbed_target(self, tmp_path):
         with _skill_dir(tmp_path):

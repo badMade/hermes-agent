@@ -1725,6 +1725,7 @@ class SlackAdapter(BasePlatformAdapter):
             user_id=user_id,
             thread_id=thread_ts,
             chat_topic=metadata.get("context_channel_id") or None,
+            guild_id=metadata.get("team_id") or None,
         )
 
         try:
@@ -2146,6 +2147,7 @@ class SlackAdapter(BasePlatformAdapter):
             user_id=user_id,
             user_name=user_name,
             thread_id=thread_ts,
+            guild_id=team_id or None,
         )
 
         # Per-channel ephemeral prompt
@@ -2766,6 +2768,7 @@ class SlackAdapter(BasePlatformAdapter):
             chat_id=channel_id,
             chat_type="dm" if is_dm else "group",
             user_id=user_id,
+            guild_id=team_id or None,
         )
 
         event = MessageEvent(
