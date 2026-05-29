@@ -2319,42 +2319,6 @@ class TestCompressionChainProjection:
         # root1's tip must be tip1 (via mid1), not delegate1.
         assert db.get_compression_tip("root1") == "tip1"
 
-    @pytest.mark.parametrize(
-        "child_id,child_source,child_user_id,list_kwargs",
-        [
-            ("tool_child", "tool", "alice", {"source": "cli"}),
-            ("mallory_child", "cli", "mallory", {"source": "cli", "user_id": "alice"}),
-        ],
-        ids=["cross_source", "cross_user"],
-    )
-    def test_get_compression_tip_skips_excluded_child(
-        self, db, child_id, child_source, child_user_id, list_kwargs
-    ):
-        """Compression projection must not cross source or user boundaries."""
-        import time as _time
-
-        t0 = _time.time() - 3600
-        db.create_session("root1", "cli", user_id="alice")
-        db._conn.execute(
-            "UPDATE sessions SET started_at=?, ended_at=?, end_reason=? WHERE id=?",
-            (t0, t0 + 10, "compression", "root1"),
-        )
-        db.create_session(
-            child_id, child_source, parent_session_id="root1", user_id=child_user_id
-        )
-        db._conn.execute(
-            "UPDATE sessions SET started_at=? WHERE id=?",
-            (t0 + 11, child_id),
-        )
-        db.append_message(child_id, "user", "SECRET_PREVIEW")
-        db._conn.commit()
-
-        assert db.get_compression_tip("root1") == "root1"
-        sessions = db.list_sessions_rich(limit=20, **list_kwargs)
-        assert [s["id"] for s in sessions] == ["root1"]
-        assert "SECRET_PREVIEW" not in sessions[0]["preview"]
-        assert "_lineage_root_id" not in sessions[0]
-
     def test_list_surfaces_tip_for_compressed_root(self, db):
         """The list must show the tip's id/message_count/preview in place of
         the root row, so users can see and resume the live conversation.

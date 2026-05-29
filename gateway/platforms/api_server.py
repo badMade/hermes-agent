@@ -537,11 +537,6 @@ def _new_chat_session_id() -> str:
     return f"api-{uuid.uuid4().hex}"
 
 
-def _new_chat_session_id() -> str:
-    """Return a fresh, random API session identifier in the api-<hex16> format."""
-    return f"api-{uuid.uuid4().hex[:16]}"
-
-
 _CRON_AVAILABLE = False
 try:
     from cron.jobs import (
