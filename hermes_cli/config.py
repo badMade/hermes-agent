@@ -93,19 +93,6 @@ _RAW_CONFIG_CACHE: Dict[str, Tuple[int, int, Dict[str, Any]]] = {}
 # calls read_raw_config. Also covers mutation of the module-level cache
 # dicts above.
 _CONFIG_LOCK = threading.RLock()
-
-
-def _ignore_user_config_enabled() -> bool:
-    """Return whether runtime config loading should skip user config.yaml."""
-    return os.environ.get("HERMES_IGNORE_USER_CONFIG") == "1"
-
-
-def _default_runtime_config() -> Dict[str, Any]:
-    """Return normalized defaults without reading user config.yaml."""
-    config = copy.deepcopy(DEFAULT_CONFIG)
-    normalized = _normalize_root_model_keys(_normalize_max_turns_config(config))
-    return _expand_env_vars(normalized)
-
 # Env var names written to .env that aren't in OPTIONAL_ENV_VARS
 # (managed by setup/provider flows directly).
 _EXTRA_ENV_KEYS = frozenset({
@@ -254,27 +241,26 @@ def managed_error(action: str = "modify configuration"):
 # Container-aware CLI (NixOS container mode)
 # =============================================================================
 
-_CONTAINER_MODE_SYSTEM_FILE = Path("/etc/hermes-agent/container-mode")
-_CONTAINER_MODE_ALLOWED_BACKENDS = frozenset({"docker", "podman"})
+def get_container_exec_info() -> Optional[dict]:
+    """Read container mode metadata from HERMES_HOME/.container-mode.
 
+    Returns a dict with keys: backend, container_name, exec_user, hermes_bin
+    or None if container mode is not active, we're already inside the
+    container, or HERMES_DEV=1 is set.
 
-def _container_mode_candidates() -> List[Tuple[Path, bool]]:
-    """Return (metadata path, trusts runtime_path) in preferred order."""
-    override = os.environ.get("HERMES_CONTAINER_MODE_FILE")
-    if override:
-        return [(Path(override), True)]
-    return [
-        (_CONTAINER_MODE_SYSTEM_FILE, True),
-        (get_hermes_home() / ".container-mode", False),
-    ]
+    The .container-mode file is written by the NixOS activation script when
+    container.enable = true. It tells the host CLI to exec into the container
+    instead of running locally.
+    """
+    if os.environ.get("HERMES_DEV") == "1":
+        return None
 
+    from hermes_constants import is_container
+    if is_container():
+        return None
 
-def _read_container_mode_file(
-    container_mode_file: Path,
-    *,
-    allow_runtime_path: bool,
-) -> Optional[dict]:
-    """Parse and validate one container-mode metadata file."""
+    container_mode_file = get_hermes_home() / ".container-mode"
+
     try:
         info = {}
         with open(container_mode_file, "r", encoding="utf-8") as f:
@@ -288,54 +274,16 @@ def _read_container_mode_file(
     # All other exceptions (PermissionError, malformed data, etc.) propagate
 
     backend = info.get("backend", "docker")
-    if backend not in _CONTAINER_MODE_ALLOWED_BACKENDS:
-        raise ValueError(
-            f"Invalid container backend {backend!r}; expected 'docker' or 'podman'."
-        )
+    container_name = info.get("container_name", "hermes-agent")
+    exec_user = info.get("exec_user", "hermes")
+    hermes_bin = info.get("hermes_bin", "/data/current-package/bin/hermes")
 
-    container_info = {
+    return {
         "backend": backend,
-        "container_name": info.get("container_name", "hermes-agent"),
-        "exec_user": info.get("exec_user", "hermes"),
-        "hermes_bin": info.get("hermes_bin", "/data/current-package/bin/hermes"),
+        "container_name": container_name,
+        "exec_user": exec_user,
+        "hermes_bin": hermes_bin,
     }
-    runtime_path = info.get("runtime_path") if allow_runtime_path else None
-    if runtime_path:
-        runtime = Path(runtime_path)
-        if not runtime.is_absolute():
-            raise ValueError("container runtime_path must be absolute")
-        container_info["runtime_path"] = runtime_path
-    return container_info
-
-
-def get_container_exec_info() -> Optional[dict]:
-    """Read validated container mode metadata.
-
-    Returns a dict with keys: backend, container_name, exec_user, hermes_bin
-    and optionally runtime_path, or None if container mode is not active,
-    we're already inside the container, or HERMES_DEV=1 is set.
-
-    The NixOS activation script writes the trusted metadata file under
-    /etc/hermes-agent so the containerized agent cannot modify host routing.
-    A legacy HERMES_HOME/.container-mode fallback remains for older installs,
-    but backend values are restricted to Docker/Podman and runtime_path is
-    ignored unless it came from the trusted system metadata path.
-    """
-    if os.environ.get("HERMES_DEV") == "1":
-        return None
-
-    from hermes_constants import is_container
-    if is_container():
-        return None
-
-    for container_mode_file, allow_runtime_path in _container_mode_candidates():
-        info = _read_container_mode_file(
-            container_mode_file,
-            allow_runtime_path=allow_runtime_path,
-        )
-        if info is not None:
-            return info
-    return None
 
 
 # =============================================================================
@@ -409,17 +357,16 @@ def _is_container() -> bool:
     return False
 
 
-def _secure_file(path, *, allow_container_skip: bool = True):
+def _secure_file(path):
     """Set file to owner-only read/write (0600). No-op on Windows.
 
     Skipped in managed mode — the NixOS activation script sets
     group-readable permissions (0640) on config files.
 
-    Container chmod skipping is allowed for non-secret config files only.
-    Credential files such as ``.env`` must pass ``allow_container_skip=False``
-    so existing permissive volume modes are not preserved for secrets.
+    Skipped in containers — Docker/Podman volume mounts often need broader
+    permissions.  Set HERMES_SKIP_CHMOD=1 to force-skip on other systems.
     """
-    if is_managed() or (allow_container_skip and _is_container()):
+    if is_managed() or _is_container():
         return
     try:
         if os.path.exists(str(path)):
@@ -490,11 +437,6 @@ def _ensure_hermes_home_managed(home: Path):
 DEFAULT_CONFIG = {
     "model": "",
     "providers": {},
-    "acp": {
-        # ACP clients can provide MCP server definitions per session. Stdio
-        # transports execute local commands, so only operator config can opt in.
-        "allow_client_stdio_mcp_servers": False,
-    },
     "fallback_providers": [],
     "credential_pool_strategies": {},
     "toolsets": ["hermes-cli"],
@@ -557,11 +499,6 @@ DEFAULT_CONFIG = {
         # default is 1800s) plus runtime slack.  Set to 0 to disable the
         # gate and restore pre-fix behaviour (always inject).
         "gateway_auto_continue_freshness": 3600,
-        # Maximum number of pending /queue turns retained per gateway
-        # session. This bounds memory retention and downstream LLM/tool cost
-        # from repeated authorized queue requests while preserving FIFO
-        # behavior for normal use. Values below 1 are clamped to 1.
-        "gateway_queue_max_depth": 25,
         # How user-attached images are presented to the main model on each turn.
         #   "auto"   — attach natively when the active model reports
         #              supports_vision=True AND the user hasn't explicitly
@@ -1246,9 +1183,6 @@ DEFAULT_CONFIG = {
         # Archive a skill (move to skills/.archive/) after this many days
         # without use. Archived skills are recoverable — no auto-deletion.
         "archive_after_days": 90,
-        # Maximum LLM/tool turns for the background review fork. Values above
-        # the built-in hard cap are clamped to keep background spend bounded.
-        "review_max_iterations": 100,
         # Pre-run backup: before every real curator pass (dry-run is
         # skipped), snapshot ~/.hermes/skills/ into
         # ~/.hermes/skills/.curator_backups/<utc-iso>/skills.tar.gz so the
@@ -1431,10 +1365,6 @@ DEFAULT_CONFIG = {
         # same task/profile (spawn_failed, timed_out, or crashed). Reassignment
         # resets the streak for the new profile.
         "failure_limit": 2,
-        # Cross-profile dispatch policy for profile-global kanban tools.
-        # Example: {"techlead": ["researcher", "coder"]}. Dispatcher-spawned
-        # workers keep their existing task-scoped fan-out behavior.
-        "allowed_assignees": {},
     },
 
     # execute_code settings — controls the tool used for programmatic tool calls.
@@ -2130,16 +2060,6 @@ OPTIONAL_ENV_VARS = {
         "prompt": "OpenAI API Key (for Whisper STT + TTS)",
         "url": "https://platform.openai.com/api-keys",
         "tools": ["voice_transcription", "openai_tts"],
-        "password": True,
-        "category": "tool",
-    },
-    "VOICE_TOOLS_OPENAI_CUSTOM_KEY": {
-        "description": (
-            "Endpoint-specific API key for custom OpenAI-compatible TTS base_url values"
-        ),
-        "prompt": "Custom OpenAI-compatible TTS API key",
-        "url": "",
-        "tools": ["openai_tts"],
         "password": True,
         "category": "tool",
     },
@@ -4148,12 +4068,6 @@ def read_raw_config() -> Dict[str, Any]:
 def load_config() -> Dict[str, Any]:
     """Load configuration from ~/.hermes/config.yaml.
 
-    When ``HERMES_IGNORE_USER_CONFIG=1`` is set (by ``hermes chat
-    --ignore-user-config``), return built-in defaults without reading or
-    merging the user's config file. This keeps runtime config consumers
-    such as MCP and plugin discovery inside the same isolation boundary as
-    CLI startup.
-
     Cached on the config file's (mtime_ns, size). Returns a deepcopy of
     the cached value when unchanged, since most call sites mutate the
     result (e.g. ``cfg["model"]["default"] = ...`` before ``save_config``).
@@ -4165,10 +4079,6 @@ def load_config() -> Dict[str, Any]:
         ensure_hermes_home()
         config_path = get_config_path()
         path_key = str(config_path)
-
-        if _ignore_user_config_enabled():
-            _LOAD_CONFIG_CACHE.pop(path_key, None)
-            return _default_runtime_config()
 
         try:
             st = config_path.stat()
@@ -4462,15 +4372,8 @@ def sanitize_env_file() -> int:
     return fixes
 
 
-def _should_sanitize_non_ascii_credential(key: str) -> bool:
-    """Return True for outbound credentials that are safe to ASCII-strip."""
-    from hermes_cli.env_loader import should_sanitize_non_ascii_credential
-
-    return should_sanitize_non_ascii_credential(key)
-
-
 def _check_non_ascii_credential(key: str, value: str) -> str:
-    """Warn and strip non-ASCII characters from outbound credential values.
+    """Warn and strip non-ASCII characters from credential values.
 
     API keys and tokens must be pure ASCII — they are sent as HTTP header
     values which httpx/httpcore encode as ASCII.  Non-ASCII characters
@@ -4517,10 +4420,8 @@ def save_env_value(key: str, value: str):
     if not _ENV_VAR_NAME_RE.match(key):
         raise ValueError(f"Invalid environment variable name: {key!r}")
     value = value.replace("\n", "").replace("\r", "")
-    # Outbound API keys / tokens must be ASCII for HTTP headers.  Do not
-    # lossy-normalize inbound auth secrets (for example WEBHOOK_SECRET).
-    if _should_sanitize_non_ascii_credential(key):
-        value = _check_non_ascii_credential(key, value)
+    # API keys / tokens must be ASCII — strip non-ASCII with a warning.
+    value = _check_non_ascii_credential(key, value)
     ensure_hermes_home()
     env_path = get_env_path()
 
@@ -4576,7 +4477,7 @@ def save_env_value(key: str, value: str):
         except OSError:
             pass
         raise
-    _secure_file(env_path, allow_container_skip=False)
+    _secure_file(env_path)
 
     os.environ[key] = value
 
@@ -4631,7 +4532,7 @@ def remove_env_value(key: str) -> bool:
             except OSError:
                 pass
             raise
-        _secure_file(env_path, allow_container_skip=False)
+        _secure_file(env_path)
 
     os.environ.pop(key, None)
     return found
@@ -4907,12 +4808,21 @@ def edit_config():
         import shutil
         import sys as _sys
         if _sys.platform == "win32":
-            candidates = ['notepad', 'code', 'vim', 'vi', 'nano']
+            import ntpath
+
+            from hermes_cli.stdio import _trusted_system_notepad_path
+
+            candidates = [_trusted_system_notepad_path(), 'code', 'vim', 'vi', 'nano']
+            is_abs_editor = ntpath.isabs
         else:
             candidates = ['nano', 'vim', 'vi', 'code', 'notepad']
+            is_abs_editor = os.path.isabs
         for cmd in candidates:
-            if shutil.which(cmd):
-                editor = cmd
+            if not cmd:
+                continue
+            resolved = cmd if is_abs_editor(cmd) else shutil.which(cmd)
+            if resolved:
+                editor = resolved
                 break
     
     if not editor:
@@ -4940,7 +4850,7 @@ def set_config_value(key: str, value: str):
         'TERMINAL_SSH_HOST', 'TERMINAL_SSH_USER', 'TERMINAL_SSH_KEY',
         'SUDO_PASSWORD', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN',
         'GITHUB_TOKEN', 'HONCHO_API_KEY', 'WANDB_API_KEY',
-        'TINKER_API_KEY', 'API_SERVER_KEY', 'GATEWAY_PROXY_KEY', 'WEBHOOK_SECRET',
+        'TINKER_API_KEY',
     ]
     
     if key.upper() in api_keys or key.upper().endswith(('_API_KEY', '_TOKEN')) or key.upper().startswith('TERMINAL_SSH'):

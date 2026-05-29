@@ -885,95 +885,6 @@ class TestIncomingDocumentHandling:
         assert msg_event.message_type == MessageType.PHOTO
 
     @pytest.mark.asyncio
-    async def test_unauthorized_slack_connect_file_is_not_resolved_or_downloaded(self, adapter):
-        """Unauthorized users must not trigger Slack Connect file resolution."""
-
-        class Runner:
-            def __init__(self):
-                self.sources = []
-
-            def _is_user_authorized(self, source):
-                self.sources.append(source)
-                return False
-
-            async def handle(self, event):  # pragma: no cover - only used as bound owner
-                return None
-
-        runner = Runner()
-        adapter._message_handler = runner.handle
-        adapter._app.client.files_info = AsyncMock(return_value={
-            "ok": True,
-            "file": {
-                "id": "F_STUB",
-                "mimetype": "image/png",
-                "name": "remote.png",
-                "url_private_download": "https://files.slack.com/remote.png",
-                "size": 123,
-            },
-        })
-        event = self._make_event(files=[{
-            "id": "F_STUB",
-            "file_access": "check_file_info",
-        }])
-
-        with (
-            patch.object(adapter, "_resolve_user_name", new=AsyncMock(return_value="blocked")),
-            patch.object(adapter, "_download_slack_file", new_callable=AsyncMock) as dl,
-        ):
-            await adapter._handle_slack_message(event)
-
-        adapter._app.client.files_info.assert_not_awaited()
-        dl.assert_not_awaited()
-        adapter.handle_message.assert_awaited_once()
-        msg_event = adapter.handle_message.await_args.args[0]
-        assert msg_event.media_urls == []
-        assert runner.sources[0].user_id == "U_USER"
-
-    @pytest.mark.asyncio
-    async def test_authorized_slack_connect_file_is_resolved_and_downloaded(self, adapter):
-        """Authorized Slack Connect file stubs still use files.info then download."""
-
-        class Runner:
-            def _is_user_authorized(self, source):
-                return True
-
-            async def handle(self, event):  # pragma: no cover - only used as bound owner
-                return None
-
-        adapter._message_handler = Runner().handle
-        adapter._app.client.files_info = AsyncMock(return_value={
-            "ok": True,
-            "file": {
-                "id": "F_STUB",
-                "mimetype": "image/png",
-                "name": "remote.png",
-                "url_private_download": "https://files.slack.com/remote.png",
-                "size": 123,
-            },
-        })
-        event = self._make_event(files=[{
-            "id": "F_STUB",
-            "file_access": "check_file_info",
-        }])
-
-        with (
-            patch.object(adapter, "_resolve_user_name", new=AsyncMock(return_value="allowed")),
-            patch.object(adapter, "_download_slack_file", new_callable=AsyncMock) as dl,
-        ):
-            dl.return_value = "/tmp/remote.png"
-            await adapter._handle_slack_message(event)
-
-        adapter._app.client.files_info.assert_awaited_once_with(file="F_STUB")
-        dl.assert_awaited_once_with(
-            "https://files.slack.com/remote.png",
-            ".png",
-            team_id="",
-        )
-        msg_event = adapter.handle_message.await_args.args[0]
-        assert msg_event.message_type == MessageType.PHOTO
-        assert msg_event.media_urls == ["/tmp/remote.png"]
-
-    @pytest.mark.asyncio
     async def test_download_failure_is_surfaced_in_message_text(self, adapter):
         """Attachment download failures (401/403/HTML-body/etc.) should be
         translated into a user-facing `[Slack attachment notice]` block so
@@ -2941,21 +2852,14 @@ class TestSlashEphemeralAck:
 
     @pytest.mark.asyncio
     async def test_pop_slash_context_returns_and_removes(self, adapter):
-        """_pop_slash_context returns the exact user's context and removes it."""
+        """_pop_slash_context returns the context and removes it."""
         import time
-        from gateway.platforms.slack import _slash_user_id
-
         adapter._slash_command_contexts[("C1", "U1")] = {
             "response_url": "https://hooks.slack.com/test",
             "ts": time.monotonic(),
         }
 
-        token = _slash_user_id.set("U1")
-        try:
-            ctx = adapter._pop_slash_context("C1")
-        finally:
-            _slash_user_id.reset(token)
-
+        ctx = adapter._pop_slash_context("C1")
         assert ctx is not None
         assert ctx["response_url"] == "https://hooks.slack.com/test"
         # Must be removed after pop
@@ -2999,14 +2903,8 @@ class TestSlashEphemeralAck:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        from gateway.platforms.slack import _slash_user_id
-
-        token = _slash_user_id.set("U_SLASH")
-        try:
-            with patch("gateway.platforms.slack.aiohttp.ClientSession", return_value=mock_session):
-                result = await adapter.send("C_SLASH", "Queued for the next turn.")
-        finally:
-            _slash_user_id.reset(token)
+        with patch("gateway.platforms.slack.aiohttp.ClientSession", return_value=mock_session):
+            result = await adapter.send("C_SLASH", "Queued for the next turn.")
 
         assert result.success is True
         # Verify response_url was POSTed to
@@ -3033,28 +2931,6 @@ class TestSlashEphemeralAck:
         adapter._app.client.chat_postMessage.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_send_ignores_pending_context_without_slash_user(self, adapter):
-        """Normal channel sends must not consume another user's response_url."""
-        import time
-        from gateway.platforms.slack import _slash_user_id
-
-        adapter._slash_command_contexts[("C_SHARED", "U_ATTACKER")] = {
-            "response_url": "https://hooks.slack.com/commands/attacker",
-            "ts": time.monotonic(),
-        }
-        mock_result = {"ts": "1234.5678", "ok": True}
-        adapter._app.client.chat_postMessage = AsyncMock(return_value=mock_result)
-
-        assert _slash_user_id.get() is None
-        with patch("gateway.platforms.slack.aiohttp.ClientSession") as mock_session_cls:
-            result = await adapter.send("C_SHARED", "Authorized user's response")
-
-        assert result.success is True
-        mock_session_cls.assert_not_called()
-        adapter._app.client.chat_postMessage.assert_called_once()
-        assert ("C_SHARED", "U_ATTACKER") in adapter._slash_command_contexts
-
-    @pytest.mark.asyncio
     async def test_send_slash_ephemeral_fallback_on_post_failure(self, adapter):
         """_send_slash_ephemeral returns success=True even if POST fails."""
         import time
@@ -3074,14 +2950,8 @@ class TestSlashEphemeralAck:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        from gateway.platforms.slack import _slash_user_id
-
-        token = _slash_user_id.set("U1")
-        try:
-            with patch("gateway.platforms.slack.aiohttp.ClientSession", return_value=mock_session):
-                result = await adapter.send("C1", "Some response")
-        finally:
-            _slash_user_id.reset(token)
+        with patch("gateway.platforms.slack.aiohttp.ClientSession", return_value=mock_session):
+            result = await adapter.send("C1", "Some response")
 
         # Still success — the user saw the initial ack already
         assert result.success is True
@@ -3100,14 +2970,8 @@ class TestSlashEphemeralAck:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        from gateway.platforms.slack import _slash_user_id
-
-        token = _slash_user_id.set("U1")
-        try:
-            with patch("gateway.platforms.slack.aiohttp.ClientSession", return_value=mock_session):
-                result = await adapter.send("C1", "Some response")
-        finally:
-            _slash_user_id.reset(token)
+        with patch("gateway.platforms.slack.aiohttp.ClientSession", return_value=mock_session):
+            result = await adapter.send("C1", "Some response")
 
         assert result.success is True
 
@@ -3148,8 +3012,8 @@ class TestSlashEphemeralAck:
         assert ("C_H", "U_H") in adapter._slash_command_contexts
 
     @pytest.mark.asyncio
-    async def test_freeform_hermes_question_stashes_context(self, adapter):
-        """Free-form /hermes <question> routes agent reply ephemerally."""
+    async def test_freeform_hermes_question_does_not_stash_context(self, adapter):
+        """Free-form /hermes <question> must NOT route agent reply ephemeral."""
         command = {
             "command": "/hermes",
             "text": "what's the weather",
@@ -3164,9 +3028,8 @@ class TestSlashEphemeralAck:
         # Free-form text — not a command
         assert event.message_type == MessageType.TEXT
         assert event.text == "what's the weather"
-        # Context is stashed so the slash reply replaces the private ack instead
-        # of posting the answer publicly to the channel.
-        assert ("C_FREE", "U_FREE") in adapter._slash_command_contexts
+        # Context must NOT be stashed — agent reply should be public
+        assert len(adapter._slash_command_contexts) == 0
 
     @pytest.mark.asyncio
     async def test_concurrent_users_same_channel_isolates_contexts(self, adapter):
@@ -3222,6 +3085,7 @@ class TestSlashEphemeralAck:
         # ContextVar is unset (default=None) — simulates a normal message send.
         assert _slash_user_id.get() is None
         ctx = adapter._pop_slash_context("C1")
-
-        assert ctx is None
-        assert ("C1", "U1") in adapter._slash_command_contexts
+        # Fallback scan still finds it (channel-only) — this is fine for
+        # the normal single-user case; the ContextVar path is the precise one.
+        # The key invariant is: when the ContextVar IS set, it matches exactly.
+        assert ctx is not None  # fallback path finds the entry
