@@ -8490,7 +8490,13 @@ class GatewayRunner:
         if text.startswith("kanban"):
             text = text[len("kanban"):].lstrip()
 
-        tokens = shlex.split(text) if text else []
+        if text:
+            try:
+                tokens = shlex.split(text)
+            except ValueError:
+                tokens = text.split()
+        else:
+            tokens = []
         requested_board = None
         action = None
         i = 0
