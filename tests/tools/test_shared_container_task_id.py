@@ -1,18 +1,10 @@
 """
-Regression tests for the shared-container task_id mapping.
+Regression tests for container task_id mapping.
 
-The top-level agent and all delegate_task subagents share a single
-terminal sandbox keyed by ``"default"``.  ``_resolve_container_task_id``
-is the sole gatekeeper for which tool-call task_ids go to the shared
-container vs. get their own isolated sandbox.  RL / benchmark
-environments opt in to isolation by calling
-``register_task_env_overrides(task_id, {...})`` before the agent loop;
-every other task_id collapses back to ``"default"``.
-
-If you change the collapse logic, update both the helper and these
-tests -- see `hermes-agent-dev` skill, "Why do subagents get their own
-containers?" section, and the Container lifecycle paragraph under
-Docker Backend in ``website/docs/user-guide/configuration.md``.
+Top-level CLI calls use ``None`` and share ``"default"``. Gateway/ACP calls
+use per-session task IDs and must keep isolated sandboxes. ``delegate_task``
+children use separate child IDs for file-state/UI bookkeeping, then explicitly
+alias those IDs to the parent's sandbox key while the child is running.
 """
 
 import pytest
@@ -21,13 +13,17 @@ from tools import terminal_tool
 
 
 @pytest.fixture(autouse=True)
-def _clean_overrides():
-    """Ensure no stray overrides from other tests leak in."""
-    before = dict(terminal_tool._task_env_overrides)
+def _clean_task_routing_state():
+    """Ensure no stray overrides or aliases from other tests leak in."""
+    before_overrides = dict(terminal_tool._task_env_overrides)
+    before_aliases = dict(terminal_tool._task_container_aliases)
     terminal_tool._task_env_overrides.clear()
+    terminal_tool._task_container_aliases.clear()
     yield
     terminal_tool._task_env_overrides.clear()
-    terminal_tool._task_env_overrides.update(before)
+    terminal_tool._task_env_overrides.update(before_overrides)
+    terminal_tool._task_container_aliases.clear()
+    terminal_tool._task_container_aliases.update(before_aliases)
 
 
 def test_none_task_id_maps_to_default():
@@ -42,16 +38,41 @@ def test_literal_default_stays_default():
     assert terminal_tool._resolve_container_task_id("default") == "default"
 
 
-def test_subagent_task_id_collapses_to_default():
-    # delegate_task constructs IDs like "subagent-<N>-<uuid_hex>"; these
-    # should share the parent's container, not spin up their own.
-    assert terminal_tool._resolve_container_task_id("subagent-0-deadbeef") == "default"
+def test_unaliased_subagent_task_id_collapses_to_default_for_cli_compatibility():
+    assert terminal_tool._resolve_container_task_id("sa-0-deadbeef") == "default"
     assert terminal_tool._resolve_container_task_id("subagent-42-cafef00d") == "default"
 
 
-def test_arbitrary_session_id_collapses_to_default():
-    # Session UUIDs or anything else without an override still collapse.
-    assert terminal_tool._resolve_container_task_id("sess-123e4567-e89b-12d3") == "default"
+def test_gateway_session_id_keeps_its_own_container_key():
+    assert (
+        terminal_tool._resolve_container_task_id("sess-123e4567-e89b-12d3")
+        == "sess-123e4567-e89b-12d3"
+    )
+
+
+@pytest.mark.parametrize(
+    "task_id",
+    ["api-session-A", "api-session-", "api-session-123", "api-session-long-uuid-string"],
+)
+def test_api_session_id_keeps_its_own_container_key(task_id):
+    assert terminal_tool._resolve_container_task_id(task_id) == task_id
+
+
+def test_subagent_alias_maps_child_to_parent_session_container():
+    terminal_tool.register_task_container_alias("sa-0-deadbeef", "gateway-session-1")
+    assert terminal_tool._resolve_container_task_id("sa-0-deadbeef") == "gateway-session-1"
+
+
+def test_subagent_alias_maps_child_to_default_for_cli_parent():
+    terminal_tool.register_task_container_alias("sa-0-deadbeef", None)
+    assert terminal_tool._resolve_container_task_id("sa-0-deadbeef") == "default"
+
+
+def test_cleared_subagent_alias_collapses_to_default_again():
+    terminal_tool.register_task_container_alias("sa-0-deadbeef", "gateway-session-1")
+    assert terminal_tool._resolve_container_task_id("sa-0-deadbeef") == "gateway-session-1"
+    terminal_tool.clear_task_container_alias("sa-0-deadbeef")
+    assert terminal_tool._resolve_container_task_id("sa-0-deadbeef") == "default"
 
 
 def test_rl_task_with_override_keeps_its_own_id():
@@ -70,11 +91,15 @@ def test_rl_task_with_override_keeps_its_own_id():
         terminal_tool.clear_task_env_overrides("tb2-task-fix-git")
 
 
-def test_cleared_override_collapses_again():
+def test_cleared_override_keeps_own_key():
+    # With the isolation model, clearing the override does NOT collapse the ID
+    # back to "default"; the task keeps its own sandbox key so that a stale
+    # cleanup_vm call after rollout teardown pops the right (already-empty)
+    # bucket rather than accidentally touching the shared "default" sandbox.
     terminal_tool.register_task_env_overrides("tb2-x", {"docker_image": "x:y"})
     assert terminal_tool._resolve_container_task_id("tb2-x") == "tb2-x"
     terminal_tool.clear_task_env_overrides("tb2-x")
-    assert terminal_tool._resolve_container_task_id("tb2-x") == "default"
+    assert terminal_tool._resolve_container_task_id("tb2-x") == "tb2-x"
 
 
 def test_get_active_env_reads_shared_container_from_subagent_id():
@@ -115,22 +140,33 @@ class _CleanupProbe:
         self.cleaned = True
 
 
-def test_cleanup_vm_resolves_session_id_to_shared_container():
-    """API/session task IDs must tear down the real shared sandbox key."""
-    env = _CleanupProbe()
-    terminal_tool._active_environments["default"] = env
-    terminal_tool._last_activity["default"] = 123.0
+def test_cleanup_vm_keeps_api_session_distinct_from_default_container():
+    """Client-controlled API session IDs must not tear down the default sandbox."""
+    api_env = _CleanupProbe()
+    default_env = _CleanupProbe()
+    terminal_tool._active_environments["api-session-A"] = api_env
+    terminal_tool._active_environments["default"] = default_env
+    terminal_tool._last_activity["api-session-A"] = 123.0
+    terminal_tool._last_activity["default"] = 456.0
+    terminal_tool._creation_locks["api-session-A"] = object()
     terminal_tool._creation_locks["default"] = object()
     try:
         terminal_tool.cleanup_vm("api-session-A")
 
-        assert env.cleaned is True
-        assert "default" not in terminal_tool._active_environments
-        assert "default" not in terminal_tool._last_activity
-        assert "default" not in terminal_tool._creation_locks
+        assert api_env.cleaned is True
+        assert default_env.cleaned is False
+        assert "api-session-A" not in terminal_tool._active_environments
+        assert "api-session-A" not in terminal_tool._last_activity
+        assert "api-session-A" not in terminal_tool._creation_locks
+        assert terminal_tool._active_environments["default"] is default_env
+        assert terminal_tool._last_activity["default"] == 456.0
+        assert "default" in terminal_tool._creation_locks
     finally:
+        terminal_tool._active_environments.pop("api-session-A", None)
         terminal_tool._active_environments.pop("default", None)
+        terminal_tool._last_activity.pop("api-session-A", None)
         terminal_tool._last_activity.pop("default", None)
+        terminal_tool._creation_locks.pop("api-session-A", None)
         terminal_tool._creation_locks.pop("default", None)
 
 
