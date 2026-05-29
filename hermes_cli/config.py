@@ -93,6 +93,19 @@ _RAW_CONFIG_CACHE: Dict[str, Tuple[int, int, Dict[str, Any]]] = {}
 # calls read_raw_config. Also covers mutation of the module-level cache
 # dicts above.
 _CONFIG_LOCK = threading.RLock()
+
+
+def _ignore_user_config_enabled() -> bool:
+    """Return whether runtime config loading should skip user config.yaml."""
+    return os.environ.get("HERMES_IGNORE_USER_CONFIG") == "1"
+
+
+def _default_runtime_config() -> Dict[str, Any]:
+    """Return normalized defaults without reading user config.yaml."""
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    normalized = _normalize_root_model_keys(_normalize_max_turns_config(config))
+    return _expand_env_vars(normalized)
+
 # Env var names written to .env that aren't in OPTIONAL_ENV_VARS
 # (managed by setup/provider flows directly).
 _EXTRA_ENV_KEYS = frozenset({
@@ -2569,14 +2582,6 @@ OPTIONAL_ENV_VARS = {
         "category": "messaging",
         "advanced": True,
     },
-    "GATEWAY_PROXY_SCOPE_KEY": {
-        "description": "Shared secret used to sign hermes_proxy_scope metadata sent from the gateway proxy to the API server. Must match on both ends to allow the proxy to forward platform and toolset context.",
-        "prompt": "Gateway proxy scope signing key",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-        "advanced": True,
-    },
     "WEBHOOK_ENABLED": {
         "description": "Enable the webhook platform adapter for receiving events from GitHub, GitLab, etc.",
         "prompt": "Enable webhooks (true/false)",
@@ -4143,6 +4148,12 @@ def read_raw_config() -> Dict[str, Any]:
 def load_config() -> Dict[str, Any]:
     """Load configuration from ~/.hermes/config.yaml.
 
+    When ``HERMES_IGNORE_USER_CONFIG=1`` is set (by ``hermes chat
+    --ignore-user-config``), return built-in defaults without reading or
+    merging the user's config file. This keeps runtime config consumers
+    such as MCP and plugin discovery inside the same isolation boundary as
+    CLI startup.
+
     Cached on the config file's (mtime_ns, size). Returns a deepcopy of
     the cached value when unchanged, since most call sites mutate the
     result (e.g. ``cfg["model"]["default"] = ...`` before ``save_config``).
@@ -4154,6 +4165,10 @@ def load_config() -> Dict[str, Any]:
         ensure_hermes_home()
         config_path = get_config_path()
         path_key = str(config_path)
+
+        if _ignore_user_config_enabled():
+            _LOAD_CONFIG_CACHE.pop(path_key, None)
+            return _default_runtime_config()
 
         try:
             st = config_path.stat()
