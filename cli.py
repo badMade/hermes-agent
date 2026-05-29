@@ -687,7 +687,6 @@ from tools.terminal_tool import set_sudo_password_callback, set_approval_callbac
 from tools.skills_tool import set_secret_capture_callback
 from hermes_cli.callbacks import prompt_for_secret
 from tools.browser_tool import _emergency_cleanup_all_sessions as _cleanup_all_browsers
-from tools.ansi_strip import strip_ansi
 
 # Guard to prevent cleanup from running multiple times on exit
 _cleanup_done = False
@@ -8808,11 +8807,10 @@ class HermesCLI:
             return
 
         new_mcp = new_cfg.get("mcp_servers") or {}
-        current_mcp = self._config_mcp_servers
-        if new_mcp == current_mcp:
+        if new_mcp == self._config_mcp_servers:
             return  # mcp_servers unchanged (some other section was edited)
 
-        old_mcp = current_mcp
+        old_mcp = self._config_mcp_servers
         self._config_mcp_servers = new_mcp
 
         if self._mcp_stdio_config_changed(old_mcp, new_mcp):
@@ -12888,7 +12886,7 @@ class HermesCLI:
                                     else:
                                         _synth = _format_process_notification(evt)
                                         if _synth:
-                                            _cprint(f"\n{_ACCENT}{strip_ansi(_synth)}{_RST}")
+                                            self._pending_input.put(_synth)
                             except Exception:
                                 pass
                         continue
@@ -13000,7 +12998,7 @@ class HermesCLI:
                                     continue  # already delivered via tool result
                                 _synth = _format_process_notification(evt)
                                 if _synth:
-                                    _cprint(f"\n{_ACCENT}{strip_ansi(_synth)}{_RST}")
+                                    self._pending_input.put(_synth)
                         except Exception:
                             pass  # Non-fatal — don't break the main loop
 
