@@ -2610,28 +2610,57 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5005, str(e))
 
 
+def _new_conversation_export_path() -> Path:
+    saved_dir = get_hermes_home() / "sessions" / "saved"
+    saved_dir.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        os.chmod(saved_dir, 0o700)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    suffix = uuid.uuid4().hex
+    return saved_dir / f"hermes_conversation_{timestamp}_{suffix}.json"
+
+
+def _secure_write_json(path: Path, payload: dict) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    fd = None
+    created = False
+    try:
+        fd = os.open(path, flags, 0o600)
+        created = True
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = None
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+    except Exception:
+        if fd is not None:
+            os.close(fd)
+        if created:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        raise
+
+
 @method("session.save")
 def _(rid, params: dict) -> dict:
     session, err = _sess(params, rid)
     if err:
         return err
-    import time as _time
 
-    filename = os.path.abspath(
-        f"hermes_conversation_{_time.strftime('%Y%m%d_%H%M%S')}.json"
-    )
     try:
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "model": getattr(session["agent"], "model", ""),
-                    "messages": session.get("history", []),
-                },
-                f,
-                indent=2,
-                ensure_ascii=False,
-            )
-        return _ok(rid, {"file": filename})
+        path = _new_conversation_export_path()
+        _secure_write_json(
+            path,
+            {
+                "model": getattr(session["agent"], "model", ""),
+                "messages": session.get("history", []),
+            },
+        )
+        return _ok(rid, {"file": str(path.resolve())})
     except Exception as e:
         return _err(rid, 5011, str(e))
 

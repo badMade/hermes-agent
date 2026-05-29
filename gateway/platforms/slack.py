@@ -1787,6 +1787,7 @@ class SlackAdapter(BasePlatformAdapter):
             user_id=user_id,
             thread_id=thread_ts,
             chat_topic=metadata.get("context_channel_id") or None,
+            guild_id=metadata.get("team_id") or None,
         )
 
         try:
@@ -2229,6 +2230,7 @@ class SlackAdapter(BasePlatformAdapter):
             user_id=user_id,
             user_name=user_name,
             thread_id=thread_ts,
+            guild_id=team_id or None,
         )
 
         # Per-channel ephemeral prompt
@@ -2817,12 +2819,6 @@ class SlackAdapter(BasePlatformAdapter):
         channel_id = command.get("channel_id", "")
         team_id = command.get("team_id", "")
 
-        is_dm = str(channel_id).startswith("D")
-        allowed_channels = self._slack_allowed_channels()
-        if not is_dm and allowed_channels and channel_id not in allowed_channels:
-            logger.debug("[Slack] Ignoring slash command in non-allowed channel: %s", channel_id)
-            return
-
         # Track which workspace owns this channel
         if team_id and channel_id:
             self._channel_team[channel_id] = team_id
@@ -2851,10 +2847,12 @@ class SlackAdapter(BasePlatformAdapter):
         # Preserve DM semantics only for DM channel IDs; shared channels must
         # keep group semantics so different users do not collide into one
         # session key.
+        is_dm = str(channel_id).startswith("D")
         source = self.build_source(
             chat_id=channel_id,
             chat_type="dm" if is_dm else "group",
             user_id=user_id,
+            guild_id=team_id or None,
         )
 
         event = MessageEvent(

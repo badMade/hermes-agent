@@ -212,7 +212,7 @@ services:
     command: gateway run
     ports:
       - "8642:8642"   # gateway API
-      - "127.0.0.1:9119:9119"   # dashboard (only reached when HERMES_DASHBOARD=1)
+      - "127.0.0.1:9119:9119"   # dashboard, host-loopback only
     volumes:
       - ~/.hermes:/opt/data
     environment:
@@ -325,8 +325,8 @@ services:
       --served-model-name my-model
       --host 0.0.0.0
       --port 8000
-    expose:
-      - "8000"  # available only to containers on hermes-net
+    ports:
+      - "8000:8000"
     networks:
       - hermes-net
     deploy:
@@ -365,9 +365,8 @@ model:
 :::tip Key points
 - Use the **container name** (`vllm`) as the hostname — not `localhost` or `127.0.0.1`, which refer to the Hermes container itself.
 - The `model` value must match the `--served-model-name` you passed to vLLM.
-- Set `api_key` to any non-empty string (vLLM requires the header but doesn't validate it by default). Configure vLLM authentication where supported before exposing it outside the Docker network.
+- Set `api_key` to any non-empty string (vLLM requires the header but doesn't validate it by default).
 - Do **not** include a trailing slash in `base_url`.
-- Do **not** publish the vLLM port to the host for Compose-based Hermes connectivity. If you need host access for local debugging, bind it to loopback only (for example, `127.0.0.1:8000:8000`) and do not use an unauthenticated public interface.
 :::
 
 ### Standalone Docker run (no Compose)
@@ -451,11 +450,14 @@ Check logs: `docker logs hermes`. Common causes:
 
 ### "Permission denied" errors
 
-The container's entrypoint drops privileges to the non-root `hermes` user (UID 10000) via `gosu`. If your host `~/.hermes/` is owned by a different UID, set `HERMES_UID`/`HERMES_GID` to match your host user, or ensure the data directory is writable:
+The container's entrypoint drops privileges to the non-root `hermes` user (UID 10000) via `gosu`. If your host `~/.hermes/` is owned by a different UID, set `HERMES_UID`/`HERMES_GID` to match your host user, then restore owner-only permissions for Hermes data:
 
 ```sh
-chmod -R 755 ~/.hermes
+chown -R "$USER:$USER" ~/.hermes
+chmod -R u+rwX,go-rwx ~/.hermes
 ```
+
+This keeps secrets in `~/.hermes/.env` and session data private to your user.
 
 ### Browser tools not working
 
