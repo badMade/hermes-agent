@@ -3551,12 +3551,14 @@ class DiscordAdapter(BasePlatformAdapter):
 
     def _discord_require_mention(self) -> bool:
         """Return whether Discord channel messages require a bot mention."""
-        configured = self.config.extra.get("require_mention")
+        configured = os.getenv("DISCORD_REQUIRE_MENTION")
+        if configured is None:
+            configured = self.config.extra.get("require_mention")
         if configured is not None:
             if isinstance(configured, str):
                 return configured.lower() not in {"false", "0", "no", "off"}
             return bool(configured)
-        return os.getenv("DISCORD_REQUIRE_MENTION", "true").lower() not in {"false", "0", "no", "off"}
+        return True
 
     def _discord_free_response_channels(self) -> set:
         """Return Discord channel IDs where no bot mention is required.
@@ -3565,9 +3567,9 @@ class DiscordAdapter(BasePlatformAdapter):
         string) is preserved in the returned set so callers can short-circuit
         on wildcard membership, consistent with ``allowed_channels``.
         """
-        raw = self.config.extra.get("free_response_channels")
+        raw = os.getenv("DISCORD_FREE_RESPONSE_CHANNELS")
         if raw is None:
-            raw = os.getenv("DISCORD_FREE_RESPONSE_CHANNELS", "")
+            raw = self.config.extra.get("free_response_channels")
         if isinstance(raw, list):
             return {str(part).strip() for part in raw if str(part).strip()}
         # Coerce non-list scalars (str/int/float) to str before splitting.
@@ -3835,8 +3837,6 @@ class DiscordAdapter(BasePlatformAdapter):
                 session_key=session_key,
                 allowed_user_ids=self._allowed_user_ids,
                 allowed_role_ids=self._allowed_role_ids,
-                approval_id=(metadata or {}).get("approval_id"),
-                auth_callback=(metadata or {}).get("approval_auth_callback"),
             )
 
             msg = await channel.send(embed=embed, view=view)
@@ -4229,7 +4229,10 @@ class DiscordAdapter(BasePlatformAdapter):
         if not is_thread and not isinstance(message.channel, discord.DMChannel):
             no_thread_channels_raw = os.getenv("DISCORD_NO_THREAD_CHANNELS", "")
             no_thread_channels = {ch.strip() for ch in no_thread_channels_raw.split(",") if ch.strip()}
-            skip_thread = bool(channel_ids & no_thread_channels)
+            # Free-response channels accept ordinary chat without a bot mention.
+            # Keep those messages in the channel session by default so a burst of
+            # unmentioned messages cannot fan out into one agent run per thread.
+            skip_thread = is_free_channel or bool(channel_ids & no_thread_channels)
             auto_thread = os.getenv("DISCORD_AUTO_THREAD", "true").lower() in {"true", "1", "yes"}
             is_reply_message = getattr(message, "type", None) == discord.MessageType.reply
             if auto_thread and not skip_thread and not is_voice_linked_channel and not is_reply_message:
@@ -4443,16 +4446,13 @@ class DiscordAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     def _text_batch_key(self, event: MessageEvent) -> str:
-        """Sender-scoped key for pre-authorization text batching."""
+        """Session-scoped key for text message batching."""
         from gateway.session import build_session_key
-
-        session_key = build_session_key(
+        return build_session_key(
             event.source,
             group_sessions_per_user=self.config.extra.get("group_sessions_per_user", True),
             thread_sessions_per_user=self.config.extra.get("thread_sessions_per_user", False),
         )
-        sender_id = event.source.user_id_alt or event.source.user_id or "unknown"
-        return f"{session_key}:sender:{sender_id}"
 
     def _enqueue_text_event(self, event: MessageEvent) -> None:
         """Buffer a text event and reset the flush timer.
@@ -4610,25 +4610,15 @@ if DISCORD_AVAILABLE:
             session_key: str,
             allowed_user_ids: set,
             allowed_role_ids: Optional[set] = None,
-            approval_id: Optional[str] = None,
-            auth_callback: Optional[Callable[[Any], bool]] = None,
         ):
             super().__init__(timeout=300)  # 5-minute timeout
             self.session_key = session_key
             self.allowed_user_ids = allowed_user_ids
             self.allowed_role_ids = allowed_role_ids or set()
-            self.approval_id = approval_id
-            self.auth_callback = auth_callback
             self.resolved = False
 
         def _check_auth(self, interaction: discord.Interaction) -> bool:
             """Verify the user clicking is authorized."""
-            if self.auth_callback is not None:
-                try:
-                    return bool(self.auth_callback(interaction))
-                except Exception as exc:
-                    logger.warning("Discord exec approval auth callback failed: %s", exc)
-                    return False
             return _component_check_auth(
                 interaction, self.allowed_user_ids, self.allowed_role_ids,
             )
@@ -4667,9 +4657,7 @@ if DISCORD_AVAILABLE:
             # Unblock the waiting agent thread via the gateway approval queue
             try:
                 from tools.approval import resolve_gateway_approval
-                count = resolve_gateway_approval(
-                    self.session_key, choice, approval_id=self.approval_id
-                )
+                count = resolve_gateway_approval(self.session_key, choice)
                 logger.info(
                     "Discord button resolved %d approval(s) for session %s (choice=%s, user=%s)",
                     count, self.session_key, choice, interaction.user.display_name,
