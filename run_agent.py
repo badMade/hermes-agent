@@ -1249,8 +1249,8 @@ class AIAgent:
         # not mid-conversation.  Also validates the api_mode is registered.
         try:
             self._get_transport()
-        except Exception:
-            pass  # Non-fatal — transport may not exist for all modes yet
+        except Exception as e:
+            logger.debug("Could not warm transport cache (Non-fatal): %s", e)
 
         try:
             from hermes_cli.model_normalize import (
@@ -1494,10 +1494,6 @@ class AIAgent:
         # commentary when the provider later returns it as a completed interim
         # assistant message.
         self._current_streamed_assistant_text = ""
-        # Per-turn cache for whether a transform_llm_output hook is registered.
-        # Computed once on the first delta of each streaming turn and reset by
-        # _reset_stream_delivery_tracking() so the next turn re-evaluates.
-        self._transform_hook_enabled_cache: "Optional[bool]" = None
 
         # Optional current-turn user-message override used when the API-facing
         # user message intentionally differs from the persisted transcript
@@ -5998,6 +5994,12 @@ class AIAgent:
                     role,
                 )
                 continue
+            if any(str(key).startswith("_hermes_") for key in msg):
+                msg = {
+                    key: value
+                    for key, value in msg.items()
+                    if not str(key).startswith("_hermes_")
+                }
             filtered.append(msg)
         messages = filtered
 
@@ -7482,15 +7484,12 @@ class AIAgent:
                 if ctx_scrubber is not None:
                     think_tail = ctx_scrubber.feed(think_tail)
                 if think_tail:
-                    if self._llm_output_transform_hook_enabled():
-                        self._deferred_stream_due_to_transform = True
-                    else:
-                        callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
-                        for cb in callbacks:
-                            try:
-                                cb(think_tail)
-                            except Exception:
-                                pass
+                    callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
+                    for cb in callbacks:
+                        try:
+                            cb(think_tail)
+                        except Exception:
+                            pass
                     self._record_streamed_assistant_text(think_tail)
         # Flush any benign partial-tag tail held by the context scrubber so it
         # reaches the UI before we clear state for the next model call.  If
@@ -7499,20 +7498,14 @@ class AIAgent:
         if scrubber is not None:
             tail = scrubber.flush()
             if tail:
-                if self._llm_output_transform_hook_enabled():
-                    self._deferred_stream_due_to_transform = True
-                else:
-                    callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
-                    for cb in callbacks:
-                        try:
-                            cb(tail)
-                        except Exception:
-                            pass
+                callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
+                for cb in callbacks:
+                    try:
+                        cb(tail)
+                    except Exception:
+                        pass
                 self._record_streamed_assistant_text(tail)
         self._current_streamed_assistant_text = ""
-        # Invalidate the per-turn hook-presence cache so the next streaming
-        # turn re-evaluates whether a transform_llm_output hook is registered.
-        self._transform_hook_enabled_cache = None
 
     def _record_streamed_assistant_text(self, text: str) -> None:
         """Accumulate visible assistant text emitted through stream callbacks."""
@@ -7520,57 +7513,6 @@ class AIAgent:
             self._current_streamed_assistant_text = (
                 getattr(self, "_current_streamed_assistant_text", "") + text
             )
-
-    def _llm_output_transform_hook_enabled(self) -> bool:
-        """Return True when streaming must wait for output transformation.
-
-        The result is cached for the duration of the current streaming turn to
-        avoid a repeated import + lookup on every emitted delta.  The cache is
-        cleared by _reset_stream_delivery_tracking() at the end of each turn.
-        """
-        cached = getattr(self, "_transform_hook_enabled_cache", None)
-        if cached is not None:
-            return cached
-        try:
-            from hermes_cli.plugins import has_hook as _has_hook
-
-            result = bool(_has_hook("transform_llm_output"))
-        except Exception as exc:
-            logger.debug("transform_llm_output hook check failed: %s", exc)
-            result = False
-        self._transform_hook_enabled_cache = result
-        return result
-
-    def _apply_transform_llm_output_hook(self, response_text: str) -> str:
-        """Apply the first non-empty transform_llm_output hook result."""
-        if not response_text:
-            return response_text
-        try:
-            from hermes_cli.plugins import invoke_hook as _invoke_hook
-
-            transform_results = _invoke_hook(
-                "transform_llm_output",
-                response_text=response_text,
-                session_id=self.session_id or "",
-                model=self.model,
-                platform=getattr(self, "platform", None) or "",
-            )
-            for hook_result in transform_results:
-                if isinstance(hook_result, str) and hook_result:
-                    return hook_result
-        except Exception as exc:
-            logger.warning("transform_llm_output hook failed: %s", exc)
-        return response_text
-
-    @staticmethod
-    def _replace_latest_assistant_content(messages: list, content: str) -> None:
-        """Replace the persisted final assistant content with transformed text."""
-        if not content:
-            return
-        for msg in reversed(messages):
-            if isinstance(msg, dict) and msg.get("role") == "assistant" and "content" in msg:
-                msg["content"] = content
-                return
 
     @staticmethod
     def _normalize_interim_visible_text(text: str) -> str:
@@ -7645,10 +7587,6 @@ class AIAgent:
             ):
                 text = text.lstrip("\n")
         if not text:
-            return
-        if self._llm_output_transform_hook_enabled():
-            self._deferred_stream_due_to_transform = True
-            self._record_streamed_assistant_text(text)
             return
         callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
         delivered = False
@@ -7951,15 +7889,11 @@ class AIAgent:
                     # suppressed by the CLI's _stream_delta when the stream
                     # box is already closed (tool boundary flush).
                     elif self.stream_delta_callback:
-                        if self._llm_output_transform_hook_enabled():
-                            self._deferred_stream_due_to_transform = True
+                        try:
+                            self.stream_delta_callback(delta.content)
                             self._record_streamed_assistant_text(delta.content)
-                        else:
-                            try:
-                                self.stream_delta_callback(delta.content)
-                            except Exception:
-                                pass
-                            self._record_streamed_assistant_text(delta.content)
+                        except Exception:
+                            pass
 
                 # Accumulate tool call deltas — notify display on first name
                 if delta and delta.tool_calls:
@@ -9852,19 +9786,15 @@ class AIAgent:
         if reasoning_text:
             reasoning_text = _sanitize_surrogates(reasoning_text)
 
-        # Strip inline reasoning tags (<think>…</think> etc.) from the stored
-        # assistant content.  Reasoning was already captured into
-        # ``reasoning_text`` above (either from structured fields or the
-        # inline-block fallback), so the raw tags in content are redundant.
-        # Leaving them in place caused reasoning to leak to messaging
-        # platforms (#8878, #9568), inflate context on subsequent turns
-        # (#9306 observed 16% content-size reduction on a real MiniMax
-        # session), and pollute generated session titles.  One strip at the
-        # storage boundary cleans content for every downstream consumer:
-        # API replay, session transcript, gateway delivery, CLI display,
-        # compression, title generation.
+        # Strip inline reasoning tags (<think>…</think> etc.) and internal
+        # memory-context wrappers from stored assistant content.  The final
+        # user-visible response is scrubbed separately, but this storage-boundary
+        # scrub is required so a model/provider echo of ephemeral recalled memory
+        # cannot become durable session history or Responses API replay state.
         if isinstance(_san_content, str) and _san_content:
-            _san_content = self._strip_think_blocks(_san_content).strip()
+            _san_content = sanitize_context(
+                self._strip_think_blocks(_san_content)
+            ).strip()
 
         msg = {
             "role": "assistant",
@@ -9907,16 +9837,19 @@ class AIAgent:
         #
         # Promote the already-sanitized streamed ``reasoning_text`` to
         # ``reasoning_content`` at write time, but ONLY when no prior branch
-        # already set it AND we actually captured reasoning text. This
-        # preserves every existing behavior:
+        # already set it, we actually captured reasoning text, and this is not
+        # a tool-call turn.  Tool-call turns without provider-native
+        # ``reasoning_content`` must keep the legacy shape so DeepSeek/Kimi
+        # replay can pad instead of forwarding another provider's private
+        # chain-of-thought (#15748). This preserves every existing behavior:
         #   - SDK-exposed ``reasoning_content`` (OpenAI/Moonshot/DeepSeek SDK)
         #     still wins.
-        #   - DeepSeek tool-call ""-pad (#15250) still fires.
+        #   - DeepSeek/Kimi tool-call pad (#15250, #17400) still fires.
         #   - Non-thinking turns with no reasoning leave the field absent,
         #     so ``_copy_reasoning_content_for_api``'s cross-provider leak
         #     guard (#15748) and ``reasoning``→``reasoning_content``
         #     promotion tiers still apply at replay time.
-        if "reasoning_content" not in msg and reasoning_text:
+        if "reasoning_content" not in msg and reasoning_text and not assistant_tool_calls:
             msg["reasoning_content"] = reasoning_text
 
         if hasattr(assistant_message, 'reasoning_details') and assistant_message.reasoning_details:
@@ -15371,22 +15304,8 @@ class AIAgent:
         # Persist session to both JSON log and SQLite only after private retry
         # scaffolding has been removed. Otherwise a later user "continue" turn
         # can replay assistant("(empty)") / recovery nudges and fall into the
-        # same empty-response loop again. Apply output transformations first so
-        # stored transcripts and delayed streaming surfaces see the same text.
+        # same empty-response loop again.
         self._drop_trailing_empty_response_scaffolding(messages)
-        if final_response and not interrupted:
-            transformed_response = self._apply_transform_llm_output_hook(final_response)
-            if transformed_response != final_response:
-                final_response = transformed_response
-                self._replace_latest_assistant_content(messages, final_response)
-        if getattr(self, "_deferred_stream_due_to_transform", False) and final_response and not interrupted:
-            callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
-            for cb in callbacks:
-                try:
-                    cb(final_response)
-                except Exception:
-                    pass
-        self._deferred_stream_due_to_transform = False
         self._persist_session(messages, conversation_history)
 
         # ── Turn-exit diagnostic log ─────────────────────────────────────
@@ -15432,6 +15351,27 @@ class AIAgent:
             )
         else:
             logger.info(_diag_msg, *_diag_args)
+
+        # Plugin hook: transform_llm_output
+        # Fired once per turn after the tool-calling loop completes.
+        # Plugins can transform the LLM's output text before it's returned.
+        # First hook to return a string wins; None/empty return leaves text unchanged.
+        if final_response and not interrupted:
+            try:
+                from hermes_cli.plugins import invoke_hook as _invoke_hook
+                _transform_results = _invoke_hook(
+                    "transform_llm_output",
+                    response_text=final_response,
+                    session_id=self.session_id or "",
+                    model=self.model,
+                    platform=getattr(self, "platform", None) or "",
+                )
+                for _hook_result in _transform_results:
+                    if isinstance(_hook_result, str) and _hook_result:
+                        final_response = _hook_result
+                        break  # First non-empty string wins
+            except Exception as exc:
+                logger.warning("transform_llm_output hook failed: %s", exc)
 
         # Plugin hook: post_llm_call
         # Fired once per turn after the tool-calling loop completes.
