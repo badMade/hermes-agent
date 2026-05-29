@@ -1050,62 +1050,34 @@ class SessionDB:
             row = cursor.fetchone()
         return row["title"] if row else None
 
-    def get_session_by_title(
-        self,
-        title: str,
-        source: str = None,
-        user_id: str = None,
-    ) -> Optional[Dict[str, Any]]:
+    def get_session_by_title(self, title: str) -> Optional[Dict[str, Any]]:
         """Look up a session by exact title. Returns session dict or None."""
-        where_clauses = ["title = ?"]
-        params = [title]
-        if source is not None:
-            where_clauses.append("source = ?")
-            params.append(source)
-        if user_id is not None:
-            where_clauses.append("user_id = ?")
-            params.append(user_id)
-        where_sql = " AND ".join(where_clauses)
         with self._lock:
             cursor = self._conn.execute(
-                f"SELECT * FROM sessions WHERE {where_sql}", params
+                "SELECT * FROM sessions WHERE title = ?", (title,)
             )
             row = cursor.fetchone()
         return dict(row) if row else None
 
-    def resolve_session_by_title(
-        self,
-        title: str,
-        source: str = None,
-        user_id: str = None,
-    ) -> Optional[str]:
+    def resolve_session_by_title(self, title: str) -> Optional[str]:
         """Resolve a title to a session ID, preferring the latest in a lineage.
 
         If the exact title exists, returns that session's ID.
         If not, searches for "title #N" variants and returns the latest one.
         If the exact title exists AND numbered variants exist, returns the
-        latest numbered variant (the most recent continuation). Optional
-        source/user_id filters constrain lookup to the session owner.
+        latest numbered variant (the most recent continuation).
         """
-        exact = self.get_session_by_title(title, source=source, user_id=user_id)
+        # First try exact match
+        exact = self.get_session_by_title(title)
 
         # Also search for numbered variants: "title #2", "title #3", etc.
         # Escape SQL LIKE wildcards (%, _) in the title to prevent false matches
         escaped = title.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        where_clauses = ["title LIKE ? ESCAPE '\\'"]
-        params = [f"{escaped} #%"]
-        if source is not None:
-            where_clauses.append("source = ?")
-            params.append(source)
-        if user_id is not None:
-            where_clauses.append("user_id = ?")
-            params.append(user_id)
-        where_sql = " AND ".join(where_clauses)
         with self._lock:
             cursor = self._conn.execute(
                 "SELECT id, title, started_at FROM sessions "
-                f"WHERE {where_sql} ORDER BY started_at DESC",
-                params,
+                "WHERE title LIKE ? ESCAPE '\\' ORDER BY started_at DESC",
+                (f"{escaped} #%",),
             )
             numbered = cursor.fetchall()
 
@@ -1172,17 +1144,14 @@ class SessionDB:
         for _ in range(100):
             with self._lock:
                 cursor = self._conn.execute(
-                    "SELECT child.id FROM sessions child "
-                    "JOIN sessions parent ON parent.id = child.parent_session_id "
-                    "WHERE child.parent_session_id = ? "
-                    "  AND parent.end_reason = 'compression' "
-                    "  AND child.started_at >= parent.ended_at "
-                    "  AND child.source = parent.source "
-                    # SQLite: IS is NULL-safe equality (equivalent to IS NOT DISTINCT FROM
-                    # in standard SQL).  Intentional — this database is SQLite-only.
-                    "  AND child.user_id IS parent.user_id "
-                    "ORDER BY child.started_at DESC LIMIT 1",
-                    (current,),
+                    "SELECT id FROM sessions "
+                    "WHERE parent_session_id = ? "
+                    "  AND started_at >= ("
+                    "      SELECT ended_at FROM sessions "
+                    "      WHERE id = ? AND end_reason = 'compression'"
+                    "  ) "
+                    "ORDER BY started_at DESC LIMIT 1",
+                    (current, current),
                 )
                 row = cursor.fetchone()
             if row is None:
@@ -1199,7 +1168,6 @@ class SessionDB:
         include_children: bool = False,
         project_compression_tips: bool = True,
         order_by_last_active: bool = False,
-        user_id: str = None,
     ) -> List[Dict[str, Any]]:
         """List sessions with preview (first user message) and last active timestamp.
 
@@ -1219,9 +1187,6 @@ class SessionDB:
         compressed continuations from being invisible to users while keeping
         delegate subagents and branches hidden. Pass ``False`` to return the
         raw root rows (useful for admin/debug UIs).
-
-        Pass ``user_id`` to scope results to sessions owned by a specific
-        gateway user.
 
         Pass ``order_by_last_active=True`` to sort by most-recent activity
         instead of original conversation start time. For compression chains,
@@ -1251,9 +1216,6 @@ class SessionDB:
         if source:
             where_clauses.append("s.source = ?")
             params.append(source)
-        if user_id is not None:
-            where_clauses.append("s.user_id = ?")
-            params.append(user_id)
         if exclude_sources:
             placeholders = ",".join("?" for _ in exclude_sources)
             where_clauses.append(f"s.source NOT IN ({placeholders})")
@@ -1282,9 +1244,6 @@ class SessionDB:
                     JOIN sessions child ON child.parent_session_id = c.cur_id
                     WHERE parent.end_reason = 'compression'
                       AND child.started_at >= parent.ended_at
-                      AND child.source = parent.source
-                      -- SQLite: IS is NULL-safe equality (equivalent to IS NOT DISTINCT FROM).
-                      AND child.user_id IS parent.user_id
                 ),
                 chain_max AS (
                     SELECT
@@ -1725,10 +1684,7 @@ class SessionDB:
         return session_id
 
     def get_messages_as_conversation(
-        self,
-        session_id: str,
-        include_ancestors: bool = False,
-        source: Optional[str] = None,
+        self, session_id: str, include_ancestors: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Load messages in the OpenAI conversation format (role + content dicts).
@@ -1740,24 +1696,13 @@ class SessionDB:
 
         with self._lock:
             placeholders = ",".join("?" for _ in session_ids)
-            if source is None:
-                rows = self._conn.execute(
-                    "SELECT role, content, tool_call_id, tool_calls, tool_name, "
-                    "finish_reason, reasoning, reasoning_content, reasoning_details, "
-                    "codex_reasoning_items, codex_message_items "
-                    f"FROM messages WHERE session_id IN ({placeholders}) ORDER BY timestamp, id",
-                    tuple(session_ids),
-                ).fetchall()
-            else:
-                rows = self._conn.execute(
-                    "SELECT m.role, m.content, m.tool_call_id, m.tool_calls, m.tool_name, "
-                    "m.finish_reason, m.reasoning, m.reasoning_content, m.reasoning_details, "
-                    "m.codex_reasoning_items, m.codex_message_items "
-                    "FROM messages m JOIN sessions s ON s.id = m.session_id "
-                    f"WHERE m.session_id IN ({placeholders}) AND s.source = ? "
-                    "ORDER BY m.timestamp, m.id",
-                    (*session_ids, source),
-                ).fetchall()
+            rows = self._conn.execute(
+                "SELECT role, content, tool_call_id, tool_calls, tool_name, "
+                "finish_reason, reasoning, reasoning_content, reasoning_details, "
+                "codex_reasoning_items, codex_message_items "
+                f"FROM messages WHERE session_id IN ({placeholders}) ORDER BY timestamp, id",
+                tuple(session_ids),
+            ).fetchall()
 
         messages = []
         for row in rows:

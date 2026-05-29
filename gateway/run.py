@@ -63,14 +63,6 @@ _AGENT_CACHE_IDLE_TTL_SECS = 3600.0  # evict agents idle for >1h
 _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
 _ADAPTER_DISCONNECT_TIMEOUT_SECS_DEFAULT = 5.0
 _TELEGRAM_COMMAND_MENTION_RE = re.compile(r"(?<![\w:/])/([A-Za-z0-9][A-Za-z0-9_-]*)")
-_GIT_URL_USERINFO_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9+.-]*://)([^/@\s]+@)")
-_GIT_SCP_SECRET_USERINFO_RE = re.compile(r"(?<!\S)([^@:/\s]+:[^@\s]+@)([^:\s]+:[^\s]+)")
-
-
-def _redact_update_output_secrets(text: str) -> str:
-    """Redact credential userinfo from update output before chat delivery."""
-    text = _GIT_URL_USERINFO_RE.sub(r"\1[REDACTED]@", text)
-    return _GIT_SCP_SECRET_USERINFO_RE.sub(r"[REDACTED]@\2", text)
 
 
 def _telegramize_command_mentions(text: str, platform: Any) -> str:
@@ -5352,7 +5344,6 @@ class GatewayRunner:
         user_id = source.user_id
         if not user_id:
             return False
-        team_id = (source.guild_id or "").strip() if source.platform == Platform.SLACK else ""
 
         platform_env_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
@@ -5442,10 +5433,10 @@ class GatewayRunner:
 
         # Check pairing store (always checked, regardless of allowlists)
         platform_name = source.platform.value if source.platform else ""
-        pairing_check_ids = [user_id]
-        if team_id:
-            pairing_check_ids.insert(0, f"{team_id}:{user_id}")
-        if any(self.pairing_store.is_approved(platform_name, uid) for uid in pairing_check_ids):
+        auth_user_id = user_id
+        if source.platform == Platform.WECOM_CALLBACK and source.chat_id:
+            auth_user_id = source.chat_id
+        if self.pairing_store.is_approved(platform_name, auth_user_id):
             return True
 
         # Check platform-specific and global allowlists
@@ -5518,11 +5509,9 @@ class GatewayRunner:
         if "*" in allowed_ids:
             return True
 
-        check_ids = {user_id}
-        if team_id:
-            check_ids.add(f"{team_id}:{user_id}")
-        if "@" in user_id:
-            check_ids.add(user_id.split("@")[0])
+        check_ids = {auth_user_id}
+        if "@" in auth_user_id:
+            check_ids.add(auth_user_id.split("@")[0])
 
         # WhatsApp: resolve phone↔LID aliases from bridge session mapping files
         if source.platform == Platform.WHATSAPP:
@@ -5532,89 +5521,6 @@ class GatewayRunner:
             if normalized_allowed_ids:
                 allowed_ids = normalized_allowed_ids
 
-            check_ids.update(_expand_whatsapp_auth_aliases(user_id))
-            normalized_user_id = _normalize_whatsapp_identifier(user_id)
-            if normalized_user_id:
-                check_ids.add(normalized_user_id)
-
-        return bool(check_ids & allowed_ids)
-
-    def _is_account_usage_authorized(self, source: SessionSource) -> bool:
-        """Return True when /usage may include provider account limits.
-
-        Account limits are account-wide billing/quota metadata, so normal
-        gateway access is not enough: allow-all, pairing, webhook auth, and
-        group-chat allowlists authorize bot use but not operator billing data.
-        """
-        if source.platform == Platform.LOCAL:
-            return True
-
-        user_id = source.user_id
-        if not user_id:
-            return False
-
-        # A configured DM home channel is treated as the operator's private
-        # destination.  Do not extend this to groups/channels, where other
-        # members may be able to invoke slash commands.
-        try:
-            home = self.config.get_home_channel(source.platform) if getattr(self, "config", None) else None
-        except Exception:
-            home = None
-        if (
-            home
-            and source.chat_type == "dm"
-            and str(home.chat_id) == str(source.chat_id)
-            and (not home.thread_id or str(home.thread_id) == str(source.thread_id or ""))
-        ):
-            return True
-
-        platform_env_map = {
-            Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
-            Platform.DISCORD: "DISCORD_ALLOWED_USERS",
-            Platform.WHATSAPP: "WHATSAPP_ALLOWED_USERS",
-            Platform.SLACK: "SLACK_ALLOWED_USERS",
-            Platform.SIGNAL: "SIGNAL_ALLOWED_USERS",
-            Platform.EMAIL: "EMAIL_ALLOWED_USERS",
-            Platform.SMS: "SMS_ALLOWED_USERS",
-            Platform.MATTERMOST: "MATTERMOST_ALLOWED_USERS",
-            Platform.MATRIX: "MATRIX_ALLOWED_USERS",
-            Platform.DINGTALK: "DINGTALK_ALLOWED_USERS",
-            Platform.FEISHU: "FEISHU_ALLOWED_USERS",
-            Platform.WECOM: "WECOM_ALLOWED_USERS",
-            Platform.WECOM_CALLBACK: "WECOM_CALLBACK_ALLOWED_USERS",
-            Platform.WEIXIN: "WEIXIN_ALLOWED_USERS",
-            Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
-            Platform.QQBOT: "QQ_ALLOWED_USERS",
-            Platform.YUANBAO: "YUANBAO_ALLOWED_USERS",
-        }
-        if source.platform not in platform_env_map:
-            try:
-                from gateway.platform_registry import platform_registry
-                entry = platform_registry.get(source.platform.value)
-                if entry and entry.allowed_users_env:
-                    platform_env_map[source.platform] = entry.allowed_users_env
-            except Exception:
-                pass
-
-        allowed_ids = set()
-        for env_name in (platform_env_map.get(source.platform, ""), "GATEWAY_ALLOWED_USERS"):
-            if not env_name:
-                continue
-            raw = os.getenv(env_name, "").strip()
-            if raw:
-                allowed_ids.update(uid.strip() for uid in raw.split(",") if uid.strip() and uid.strip() != "*")
-
-        if not allowed_ids:
-            return False
-
-        check_ids = {user_id}
-        if "@" in user_id:
-            check_ids.add(user_id.split("@", 1)[0])
-        if source.platform == Platform.WHATSAPP:
-            normalized_allowed_ids = set()
-            for allowed_id in allowed_ids:
-                normalized_allowed_ids.update(_expand_whatsapp_auth_aliases(allowed_id))
-            allowed_ids = normalized_allowed_ids or allowed_ids
             check_ids.update(_expand_whatsapp_auth_aliases(user_id))
             normalized_user_id = _normalize_whatsapp_identifier(user_id)
             if normalized_user_id:
@@ -10637,7 +10543,7 @@ class GatewayRunner:
 
         # Read current effective mode for this platform via the resolver
         from gateway.display_config import resolve_display_setting
-        current = resolve_display_setting(user_config, platform_key, "tool_progress", "all")
+        current = resolve_display_setting(user_config, platform_key, "tool_progress", None)
         if current not in cycle:
             current = "all"
         idx = (cycle.index(current) + 1) % len(cycle)
@@ -11418,12 +11324,9 @@ class GatewayRunner:
         if not name:
             # List recent titled sessions for this user/platform
             try:
-                owner_user_id = source.user_id
-                if not owner_user_id:
-                    return t("gateway.resume.no_named_sessions")
                 user_source = source.platform.value if source.platform else None
                 sessions = self._session_db.list_sessions_rich(
-                    source=user_source, user_id=owner_user_id, limit=10
+                    source=user_source, limit=10
                 )
                 titled = [s for s in sessions if s.get("title")]
                 if not titled:
@@ -11440,14 +11343,8 @@ class GatewayRunner:
                 logger.debug("Failed to list titled sessions: %s", e)
                 return t("gateway.resume.list_failed", error=e)
 
-        # Resolve the name to a session ID owned by this gateway user.
-        owner_user_id = source.user_id
-        if not owner_user_id:
-            return t("gateway.resume.not_found", name=name)
-        user_source = source.platform.value if source.platform else None
-        target_id = self._session_db.resolve_session_by_title(
-            name, source=user_source, user_id=owner_user_id
-        )
+        # Resolve the name to a session ID.
+        target_id = self._session_db.resolve_session_by_title(name)
         if not target_id:
             return t("gateway.resume.not_found", name=name)
         # Compression creates child continuations that hold the live transcript.
@@ -11538,7 +11435,6 @@ class GatewayRunner:
                 source=source.platform.value if source.platform else "gateway",
                 model=(self.config.get("model", {}) or {}).get("default") if isinstance(self.config, dict) else None,
                 parent_session_id=parent_session_id,
-                user_id=source.user_id,
             )
         except Exception as e:
             logger.error("Failed to create branch session: %s", e)
@@ -11604,27 +11500,26 @@ class GatewayRunner:
                     if cached:
                         agent = cached[0]
 
-        # Resolve and fetch account-wide billing/quota details only for
-        # operator-level requests.  Ordinary gateway access can authorize bot
-        # use without authorizing account billing metadata.
-        account_lines: list[str] = []
-        account_usage_authorized = self._is_account_usage_authorized(source)
-        if account_usage_authorized:
-            provider = getattr(agent, "provider", None) if agent and agent is not _AGENT_PENDING_SENTINEL else None
-            base_url = getattr(agent, "base_url", None) if agent and agent is not _AGENT_PENDING_SENTINEL else None
-            api_key = getattr(agent, "api_key", None) if agent and agent is not _AGENT_PENDING_SENTINEL else None
-            if not provider and getattr(self, "_session_db", None) is not None:
-                try:
-                    _entry_for_billing = self.session_store.get_or_create_session(source)
-                    persisted = self._session_db.get_session(_entry_for_billing.session_id) or {}
-                except Exception:
-                    persisted = {}
-                provider = provider or persisted.get("billing_provider")
-                base_url = base_url or persisted.get("billing_base_url")
+        # Resolve provider/base_url/api_key for the account-usage fetch.
+        # Prefer the live agent; fall back to persisted billing data on the
+        # SessionDB row so `/usage` still returns account info between turns
+        # when no agent is resident.
+        provider = getattr(agent, "provider", None) if agent and agent is not _AGENT_PENDING_SENTINEL else None
+        base_url = getattr(agent, "base_url", None) if agent and agent is not _AGENT_PENDING_SENTINEL else None
+        api_key = getattr(agent, "api_key", None) if agent and agent is not _AGENT_PENDING_SENTINEL else None
+        if not provider and getattr(self, "_session_db", None) is not None:
+            try:
+                _entry_for_billing = self.session_store.get_or_create_session(source)
+                persisted = self._session_db.get_session(_entry_for_billing.session_id) or {}
+            except Exception:
+                persisted = {}
+            provider = provider or persisted.get("billing_provider")
+            base_url = base_url or persisted.get("billing_base_url")
 
         # Fetch account usage off the event loop so slow provider APIs don't
         # block the gateway. Failures are non-fatal -- account_lines stays [].
-        if account_usage_authorized and provider:
+        account_lines: list[str] = []
+        if provider:
             try:
                 account_snapshot = await asyncio.to_thread(
                     fetch_account_usage,
@@ -12796,8 +12691,7 @@ class GatewayRunner:
             if adapter and chat_id:
                 metadata = {"thread_id": thread_id} if thread_id else None
                 # Strip ANSI escape codes for clean display
-                output = re.sub(r'\x1b\[[0-9;]*m', '', output)
-                output = _redact_update_output_secrets(output).strip()
+                output = re.sub(r'\x1b\[[0-9;]*m', '', output).strip()
                 if output:
                     if len(output) > 3500:
                         output = "…" + output[-3500:]
@@ -13951,11 +13845,6 @@ class GatewayRunner:
 
         proxy_key = os.getenv("GATEWAY_PROXY_KEY", "").strip()
 
-        platform_key = _platform_config_key(source.platform)
-        user_config = _load_gateway_config()
-        from hermes_cli.tools_config import _get_platform_tools
-        enabled_toolsets = sorted(_get_platform_tools(user_config, platform_key))
-
         def _run_still_current() -> bool:
             if run_generation is None or not session_key:
                 return True
@@ -13996,10 +13885,6 @@ class GatewayRunner:
             "model": "hermes-agent",
             "messages": api_messages,
             "stream": True,
-            "hermes_proxy_scope": {
-                "origin_platform": platform_key,
-                "enabled_toolsets": enabled_toolsets,
-            },
         }
 
         # Set up platform streaming if available -------------------------
@@ -14009,6 +13894,8 @@ class GatewayRunner:
             from gateway.config import StreamingConfig
             _scfg = StreamingConfig()
 
+        platform_key = _platform_config_key(source.platform)
+        user_config = _load_gateway_config()
         from gateway.display_config import resolve_display_setting
         _plat_streaming = resolve_display_setting(
             user_config, platform_key, "streaming"

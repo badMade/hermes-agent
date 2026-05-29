@@ -1983,44 +1983,6 @@ class TestTitleLineage:
     def test_resolve_nonexistent_title(self, db):
         assert db.resolve_session_by_title("nonexistent") is None
 
-    def test_resolve_filters_by_source_and_user_id(self, db):
-        db.create_session("victim", "telegram", user_id="victim-user")
-        db.set_session_title("victim", "shared project")
-        assert (
-            db.resolve_session_by_title(
-                "shared project", source="telegram", user_id="attacker-user"
-            )
-            is None
-        )
-        assert (
-            db.resolve_session_by_title(
-                "shared project", source="telegram", user_id="victim-user"
-            )
-            == "victim"
-        )
-
-    def test_resolve_lineage_filters_by_source_and_user_id(self, db):
-        import time
-
-        db.create_session("victim_v1", "telegram", user_id="victim-user")
-        db.set_session_title("victim_v1", "shared project")
-        time.sleep(0.01)
-        db.create_session("victim_v2", "telegram", user_id="victim-user")
-        db.set_session_title("victim_v2", "shared project #2")
-
-        assert (
-            db.resolve_session_by_title(
-                "shared project", source="telegram", user_id="attacker-user"
-            )
-            is None
-        )
-        assert (
-            db.resolve_session_by_title(
-                "shared project", source="telegram", user_id="victim-user"
-            )
-            == "victim_v2"
-        )
-
     def test_next_title_no_existing(self, db):
         """With no existing sessions, base title is returned as-is."""
         assert db.get_next_title_in_lineage("my project") == "my project"
@@ -2084,16 +2046,6 @@ class TestTitleSqlWildcards:
 
 class TestListSessionsRich:
     """Tests for enhanced session listing with preview and last_active."""
-
-    def test_filters_by_user_id(self, db):
-        db.create_session("victim", "telegram", user_id="victim-user")
-        db.create_session("attacker", "telegram", user_id="attacker-user")
-        db.set_session_title("victim", "Victim Work")
-        db.set_session_title("attacker", "Attacker Work")
-
-        sessions = db.list_sessions_rich(source="telegram", user_id="attacker-user")
-
-        assert [s["id"] for s in sessions] == ["attacker"]
 
     def test_preview_from_first_user_message(self, db):
         db.create_session("s1", "cli")
@@ -2366,42 +2318,6 @@ class TestCompressionChainProjection:
         # delegate1 is a child of root1 but NOT a compression continuation.
         # root1's tip must be tip1 (via mid1), not delegate1.
         assert db.get_compression_tip("root1") == "tip1"
-
-    @pytest.mark.parametrize(
-        "child_id,child_source,child_user_id,list_kwargs",
-        [
-            ("tool_child", "tool", "alice", {"source": "cli"}),
-            ("mallory_child", "cli", "mallory", {"source": "cli", "user_id": "alice"}),
-        ],
-        ids=["cross_source", "cross_user"],
-    )
-    def test_get_compression_tip_skips_excluded_child(
-        self, db, child_id, child_source, child_user_id, list_kwargs
-    ):
-        """Compression projection must not cross source or user boundaries."""
-        import time as _time
-
-        t0 = _time.time() - 3600
-        db.create_session("root1", "cli", user_id="alice")
-        db._conn.execute(
-            "UPDATE sessions SET started_at=?, ended_at=?, end_reason=? WHERE id=?",
-            (t0, t0 + 10, "compression", "root1"),
-        )
-        db.create_session(
-            child_id, child_source, parent_session_id="root1", user_id=child_user_id
-        )
-        db._conn.execute(
-            "UPDATE sessions SET started_at=? WHERE id=?",
-            (t0 + 11, child_id),
-        )
-        db.append_message(child_id, "user", "SECRET_PREVIEW")
-        db._conn.commit()
-
-        assert db.get_compression_tip("root1") == "root1"
-        sessions = db.list_sessions_rich(limit=20, **list_kwargs)
-        assert [s["id"] for s in sessions] == ["root1"]
-        assert "SECRET_PREVIEW" not in sessions[0]["preview"]
-        assert "_lineage_root_id" not in sessions[0]
 
     def test_list_surfaces_tip_for_compressed_root(self, db):
         """The list must show the tip's id/message_count/preview in place of
