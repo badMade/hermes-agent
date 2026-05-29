@@ -1248,8 +1248,8 @@ class AIAgent:
         # not mid-conversation.  Also validates the api_mode is registered.
         try:
             self._get_transport()
-        except Exception:
-            pass  # Non-fatal — transport may not exist for all modes yet
+        except Exception as e:
+            logger.debug("Could not warm transport cache (Non-fatal): %s", e)
 
         try:
             from hermes_cli.model_normalize import (
@@ -5999,6 +5999,12 @@ class AIAgent:
                     role,
                 )
                 continue
+            if any(str(key).startswith("_hermes_") for key in msg):
+                msg = {
+                    key: value
+                    for key, value in msg.items()
+                    if not str(key).startswith("_hermes_")
+                }
             filtered.append(msg)
         messages = filtered
 
@@ -9785,19 +9791,15 @@ class AIAgent:
         if reasoning_text:
             reasoning_text = _sanitize_surrogates(reasoning_text)
 
-        # Strip inline reasoning tags (<think>…</think> etc.) from the stored
-        # assistant content.  Reasoning was already captured into
-        # ``reasoning_text`` above (either from structured fields or the
-        # inline-block fallback), so the raw tags in content are redundant.
-        # Leaving them in place caused reasoning to leak to messaging
-        # platforms (#8878, #9568), inflate context on subsequent turns
-        # (#9306 observed 16% content-size reduction on a real MiniMax
-        # session), and pollute generated session titles.  One strip at the
-        # storage boundary cleans content for every downstream consumer:
-        # API replay, session transcript, gateway delivery, CLI display,
-        # compression, title generation.
+        # Strip inline reasoning tags (<think>…</think> etc.) and internal
+        # memory-context wrappers from stored assistant content.  The final
+        # user-visible response is scrubbed separately, but this storage-boundary
+        # scrub is required so a model/provider echo of ephemeral recalled memory
+        # cannot become durable session history or Responses API replay state.
         if isinstance(_san_content, str) and _san_content:
-            _san_content = self._strip_think_blocks(_san_content).strip()
+            _san_content = sanitize_context(
+                self._strip_think_blocks(_san_content)
+            ).strip()
 
         msg = {
             "role": "assistant",
@@ -9840,16 +9842,19 @@ class AIAgent:
         #
         # Promote the already-sanitized streamed ``reasoning_text`` to
         # ``reasoning_content`` at write time, but ONLY when no prior branch
-        # already set it AND we actually captured reasoning text. This
-        # preserves every existing behavior:
+        # already set it, we actually captured reasoning text, and this is not
+        # a tool-call turn.  Tool-call turns without provider-native
+        # ``reasoning_content`` must keep the legacy shape so DeepSeek/Kimi
+        # replay can pad instead of forwarding another provider's private
+        # chain-of-thought (#15748). This preserves every existing behavior:
         #   - SDK-exposed ``reasoning_content`` (OpenAI/Moonshot/DeepSeek SDK)
         #     still wins.
-        #   - DeepSeek tool-call ""-pad (#15250) still fires.
+        #   - DeepSeek/Kimi tool-call pad (#15250, #17400) still fires.
         #   - Non-thinking turns with no reasoning leave the field absent,
         #     so ``_copy_reasoning_content_for_api``'s cross-provider leak
         #     guard (#15748) and ``reasoning``→``reasoning_content``
         #     promotion tiers still apply at replay time.
-        if "reasoning_content" not in msg and reasoning_text:
+        if "reasoning_content" not in msg and reasoning_text and not assistant_tool_calls:
             msg["reasoning_content"] = reasoning_text
 
         if hasattr(assistant_message, 'reasoning_details') and assistant_message.reasoning_details:
