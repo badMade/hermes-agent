@@ -57,6 +57,7 @@ async def test_preprocess_keeps_plain_text_for_default_group_sessions():
         chat_id="-1002285219667",
         chat_name="Test Group",
         chat_type="group",
+        user_id="alice",
         user_name="Alice",
     )
     event = MessageEvent(text="hello", source=source)
@@ -68,3 +69,61 @@ async def test_preprocess_keeps_plain_text_for_default_group_sessions():
     )
 
     assert result == "hello"
+
+
+@pytest.mark.asyncio
+async def test_preprocess_prefixes_thread_when_group_isolation_disabled():
+    runner = _make_runner(
+        GatewayConfig(
+            platforms={
+                Platform.TELEGRAM: PlatformConfig(enabled=True, token="fake"),
+            },
+            group_sessions_per_user=False,
+            thread_sessions_per_user=True,
+        )
+    )
+    source = SessionSource(
+        platform=Platform.TELEGRAM,
+        chat_id="-1002285219667",
+        chat_name="Test Group",
+        chat_type="group",
+        thread_id="17585",
+        user_id="alice",
+        user_name="Alice",
+    )
+    event = MessageEvent(text="hello", source=source)
+
+    result = await runner._prepare_inbound_message_text(
+        event=event,
+        source=source,
+        history=[],
+    )
+
+    assert result == "[Alice] hello"
+
+
+@pytest.mark.asyncio
+async def test_preprocess_prefixes_default_group_when_participant_id_missing():
+    runner = _make_runner(
+        GatewayConfig(
+            platforms={
+                Platform.TELEGRAM: PlatformConfig(enabled=True, token="fake"),
+            },
+        )
+    )
+    source = SessionSource(
+        platform=Platform.TELEGRAM,
+        chat_id="-1002285219667",
+        chat_name="Test Group",
+        chat_type="group",
+        user_name="Alice",
+    )
+    event = MessageEvent(text="hello", source=source)
+
+    result = await runner._prepare_inbound_message_text(
+        event=event,
+        source=source,
+        history=[],
+    )
+
+    assert result == "[Alice] hello"

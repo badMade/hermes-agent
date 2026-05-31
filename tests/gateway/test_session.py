@@ -12,6 +12,7 @@ from gateway.session import (
     build_session_context_prompt,
     build_session_key,
     canonical_whatsapp_identifier,
+    is_shared_multi_user_session,
 )
 
 # Legacy name preserved for these tests; product renamed the function to
@@ -379,6 +380,7 @@ class TestBuildSessionContextPrompt:
             chat_id="-1002285219667",
             chat_name="Test Group",
             chat_type="group",
+            user_id="alice",
             user_name="Alice",
         )
         ctx = build_session_context(source, config)
@@ -917,6 +919,61 @@ class TestWhatsAppSessionKeyConsistency:
         )
         key = build_session_key(source, thread_sessions_per_user=True)
         assert key == "agent:main:telegram:group:-1002285219667:17585:42"
+
+    def test_shared_helper_matches_thread_key_when_group_isolation_disabled(self):
+        """Threads remain shared if group isolation is disabled."""
+        alice = SessionSource(
+            platform=Platform.TELEGRAM,
+            chat_id="-1002285219667",
+            chat_type="group",
+            thread_id="17585",
+            user_id="alice",
+            user_name="Alice",
+        )
+        bob = SessionSource(
+            platform=Platform.TELEGRAM,
+            chat_id="-1002285219667",
+            chat_type="group",
+            thread_id="17585",
+            user_id="bob",
+            user_name="Bob",
+        )
+
+        assert (
+            build_session_key(
+                alice,
+                group_sessions_per_user=False,
+                thread_sessions_per_user=True,
+            )
+            == build_session_key(
+                bob,
+                group_sessions_per_user=False,
+                thread_sessions_per_user=True,
+            )
+        )
+        assert is_shared_multi_user_session(
+            alice,
+            group_sessions_per_user=False,
+            thread_sessions_per_user=True,
+        )
+
+    def test_shared_helper_treats_missing_participant_id_as_shared_key(self):
+        """Without a participant id, requested isolation falls back to a shared key."""
+        alice = SessionSource(
+            platform=Platform.TELEGRAM,
+            chat_id="-1002285219667",
+            chat_type="group",
+            user_name="Alice",
+        )
+        bob = SessionSource(
+            platform=Platform.TELEGRAM,
+            chat_id="-1002285219667",
+            chat_type="group",
+            user_name="Bob",
+        )
+
+        assert build_session_key(alice) == build_session_key(bob)
+        assert is_shared_multi_user_session(alice)
 
     def test_non_thread_group_sessions_still_isolated_per_user(self):
         """Regular group messages (no thread_id) remain per-user by default."""
