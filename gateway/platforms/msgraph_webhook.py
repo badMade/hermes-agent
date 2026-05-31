@@ -8,7 +8,6 @@ import ipaddress
 import json
 import logging
 from collections import deque
-from hashlib import sha1
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 try:
@@ -85,12 +84,11 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
         return raw if raw.startswith("/") else f"/{raw}"
 
     @staticmethod
-    def _build_receipt_key(notification: Dict[str, Any]) -> str:
+    def _build_receipt_key(notification: Dict[str, Any]) -> Optional[str]:
         explicit_id = str(notification.get("id") or "").strip()
         if explicit_id:
             return f"id:{explicit_id}"
-        payload = json.dumps(notification, sort_keys=True).encode("utf-8")
-        return f"sha1:{sha1(payload).hexdigest()}"
+        return None
 
     @staticmethod
     def _normalize_resource_value(resource: str) -> str:
@@ -248,10 +246,11 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
                 continue
 
             receipt_key = self._build_receipt_key(notification)
-            if self._has_seen_receipt(receipt_key):
-                duplicates += 1
-                continue
-            self._remember_receipt(receipt_key)
+            if receipt_key is not None:
+                if self._has_seen_receipt(receipt_key):
+                    duplicates += 1
+                    continue
+                self._remember_receipt(receipt_key)
 
             accepted += 1
             self._accepted_count += 1
@@ -347,9 +346,9 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
     def _build_message_event(
         self,
         notification: Dict[str, Any],
-        receipt_key: str,
+        receipt_key: Optional[str],
     ) -> MessageEvent:
-        message_id = receipt_key
+        message_id = receipt_key or ""
         source = self.build_source(
             chat_id=f"msgraph:{notification.get('subscriptionId', 'unknown')}",
             chat_name="msgraph/webhook",
