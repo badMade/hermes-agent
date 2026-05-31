@@ -1158,6 +1158,10 @@ def test_load_pool_seeds_copilot_via_gh_auth_token(tmp_path, monkeypatch):
         "hermes_cli.copilot_auth.resolve_copilot_token",
         lambda: ("gho_fake_token_abc123", "gh auth token"),
     )
+    monkeypatch.setattr(
+        "hermes_cli.copilot_auth.get_copilot_api_token",
+        lambda token: token,
+    )
 
     from agent.credential_pool import load_pool
     pool = load_pool("copilot")
@@ -1168,6 +1172,57 @@ def test_load_pool_seeds_copilot_via_gh_auth_token(tmp_path, monkeypatch):
     assert entries[0].source == "gh_cli"
     assert entries[0].access_token == "gho_fake_token_abc123"
     assert entries[0].base_url == "https://api.githubcopilot.com"
+
+
+def test_load_pool_seeds_copilot_gh_token_as_env_source_with_base_url_override(tmp_path, monkeypatch):
+    """GH_TOKEN should not mask COPILOT_API_BASE_URL behind a gh_cli entry."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("COPILOT_API_BASE_URL", "https://enterprise-proxy.example/copilot/")
+    monkeypatch.setenv("GH_TOKEN", "gho_fake_token_abc123")
+    _write_auth_store(tmp_path, {"version": 1, "credential_pool": {}})
+
+    monkeypatch.setattr(
+        "hermes_cli.copilot_auth.resolve_copilot_token",
+        lambda: ("gho_fake_token_abc123", "GH_TOKEN"),
+    )
+    monkeypatch.setattr(
+        "hermes_cli.copilot_auth.get_copilot_api_token",
+        lambda token: f"api-{token}",
+    )
+
+    from agent.credential_pool import load_pool
+    pool = load_pool("copilot")
+
+    assert pool.has_credentials()
+    entries = pool.entries()
+    assert len(entries) == 1
+    assert entries[0].source == "env:GH_TOKEN"
+    assert entries[0].access_token == "api-gho_fake_token_abc123"
+    assert entries[0].base_url == "https://enterprise-proxy.example/copilot"
+
+
+def test_load_pool_seeds_copilot_gh_cli_with_base_url_override(tmp_path, monkeypatch):
+    """gh auth token credentials should honor COPILOT_API_BASE_URL."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("COPILOT_API_BASE_URL", "https://enterprise-proxy.example/copilot/")
+    _write_auth_store(tmp_path, {"version": 1, "credential_pool": {}})
+
+    monkeypatch.setattr(
+        "hermes_cli.copilot_auth.resolve_copilot_token",
+        lambda: ("gho_fake_token_abc123", "gh auth token"),
+    )
+    monkeypatch.setattr(
+        "hermes_cli.copilot_auth.get_copilot_api_token",
+        lambda token: token,
+    )
+
+    from agent.credential_pool import load_pool
+    pool = load_pool("copilot")
+
+    entries = pool.entries()
+    assert len(entries) == 1
+    assert entries[0].source == "gh_cli"
+    assert entries[0].base_url == "https://enterprise-proxy.example/copilot"
 
 
 def test_load_pool_does_not_seed_copilot_when_no_token(tmp_path, monkeypatch):

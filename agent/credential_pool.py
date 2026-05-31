@@ -1270,10 +1270,17 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
             token, source = resolve_copilot_token()
             if token:
                 api_token = get_copilot_api_token(token)
-                source_name = "gh_cli" if "gh" in source.lower() else f"env:{source}"
+                source_name = "gh_cli" if source.lower() == "gh auth token" else f"env:{source}"
                 if not _is_suppressed(provider, source_name):
                     active_sources.add(source_name)
                     pconfig = PROVIDER_REGISTRY.get(provider)
+                    env_url = ""
+                    if pconfig and pconfig.base_url_env_var:
+                        env_url = (
+                            get_env_value(pconfig.base_url_env_var)
+                            or os.getenv(pconfig.base_url_env_var, "")
+                        ).strip().rstrip("/")
+                    base_url = env_url or (pconfig.inference_base_url if pconfig else "")
                     changed |= _upsert_entry(
                         entries,
                         provider,
@@ -1282,7 +1289,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
                             "source": source_name,
                             "auth_type": AUTH_TYPE_API_KEY,
                             "access_token": api_token,
-                            "base_url": pconfig.inference_base_url if pconfig else "",
+                            "base_url": base_url,
                             "label": source,
                         },
                     )
@@ -1468,6 +1475,14 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
             continue
         active_sources.add(source)
         auth_type = AUTH_TYPE_OAUTH if provider == "anthropic" and not token.startswith("sk-ant-api") else AUTH_TYPE_API_KEY
+        access_token = token
+        if provider == "copilot":
+            try:
+                from hermes_cli.copilot_auth import get_copilot_api_token
+
+                access_token = get_copilot_api_token(token)
+            except Exception:
+                access_token = token
         base_url = env_url or pconfig.inference_base_url
         if provider == "kimi-coding":
             base_url = _resolve_kimi_base_url(token, pconfig.inference_base_url, env_url)
@@ -1480,7 +1495,7 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
             {
                 "source": source,
                 "auth_type": auth_type,
-                "access_token": token,
+                "access_token": access_token,
                 "base_url": base_url,
                 "label": env_var,
             },
