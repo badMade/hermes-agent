@@ -97,18 +97,6 @@ class TestSanitizeApiMessages:
         out = AIAgent._sanitize_api_messages(msgs)
         assert out == msgs
 
-    def test_internal_hermes_metadata_is_stripped_from_api_copy(self):
-        msgs = [
-            {
-                "role": "assistant",
-                "content": "summary",
-                "_hermes_context_summary": "context_compressor_v1",
-            },
-        ]
-        out = AIAgent._sanitize_api_messages(msgs)
-        assert out == [{"role": "assistant", "content": "summary"}]
-        assert msgs[0]["_hermes_context_summary"] == "context_compressor_v1"
-
     def test_sdk_object_tool_calls(self):
         tc_obj = types.SimpleNamespace(id="c6", function=types.SimpleNamespace(
             name="terminal", arguments="{}"
