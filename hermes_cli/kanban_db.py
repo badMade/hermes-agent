@@ -1848,20 +1848,27 @@ def recompute_ready(conn: sqlite3.Connection) -> int:
             return 0
 
         now = int(time.time())
-        ids = [row["id"] for row in to_promote]
+
+        # Build parameter lists for executemany
+        update_params = []
+        event_params = []
+        for row in to_promote:
+            task_id = row["id"]
+            update_params.append((task_id,))
+            event_params.append((task_id, None, "promoted", None, now))
 
         conn.executemany(
             "UPDATE tasks SET status = 'ready' WHERE id = ?",
-            [(t,) for t in ids],
+            update_params,
         )
 
         conn.executemany(
             "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            [(t, None, "promoted", None, now) for t in ids],
+            event_params,
         )
 
-        return len(ids)
+        return len(to_promote)
 
 
 # ---------------------------------------------------------------------------
