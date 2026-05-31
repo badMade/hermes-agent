@@ -2095,16 +2095,11 @@ class SessionDB:
                 # For multi-token OR queries (e.g. "广西 OR 桂林 OR 漓江"),
                 # build one LIKE condition per non-operator token so each term
                 # is matched independently (#20494).
-                raw_tokens = [
+                non_op_tokens = [
                     t
                     for t in raw_query.split()
                     if t.upper() not in {"AND", "OR", "NOT"}
                 ] or [raw_query]
-                # Deduplicate and cap attacker-controlled tokens so the
-                # fallback cannot exceed SQLite expression/variable limits.
-                non_op_tokens = list(dict.fromkeys(raw_tokens))[
-                    : self._CJK_LIKE_MAX_TOKENS
-                ]
                 token_clauses = []
                 like_params: list = []
                 for tok in non_op_tokens:
