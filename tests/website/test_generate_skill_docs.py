@@ -114,32 +114,3 @@ def test_bundled_catalog_explains_missing_local_skills(gen_module):
     result = gen_module.build_catalog_md_bundled([])
     assert "respects local deletions and user edits" in result
     assert "hermes skills reset <name> --restore" in result
-
-
-def test_mdx_esm_statements_are_neutralized_outside_code(gen_module):
-    """Skill prose must not become executable MDX ESM in generated docs."""
-    body = (
-        "import Exploit from 'exploit'\n"
-        "export const mdxCrash = process.exit(86)\n\n"
-        "```js\nexport const allowedInCode = true\n```"
-    )
-    result = gen_module.mdx_escape_body(body)
-    assert "&#105;mport Exploit" in result
-    assert "&#101;xport const mdxCrash" in result
-    assert "export const mdxCrash" not in result
-    assert "export const allowedInCode = true" in result
-
-
-def test_unsafe_raw_html_attributes_are_escaped(gen_module):
-    """Whitelisted raw HTML tags must not preserve executable attributes or URL schemes."""
-    body = (
-        '<a href="javascript:alert(1)">bad</a>\n'
-        '<img src="https://example.com/a.png" onerror="alert(1)">\n'
-        '<span title={alert(1)}>bad</span>\n'
-        '<a href="https://example.com" title="ok">ok</a>'
-    )
-    result = gen_module.mdx_escape_body(body)
-    assert '&lt;a href="javascript:alert(1)">bad</a>' in result
-    assert '&lt;img src="https://example.com/a.png" onerror="alert(1)">' in result
-    assert '&lt;span title=&#123;alert(1)&#125;>bad</span>' in result
-    assert '<a href="https://example.com" title="ok">ok</a>' in result

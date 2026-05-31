@@ -521,8 +521,10 @@ class TestResizeToolPool:
 
         old_executor = MagicMock()
         new_executor = MagicMock()
+        mock_logger = MagicMock()
 
         monkeypatch.setattr(agent_loop_module, "_tool_executor", old_executor)
+        monkeypatch.setattr(agent_loop_module, "logger", mock_logger)
         monkeypatch.setattr(
             agent_loop_module.concurrent.futures,
             "ThreadPoolExecutor",
