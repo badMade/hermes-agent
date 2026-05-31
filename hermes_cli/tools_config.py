@@ -760,7 +760,8 @@ def _run_post_setup(post_setup_key: str):
                 "https://raw.githubusercontent.com/trycua/cua/main/"
                 "libs/cua-driver/scripts/install.sh)\""
             )
-            result = subprocess.run(install_cmd, shell=True, timeout=300)
+            from tools.environments.local import _sanitize_subprocess_env
+            result = subprocess.run(install_cmd, shell=True, timeout=300, env=_sanitize_subprocess_env(os.environ.copy()))
             if result.returncode == 0 and shutil.which("cua-driver"):
                 _print_success("    cua-driver installed.")
                 _print_info("    IMPORTANT — grant macOS permissions now:")

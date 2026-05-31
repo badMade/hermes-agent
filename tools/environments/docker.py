@@ -629,13 +629,14 @@ class DockerEnvironment(BaseEnvironment):
     def cleanup(self):
         """Stop and remove the container. Bind-mount dirs persist if persistent=True."""
         if self._container_id:
+            from tools.environments.local import _sanitize_subprocess_env
             try:
                 # Stop in background so cleanup doesn't block
                 stop_cmd = (
                     f"(timeout 60 {self._docker_exe} stop {self._container_id} || "
                     f"{self._docker_exe} rm -f {self._container_id}) >/dev/null 2>&1 &"
                 )
-                subprocess.Popen(stop_cmd, shell=True)
+                subprocess.Popen(stop_cmd, shell=True, env=_sanitize_subprocess_env(os.environ.copy()))
             except Exception as e:
                 logger.warning("Failed to stop container %s: %s", self._container_id, e)
 
@@ -645,6 +646,7 @@ class DockerEnvironment(BaseEnvironment):
                     subprocess.Popen(
                         f"sleep 3 && {self._docker_exe} rm -f {self._container_id} >/dev/null 2>&1 &",
                         shell=True,
+                        env=_sanitize_subprocess_env(os.environ.copy())
                     )
                 except Exception:
                     pass
