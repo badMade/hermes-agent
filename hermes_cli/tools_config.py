@@ -786,11 +786,11 @@ def _run_post_setup(post_setup_key: str):
         _print_info("    Installing cua-driver (macOS background computer-use)...")
         try:
             install_cmd = (
-                "/bin/bash -c \"$(curl -fsSL "
+                "curl -fsSL "
                 "https://raw.githubusercontent.com/trycua/cua/main/"
-                "libs/cua-driver/scripts/install.sh)\""
+                "libs/cua-driver/scripts/install.sh | /bin/bash"
             )
-            result = subprocess.run(install_cmd, shell=True, timeout=300)
+            result = subprocess.run(["/bin/bash", "-c", install_cmd], timeout=300)
             if result.returncode == 0 and shutil.which("cua-driver"):
                 _print_success("    cua-driver installed.")
                 _print_info("    IMPORTANT — grant macOS permissions now:")
