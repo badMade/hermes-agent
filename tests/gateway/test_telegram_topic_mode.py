@@ -340,7 +340,7 @@ async def test_group_new_keeps_existing_reset_semantics_when_dm_topic_mode_enabl
     result = await runner._handle_message(_make_group_event("/new", thread_id="555"))
 
     assert "Started a new Hermes session in this topic" not in result
-    assert "parallel work" not in result
+    assert "session attached to the current topic" not in result
     runner.session_store.reset_session.assert_called_once_with(group_key)
 
 
@@ -1048,7 +1048,6 @@ async def test_topic_refuses_unauthorized_user(tmp_path, monkeypatch):
         ).fetchall()
     }
     assert tables == set()
-
 
 
 
