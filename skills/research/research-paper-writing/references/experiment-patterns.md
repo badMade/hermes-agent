@@ -179,18 +179,13 @@ Key design decisions:
 For tasks with ground-truth evaluation (code, math, factual):
 
 ```python
-def evaluate_code(results_json: dict, test_cases: list):
-    """Evaluate recorded outputs against expected values.
-
-    Do not execute model-generated or repository-provided code directly.
-    """
+def evaluate_outputs(actual_outputs: list[str], test_cases: list[dict]):
+    """Score outputs produced by a trusted benchmark harness."""
     results = {"public": [], "private": []}
 
-    for test in test_cases:
-        actual = str(results_json.get(test["id"], "")).strip()
+    for actual, test in zip(actual_outputs, test_cases):
         expected = test["expected"].strip()
-        passed = actual == expected
-
+        passed = actual.strip() == expected
         category = "public" if test.get("public") else "private"
         results[category].append(passed)
 
@@ -199,6 +194,11 @@ def evaluate_code(results_json: dict, test_cases: list):
         "private_pass_rate": sum(results["private"]) / max(len(results["private"]), 1),
     }
 ```
+
+Do not execute model-generated or repository-provided code directly from this
+skill. For code benchmarks, use a trusted evaluation harness that already
+provides isolation (for example, a disposable container or managed judge) and
+then pass the captured outputs into the scoring helper above.
 
 ### Compute-Matched Comparison
 
@@ -472,7 +472,7 @@ Next: Run significance tests on these results.
 | **Process crash** | PID gone, log stops mid-problem | Re-run script (resumes from last checkpoint) |
 | **Wrong model ID** | Model not found errors | Fix ID (e.g., `claude-opus-4-6` not `claude-opus-4.6`) |
 | **Parallel slowdown** | Each experiment taking 2x longer | Reduce parallel experiments to 2-3 max |
-| **Security scan blocks** | Commands blocked by security | Do not switch tools to bypass the scan; fix the blocked command or request review |
+| **Security scan blocks** | Commands blocked by security | Treat the block as authoritative: inspect the command, remove unsafe constructs, or ask the user for an approved safe alternative. Do not switch tools to bypass the scan. |
 | **Delegation failures** | `delegate_task` returns errors | Fall back to doing work directly |
 | **Timeout on hard problems** | Process stuck, no log progress | Kill, skip problem, note in results |
 | **Dataset path mismatch** | File not found errors | Verify paths before launching |

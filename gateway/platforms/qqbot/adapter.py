@@ -1792,7 +1792,6 @@ class QQAdapter(BasePlatformAdapter):
                 exc,
             )
             return None
-
     async def _stt_voice_attachment(
             self,
             url: str,
