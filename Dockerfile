@@ -76,7 +76,7 @@ RUN npm install --prefer-offline --no-audit && \
 # The editable link is created after the source copy below.
 COPY pyproject.toml uv.lock ./
 RUN touch ./README.md
-RUN uv sync --frozen --no-install-project --extra all && rm -rf ~/.cache/uv
+RUN uv sync --frozen --no-install-project --extra all
 
 # ---------- Source code ----------
 # .dockerignore excludes node_modules, so the installs above survive.
@@ -96,7 +96,11 @@ RUN cd web && npm run build && \
 # not chowned here.
 USER root
 RUN chmod -R a+rX /opt/hermes && \
-    chown -R hermes:hermes /opt/hermes/ui-tui /opt/hermes/node_modules
+    chown -R hermes:hermes /opt/hermes/ui-tui /opt/hermes/node_modules && \
+    chown root:root /opt/hermes && \
+    chown -R root:root /opt/hermes/docker && \
+    chmod go-w /opt/hermes && \
+    chmod -R go-w /opt/hermes/docker
 # Start as root so the entrypoint can usermod/groupmod + gosu.
 # If HERMES_UID is unset, the entrypoint drops to the default hermes user (10000).
 
