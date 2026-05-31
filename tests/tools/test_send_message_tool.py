@@ -530,11 +530,12 @@ class TestSendToPlatformChunking:
         finally:
             doc_path.unlink(missing_ok=True)
 
-    def test_matrix_text_only_uses_lightweight_path(self):
-        """Text-only Matrix sends should NOT go through the heavy adapter path."""
+    def test_matrix_text_only_without_encryption_uses_lightweight_path(self):
+        """Unencrypted text-only Matrix sends keep the lightweight REST path."""
         helper = AsyncMock()
         lightweight = AsyncMock(return_value={"success": True, "platform": "matrix", "chat_id": "!room:ex.com", "message_id": "$txt"})
-        with patch("tools.send_message_tool._send_matrix_via_adapter", helper), \
+        with patch.dict(os.environ, {"MATRIX_ENCRYPTION": ""}), \
+             patch("tools.send_message_tool._send_matrix_via_adapter", helper), \
              patch("tools.send_message_tool._send_matrix", lightweight):
             result = asyncio.run(
                 _send_to_platform(
@@ -548,6 +549,25 @@ class TestSendToPlatformChunking:
         assert result["success"] is True
         helper.assert_not_awaited()
         lightweight.assert_awaited_once()
+
+    def test_matrix_text_only_with_encryption_uses_adapter_path(self):
+        """Encrypted Matrix text sends must go through the E2EE-capable adapter."""
+        helper = AsyncMock(return_value={"success": True, "platform": "matrix", "chat_id": "!room:ex.com", "message_id": "$txt"})
+        lightweight = AsyncMock()
+        with patch("tools.send_message_tool._send_matrix_via_adapter", helper), \
+             patch("tools.send_message_tool._send_matrix", lightweight):
+            result = asyncio.run(
+                _send_to_platform(
+                    Platform.MATRIX,
+                    SimpleNamespace(enabled=True, token="tok", extra={"homeserver": "https://matrix.example.com", "encryption": True}),
+                    "!room:ex.com",
+                    "just text, no files",
+                )
+            )
+
+        assert result["success"] is True
+        helper.assert_awaited_once()
+        lightweight.assert_not_awaited()
 
     def test_send_matrix_via_adapter_sends_document(self, tmp_path):
         file_path = tmp_path / "report.pdf"

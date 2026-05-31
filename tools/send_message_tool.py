@@ -75,6 +75,16 @@ def _error(message: str) -> dict:
     return {"error": _sanitize_error_text(message)}
 
 
+def _matrix_encryption_requested(extra) -> bool:
+    """Return True when Matrix sends must use the E2EE-capable adapter."""
+    value = (extra or {}).get("encryption")
+    if value is None:
+        value = os.getenv("MATRIX_ENCRYPTION", "")
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes")
+    return bool(value)
+
+
 def _path_is_relative_to(path: Path, root: Path) -> bool:
     """Return True when path is inside root without requiring Python 3.9's is_relative_to."""
     try:
@@ -686,8 +696,8 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
             last_result = result
         return last_result
 
-    # --- Matrix: use the native adapter helper when media is present ---
-    if platform == Platform.MATRIX and media_files:
+    # --- Matrix: preserve E2EE by using the adapter whenever encryption is requested. ---
+    if platform == Platform.MATRIX and (media_files or _matrix_encryption_requested(pconfig.extra)):
         last_result = None
         for i, chunk in enumerate(chunks):
             is_last = (i == len(chunks) - 1)
