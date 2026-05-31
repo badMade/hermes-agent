@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
-import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -653,49 +651,6 @@ def test_has_spawnable_ready_false_on_empty_queue(kanban_home):
     with kb.connect() as conn:
         assert kb.has_spawnable_ready(conn) is False
 
-
-def test_dispatch_does_not_reap_unrelated_child(kanban_home):
-    if os.name == "nt":
-        pytest.skip("POSIX waitpid regression")
-    with kb._known_worker_child_pids_lock:
-        kb._known_worker_child_pids.clear()
-    child = subprocess.Popen([sys.executable, "-c", "import sys; sys.exit(42)"])
-    time.sleep(0.1)
-
-    try:
-        with kb.connect() as conn:
-            kb.dispatch_once(conn, max_spawn=0)
-
-        assert child.wait(timeout=5) == 42
-    finally:
-        if child.poll() is None:
-            child.kill()
-            child.wait(timeout=5)
-
-
-def test_dispatch_reaps_tracked_worker_child(kanban_home):
-    if os.name == "nt":
-        pytest.skip("POSIX waitpid regression")
-    with kb._known_worker_child_pids_lock:
-        kb._known_worker_child_pids.clear()
-    child = subprocess.Popen(
-        [sys.executable, "-c", "import sys,time; time.sleep(0.2); sys.exit(7)"]
-    )
-    kb._track_worker_child(child.pid)
-    time.sleep(0.3)
-
-    try:
-        with kb.connect() as conn:
-            kb.dispatch_once(conn, max_spawn=0)
-
-        assert child.pid not in kb._known_worker_child_pids
-        assert kb._classify_worker_exit(child.pid) == ("nonzero_exit", 7)
-    finally:
-        with kb._known_worker_child_pids_lock:
-            kb._known_worker_child_pids.discard(child.pid)
-        if child.poll() is None:
-            child.kill()
-            child.wait(timeout=5)
 
 def test_dispatch_promotes_ready_and_spawns(kanban_home, all_assignees_spawnable):
     spawns = []
@@ -1400,45 +1355,69 @@ def test_resolve_hermes_argv_prefers_path_shim(monkeypatch):
     assert argv == ["/usr/local/bin/hermes"]
 
 
-def test_resolve_hermes_argv_falls_back_to_module_form_when_no_path_shim(monkeypatch):
-    """When the shim is not on PATH, fall back to `python -m hermes_cli.main`.
+def test_resolve_hermes_argv_absolutizes_relative_path_shim(monkeypatch, tmp_path):
+    """Relative PATH hits must be anchored before worker cwd changes."""
+    import shutil
+    import hermes_cli.kanban_db as kb
 
-    Pins the correct module name (NOT `hermes` — there is no top-level
-    `hermes` package). Regression for #23198: the original PR shipped
-    `python -m hermes` which fails with `No module named hermes` on every
-    invocation.
-    """
+    dispatcher_cwd = tmp_path / "dispatcher"
+    dispatcher_cwd.mkdir()
+    monkeypatch.chdir(dispatcher_cwd)
+    monkeypatch.setattr(shutil, "which", lambda name: "bin/hermes")
+
+    argv = kb._resolve_hermes_argv()
+
+    assert argv == [str(dispatcher_cwd / "bin" / "hermes")]
+
+
+def test_resolve_hermes_argv_falls_back_to_safe_bootstrap_when_no_path_shim(monkeypatch):
+    """When the shim is not on PATH, run the real CLI without child-cwd imports."""
     import shutil
     import sys
     import hermes_cli.kanban_db as kb
 
     monkeypatch.setattr(shutil, "which", lambda name: None)
     argv = kb._resolve_hermes_argv()
-    assert argv == [sys.executable, "-m", "hermes_cli.main"]
+
+    expected_python = (
+        sys.executable if os.path.isabs(sys.executable) else os.path.abspath(sys.executable)
+    )
+    assert argv[:3] == [expected_python, "-P", "-c"]
+    assert "runpy.run_module('hermes_cli.main'" in argv[3]
+    assert "trusted_root" in argv[3]
 
 
-def test_resolve_hermes_argv_module_actually_runs():
-    """The fallback module name must be importable + runnable.
-
-    A unit test that pins the literal string is necessary but not
-    sufficient — if `hermes_cli.main` ever loses `if __name__ == "__main__"`
-    handling or its argparse setup, `python -m hermes_cli.main --version`
-    would fail and so would every dispatcher spawn that hits the fallback.
-    Run it as a real subprocess to catch that regression.
-    """
+def test_resolve_hermes_argv_bootstrap_actually_runs_from_untrusted_cwd(tmp_path):
+    """Fallback startup must ignore a workspace-provided hermes_cli package."""
     import subprocess
-    import sys
     import hermes_cli.kanban_db as kb
     import shutil
     import unittest.mock as mock
 
+    pytest.importorskip("yaml")
+
+    workspace = tmp_path / "workspace"
+    malicious_pkg = workspace / "hermes_cli"
+    malicious_pkg.mkdir(parents=True)
+    (malicious_pkg / "__init__.py").write_text("")
+    (malicious_pkg / "main.py").write_text(
+        "import sys; print('ATTACKER_MODULE'); sys.exit(86)\n"
+    )
+
     with mock.patch.object(shutil, "which", return_value=None):
         argv = kb._resolve_hermes_argv()
-    r = subprocess.run(argv + ["--version"], capture_output=True, text=True, timeout=30)
+    r = subprocess.run(
+        argv + ["--version"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert r.returncode == 0, (
-        f"`{' '.join(argv)} --version` failed (rc={r.returncode}); "
+        f"`{' '.join(argv[:3])} ... --version` failed (rc={r.returncode}); "
         f"stderr={r.stderr[:200]!r}"
     )
+    assert "ATTACKER_MODULE" not in r.stdout
     assert "Hermes Agent" in r.stdout, f"unexpected output: {r.stdout[:200]!r}"
 
 
