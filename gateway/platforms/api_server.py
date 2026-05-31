@@ -49,6 +49,14 @@ from gateway.platforms.base import (
     SendResult,
     is_network_accessible,
 )
+from tools.url_safety import is_safe_url
+from gateway.proxy_scope_auth import (
+    PROXY_SCOPE_SIGNATURE_HEADER,
+    PROXY_SCOPE_TIMESTAMP_HEADER,
+    get_proxy_scope_key,
+    verify_proxy_scope_signature,
+)
+from hermes_cli.auth import has_usable_secret
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +226,12 @@ def _normalize_multimodal_content(content: Any) -> Any:
                         "unsupported_content_type:Only image data URLs are supported. "
                         "Non-image data payloads are not supported."
                     )
-            elif not (lowered.startswith("http://") or lowered.startswith("https://")):
+            elif lowered.startswith("http://") or lowered.startswith("https://"):
+                if not is_safe_url(url_value):
+                    raise ValueError(
+                        "invalid_image_url:Image URLs must not target private or internal network addresses."
+                    )
+            else:
                 raise ValueError(
                     "invalid_image_url:Image inputs must use http(s) URLs or data:image/... URLs."
                 )
@@ -537,6 +550,14 @@ def _new_chat_session_id() -> str:
     return f"api-{uuid.uuid4().hex}"
 
 
+def _derive_chat_session_id(session_key: str) -> str:
+    """Derive a stable API chat session ID from a caller-provided session key."""
+    from hashlib import sha256
+
+    digest = sha256(str(session_key).encode("utf-8")).hexdigest()
+    return f"api-{digest[:16]}"
+
+
 _CRON_AVAILABLE = False
 try:
     from cron.jobs import (
@@ -578,6 +599,7 @@ class APIServerAdapter(BasePlatformAdapter):
             raw_port = os.getenv("API_SERVER_PORT", str(DEFAULT_PORT))
         self._port: int = _coerce_port(raw_port, DEFAULT_PORT)
         self._api_key: str = extra.get("key", os.getenv("API_SERVER_KEY", ""))
+        self._api_key_usable: bool = has_usable_secret(self._api_key, min_length=1)
         self._cors_origins: tuple[str, ...] = self._parse_cors_origins(
             extra.get("cors_origins", os.getenv("API_SERVER_CORS_ORIGINS", "")),
         )
@@ -682,6 +704,21 @@ class APIServerAdapter(BasePlatformAdapter):
         """
         if not self._api_key:
             return None  # No key configured — allow all (local-only use)
+        if not self._api_key_usable:
+            logger.warning(
+                "[%s] Rejecting request: configured API key is a placeholder",
+                self.name,
+            )
+            return web.json_response(
+                {
+                    "error": {
+                        "message": "Invalid API key",
+                        "type": "invalid_request_error",
+                        "code": "invalid_api_key",
+                    }
+                },
+                status=401,
+            )
 
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -3361,19 +3398,15 @@ class APIServerAdapter(BasePlatformAdapter):
             # Refuse to start network-accessible with a placeholder key.
             # Ported from openclaw/openclaw#64586.
             if is_network_accessible(self._host) and self._api_key:
-                try:
-                    from hermes_cli.auth import has_usable_secret
-                    if not has_usable_secret(self._api_key, min_length=8):
-                        logger.error(
-                            "[%s] Refusing to start: API_SERVER_KEY is set to a "
-                            "placeholder value. Generate a real secret "
-                            "(e.g. `openssl rand -hex 32`) and set API_SERVER_KEY "
-                            "before exposing the API server on %s.",
-                            self.name, self._host,
-                        )
-                        return False
-                except ImportError:
-                    pass
+                if not has_usable_secret(self._api_key, min_length=8):
+                    logger.error(
+                        "[%s] Refusing to start: API_SERVER_KEY is set to a "
+                        "placeholder value. Generate a real secret "
+                        "(e.g. `openssl rand -hex 32`) and set API_SERVER_KEY "
+                        "before exposing the API server on %s.",
+                        self.name, self._host,
+                    )
+                    return False
 
             # Port conflict detection — fail fast if port is already in use
             try:
