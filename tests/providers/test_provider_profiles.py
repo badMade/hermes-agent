@@ -287,3 +287,42 @@ class TestBaseProfile:
         eb, tl = p.build_api_kwargs_extras()
         assert eb == {}
         assert tl == {}
+
+
+class TestProviderProfileFetchModels:
+    def test_base_url_override_scopes_model_catalog_request(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"data": [{"id": "private-model"}]}'
+
+        def fake_urlopen(req, timeout):
+            captured["url"] = req.full_url
+            captured["authorization"] = req.get_header("Authorization")
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+        profile = ProviderProfile(
+            name="example",
+            base_url="https://api.default.example/v1",
+        )
+
+        assert profile.fetch_models(
+            api_key="private-key",
+            base_url="https://private.example.test/openai/v1",
+            timeout=3.0,
+        ) == ["private-model"]
+        assert captured == {
+            "url": "https://private.example.test/openai/v1/models",
+            "authorization": "Bearer private-key",
+            "timeout": 3.0,
+        }
