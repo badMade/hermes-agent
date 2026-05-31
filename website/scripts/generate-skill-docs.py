@@ -13,14 +13,12 @@ Sidebar is updated to nest all per-skill pages under Skills → Bundled / Option
 """
 
 from __future__ import annotations
-import html
 import re
 import sys
 from collections import defaultdict
 from pathlib import Path
 from textwrap import dedent
 from typing import Any
-from urllib.parse import urlparse
 
 import yaml
 
@@ -66,111 +64,6 @@ def _wrap_ascii_art_code_blocks(code_segment: str) -> str:
     )
 
 
-_SAFE_HTML_TAGS = {
-    "br",
-    "hr",
-    "img",
-    "a",
-    "b",
-    "i",
-    "em",
-    "strong",
-    "code",
-    "kbd",
-    "sup",
-    "sub",
-    "span",
-    "div",
-    "p",
-    "ul",
-    "ol",
-    "li",
-    "table",
-    "thead",
-    "tbody",
-    "tr",
-    "td",
-    "th",
-    "details",
-    "summary",
-    "blockquote",
-    "pre",
-    "mark",
-    "small",
-    "u",
-    "s",
-    "del",
-    "ins",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-}
-
-_GLOBAL_HTML_ATTRS = {"id", "class", "title", "lang", "dir", "aria-label", "role"}
-_TAG_HTML_ATTRS = {
-    "a": {"href", "name", "target", "rel"},
-    "img": {"src", "alt", "width", "height", "loading"},
-    "td": {"align", "colspan", "rowspan"},
-    "th": {"align", "colspan", "rowspan", "scope"},
-}
-_SAFE_URL_SCHEMES = {"", "http", "https", "mailto"}
-_ATTR_RE = re.compile(
-    r"""\s*([A-Za-z_:][A-Za-z0-9_.:-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?"""
-)
-_MDX_ESM_RE = re.compile(
-    r"(?m)^(?P<indent>[ \t]*)(?P<keyword>import|export)(?=\s|\{|\*)"
-)
-
-
-def _escape_mdx_esm(text: str) -> str:
-    """Neutralize MDX ESM statements while keeping them readable in docs."""
-    replacements = {"import": "&#105;mport", "export": "&#101;xport"}
-    return _MDX_ESM_RE.sub(
-        lambda m: m.group("indent") + replacements[m.group("keyword")], text
-    )
-
-
-def _has_safe_url(value: str) -> bool:
-    parsed = urlparse(html.unescape(value).strip())
-    return parsed.scheme.lower() in _SAFE_URL_SCHEMES
-
-
-def _safe_html_tag(raw_tag: str, tag: str, raw_attrs: str) -> bool:
-    """Return true when a whitelisted raw HTML tag has only inert attributes."""
-    if tag not in _SAFE_HTML_TAGS:
-        return False
-
-    attrs = raw_attrs.strip()
-    if not attrs or attrs == "/":
-        return True
-
-    if raw_tag.startswith("</"):
-        return attrs == ""
-
-    if attrs.endswith("/"):
-        attrs = attrs[:-1].rstrip()
-    if "{" in attrs or "}" in attrs:
-        return False
-
-    pos = 0
-    allowed_attrs = _GLOBAL_HTML_ATTRS | _TAG_HTML_ATTRS.get(tag, set())
-    while pos < len(attrs):
-        m = _ATTR_RE.match(attrs, pos)
-        if not m:
-            return False
-        name = m.group(1).lower()
-        value = next((group for group in m.groups()[1:] if group is not None), "")
-        if name.startswith("on") or name not in allowed_attrs:
-            return False
-        if name in {"href", "src"} and not _has_safe_url(value):
-            return False
-        pos = m.end()
-    return True
-
-
 def mdx_escape_body(body: str) -> str:
     """Escape MDX-dangerous characters in markdown body, leaving fenced code blocks alone.
 
@@ -178,11 +71,11 @@ def mdx_escape_body(body: str) -> str:
       * `{` -> `&#123;`  (prevents MDX from parsing JSX expressions)
       * `}` -> `&#125;`
       * `<tag>` for bare tags that aren't whitelisted HTML get HTML-entity-escaped
-      * top-level MDX ESM `import`/`export` statements are neutralized
       * inline `` `code` `` content is preserved (backticks handled naturally)
     Inside fenced code blocks: untouched.
 
-    Whitelisted raw HTML is preserved only when its attributes are safe.
+    We also preserve `<br>`, `<br/>`, `<img ...>`, `<a ...>`, and a handful of
+    other markup-safe tags because Docusaurus/MDX accepts them as HTML.
     """
     # Split the body into segments by fenced code blocks, alternating
     # (text, code, text, code, ...). A line like ``` or ~~~ opens a fence;
@@ -223,7 +116,6 @@ def mdx_escape_body(body: str) -> str:
         segments.append((mode, "\n".join(buf)))
 
     def escape_text(text: str) -> str:
-        text = _escape_mdx_esm(text)
         # Walk inline-code runs (backticks) and leave them alone.
         # Pattern matches runs of backticks, then the matched content, then the
         # same number of backticks.
@@ -269,12 +161,53 @@ def mdx_escape_body(body: str) -> str:
                         text[i:],
                     )
                     if m:
-                        raw_tag = m.group(0)
                         tag = m.group(2).lower()
-                        raw_attrs = m.group(3)
-                        if _safe_html_tag(raw_tag, tag, raw_attrs):
-                            out.append(raw_tag)
-                            i += len(raw_tag)
+                        # Whitelist known-safe HTML tags
+                        safe_tags = {
+                            "br",
+                            "hr",
+                            "img",
+                            "a",
+                            "b",
+                            "i",
+                            "em",
+                            "strong",
+                            "code",
+                            "kbd",
+                            "sup",
+                            "sub",
+                            "span",
+                            "div",
+                            "p",
+                            "ul",
+                            "ol",
+                            "li",
+                            "table",
+                            "thead",
+                            "tbody",
+                            "tr",
+                            "td",
+                            "th",
+                            "details",
+                            "summary",
+                            "blockquote",
+                            "pre",
+                            "mark",
+                            "small",
+                            "u",
+                            "s",
+                            "del",
+                            "ins",
+                            "h1",
+                            "h2",
+                            "h3",
+                            "h4",
+                            "h5",
+                            "h6",
+                        }
+                        if tag in safe_tags:
+                            out.append(m.group(0))
+                            i += len(m.group(0))
                             continue
                     # Escape the `<`
                     out.append("&lt;")
