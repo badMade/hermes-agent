@@ -71,7 +71,6 @@ def _error(message: str) -> dict:
     return {"error": _sanitize_error_text(message)}
 
 
-<<<<<<< HEAD
 def _matrix_encryption_requested(extra) -> bool:
     """Return True when Matrix sends must use the E2EE-capable adapter."""
     value = (extra or {}).get("encryption")
@@ -147,8 +146,6 @@ def _validate_matrix_media_path(media_path: str) -> tuple[Path | None, str | Non
     return resolved, None
 
 
-=======
->>>>>>> origin/main
 def _telegram_retry_delay(exc: Exception, attempt: int) -> float | None:
     retry_after = getattr(exc, "retry_after", None)
     if retry_after is not None:
