@@ -10,7 +10,6 @@ rendered with Rich Markdown.  Otherwise a default confirmation is shown.
 from __future__ import annotations
 
 import functools
-import json
 import logging
 import os
 import shutil
@@ -695,14 +694,6 @@ def _plugin_exists(name: str) -> bool:
             manifest = _read_manifest(child)
             if manifest.get("name") == name:
                 return True
-            dashboard_manifest = child / "dashboard" / "manifest.json"
-            if dashboard_manifest.exists():
-                try:
-                    data = json.loads(dashboard_manifest.read_text(encoding="utf-8"))
-                except Exception:
-                    data = {}
-                if data.get("name", child.name) == name:
-                    return True
     # Bundled: <repo>/plugins/<name>/ (or HERMES_BUNDLED_PLUGINS on Nix).
     from hermes_cli.plugins import get_bundled_plugins_dir
     repo_plugins = get_bundled_plugins_dir()
@@ -711,21 +702,8 @@ def _plugin_exists(name: str) -> bool:
         if candidate.is_dir() and (
             (candidate / "plugin.yaml").exists()
             or (candidate / "plugin.yml").exists()
-            or (candidate / "dashboard" / "manifest.json").exists()
         ):
             return True
-        for child in repo_plugins.iterdir():
-            if not child.is_dir():
-                continue
-            dashboard_manifest = child / "dashboard" / "manifest.json"
-            if not dashboard_manifest.exists():
-                continue
-            try:
-                data = json.loads(dashboard_manifest.read_text(encoding="utf-8"))
-            except Exception:
-                data = {}
-            if data.get("name", child.name) == name:
-                return True
     return False
 
 
@@ -758,25 +736,15 @@ def _discover_all_plugins() -> list:
             manifest_file = d / "plugin.yaml"
             if not manifest_file.exists():
                 manifest_file = d / "plugin.yml"
-            dashboard_manifest = d / "dashboard" / "manifest.json"
-            has_plugin_manifest = manifest_file.exists()
-            if not has_plugin_manifest and not dashboard_manifest.exists():
+            if not manifest_file.exists():
                 continue
             name = d.name
             version = ""
             description = ""
-            if has_plugin_manifest and yaml:
+            if yaml:
                 try:
                     with open(manifest_file, encoding="utf-8") as f:
                         manifest = yaml.safe_load(f) or {}
-                    name = manifest.get("name", d.name)
-                    version = manifest.get("version", "")
-                    description = manifest.get("description", "")
-                except Exception:
-                    pass
-            elif dashboard_manifest.exists():
-                try:
-                    manifest = json.loads(dashboard_manifest.read_text(encoding="utf-8"))
                     name = manifest.get("name", d.name)
                     version = manifest.get("version", "")
                     description = manifest.get("description", "")
@@ -1436,12 +1404,9 @@ def _get_plugin_toolset_key(name: str) -> Optional[str]:
 
 
 def _toggle_plugin_toolset(name: str, *, enable: bool) -> None:
-    """Add or remove a plugin's toolset from the local CLI platform only.
+    """Add or remove a plugin's toolset from platform_toolsets for all platforms.
 
-    Dashboard plugin enablement controls whether a plugin is loaded.  Tool
-    exposure remains a per-platform authorization decision, so this helper must
-    not grant plugin tools to gateway/API platforms when making them available
-    for local dashboard/CLI sessions.
+    Only acts if the plugin actually provides tools (has a toolset key).
     """
     toolset_key = _get_plugin_toolset_key(name)
     if not toolset_key:
@@ -1455,18 +1420,21 @@ def _toggle_plugin_toolset(name: str, *, enable: bool) -> None:
         platform_toolsets = {}
         config["platform_toolsets"] = platform_toolsets
 
-    cli_toolsets = platform_toolsets.get("cli")
-    if not isinstance(cli_toolsets, list):
-        cli_toolsets = []
-        platform_toolsets["cli"] = cli_toolsets
-
     changed = False
-    if enable:
-        if toolset_key not in cli_toolsets:
-            cli_toolsets.append(toolset_key)
+    for platform, ts_list in platform_toolsets.items():
+        if not isinstance(ts_list, list):
+            continue
+        if enable:
+            if toolset_key not in ts_list:
+                ts_list.append(toolset_key)
+                changed = True
+        elif toolset_key in ts_list:
+            ts_list.remove(toolset_key)
             changed = True
-    elif toolset_key in cli_toolsets:
-        cli_toolsets.remove(toolset_key)
+
+    # If enabling and no platforms have toolset lists yet, add to "cli" at minimum
+    if enable and not changed and not platform_toolsets:
+        platform_toolsets["cli"] = [toolset_key]
         changed = True
 
     if changed:
@@ -1476,9 +1444,8 @@ def _toggle_plugin_toolset(name: str, *, enable: bool) -> None:
 def dashboard_set_agent_plugin_enabled(name: str, *, enabled: bool) -> dict[str, Any]:
     """Enable or disable a plugin in ``config.yaml`` (runtime allow/deny lists).
 
-    For plugins that provide tools (toolsets), also toggles the local CLI
-    platform entry so dashboard/CLI sessions can see the tools without
-    broadening gateway/API platform authorization.
+    For plugins that provide tools (toolsets), also toggles the toolset in
+    ``platform_toolsets`` so the agent actually sees the tools in sessions.
     """
     if not _plugin_exists(name):
         return {"ok": False, "error": f"Plugin '{name}' is not installed or bundled."}
