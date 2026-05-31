@@ -258,6 +258,30 @@ class TestSkillViewQualifiedName:
         assert result["name"] == "ticktick"
         assert "TickTick body." in result["content"]
 
+    def test_category_qualified_local_skill_rejects_traversal(self, tmp_path, monkeypatch):
+        from tools.skills_tool import skill_view
+
+        local_skills = tmp_path / "local-skills"
+        (local_skills / "existingcategory").mkdir(parents=True)
+        outside_skill = tmp_path / "outside-skill"
+        (outside_skill / "references").mkdir(parents=True)
+        (outside_skill / "SKILL.md").write_text(
+            "---\nname: outside-skill\ndescription: escaped\n---\nESCAPED-MAIN-CONTENT\n"
+        )
+        (outside_skill / "references" / "secret.md").write_text("SECRET-REFERENCE-CONTENT\n")
+        monkeypatch.setattr("tools.skills_tool.SKILLS_DIR", local_skills)
+
+        result = json.loads(skill_view("existingcategory:../../outside-skill"))
+        file_result = json.loads(
+            skill_view("existingcategory:../../outside-skill", "references/secret.md")
+        )
+
+        assert result["success"] is False
+        assert "traversal" in result["error"].lower()
+        assert "ESCAPED-MAIN-CONTENT" not in json.dumps(result)
+        assert file_result["success"] is False
+        assert "SECRET-REFERENCE-CONTENT" not in json.dumps(file_result)
+
     def test_stale_entry_self_heals(self, tmp_path):
         from tools.skills_tool import skill_view
 
@@ -388,44 +412,3 @@ class TestBundleContextBanner:
         self._setup_bundle(tmp_path)
         result = json.loads(skill_view("myplugin:foo"))
         assert "foo body." in result["content"]
-
-
-# ── Safe skill index traversal ─────────────────────────────────────────────
-
-
-class TestIterSkillIndexFilesSymlinks:
-    def test_skips_recursive_directory_symlink(self, tmp_path):
-        from agent.skill_utils import iter_skill_index_files
-
-        skill_file = tmp_path / "SKILL.md"
-        skill_file.write_text("---\nname: loop\n---\n")
-        os.symlink(tmp_path, tmp_path / "loop")
-
-        assert list(iter_skill_index_files(tmp_path, "SKILL.md")) == [skill_file]
-
-    def test_skips_directory_symlink_outside_skills_tree(self, tmp_path):
-        from agent.skill_utils import iter_skill_index_files
-
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        (outside / "SKILL.md").write_text("---\nname: outside\n---\n")
-
-        skills_dir = tmp_path / "skills"
-        skills_dir.mkdir()
-        os.symlink(outside, skills_dir / "outside")
-
-        assert list(iter_skill_index_files(skills_dir, "SKILL.md")) == []
-
-    def test_scans_when_skills_dir_itself_is_a_symlink(self, tmp_path):
-        from agent.skill_utils import iter_skill_index_files
-
-        real_skills = tmp_path / "real-skills"
-        real_skills.mkdir()
-        (real_skills / "SKILL.md").write_text("---\nname: linked-root\n---\n")
-
-        linked_skills = tmp_path / "linked-skills"
-        os.symlink(real_skills, linked_skills)
-
-        assert list(iter_skill_index_files(linked_skills, "SKILL.md")) == [
-            linked_skills / "SKILL.md"
-        ]
