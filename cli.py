@@ -1869,7 +1869,7 @@ _TERMINAL_INPUT_MODE_RESET_SEQ = (
     "\x1b[?1002l"  # disable button-motion tracking
     "\x1b[?1000l"  # disable click tracking
     "\x1b[?1004l"  # disable focus events
-    "\x1b[?2004h"  # keep bracketed paste safety enabled while prompt_toolkit runs
+    "\x1b[?2004l"  # disable bracketed paste
     "\x1b[?1049l"  # leave alt screen (if stuck there)
     "\x1b[<u"      # pop kitty keyboard mode
     "\x1b[>4m"     # reset modifyOtherKeys
@@ -7543,12 +7543,14 @@ class HermesCLI:
                 qcmd = quick_commands[base_cmd.lstrip("/")]
                 if qcmd.get("type") == "exec":
                     import subprocess
+                    from tools.environments.local import _sanitize_subprocess_env
                     exec_cmd = qcmd.get("command", "")
                     if exec_cmd:
                         try:
+                            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
                             result = subprocess.run(
                                 exec_cmd, shell=True, capture_output=True,
-                                text=True, timeout=30
+                                text=True, timeout=30, env=sanitized_env
                             )
                             output = result.stdout.strip() or result.stderr.strip()
                             if output:

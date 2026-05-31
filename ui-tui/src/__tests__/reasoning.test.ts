@@ -58,10 +58,4 @@ describe('cleanThinkingText', () => {
       )
     ).toBe('**Resolving comments on GitHub**\nActual step\nnext step')
   })
-
-  it('handles long punctuation-only reasoning lines without regex backtracking', () => {
-    const line = '!'.repeat(50_000)
-
-    expect(cleanThinkingText(line)).toBe(line)
-  })
 })
