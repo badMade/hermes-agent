@@ -1675,6 +1675,8 @@ class QQAdapter(BasePlatformAdapter):
                 url,
                 headers=self._qq_media_headers(url),
                 context="attachment",
+                timeout=30.0,
+                headers=self._qq_media_headers(),
             )
         except Exception:
             data = None
@@ -1714,21 +1716,14 @@ class QQAdapter(BasePlatformAdapter):
             return True
         return False
 
-    _TRUSTED_QQ_MEDIA_HOST = "multimedia.nt.qq.com.cn"
+    def _qq_media_headers(self) -> Dict[str, str]:
+        """Return Authorization headers for QQ multimedia CDN downloads.
 
-    def _qq_media_headers(self, url: str) -> Dict[str, str]:
-        """Return Authorization headers for trusted QQ multimedia CDN URLs only.
-
-        Auth tokens are only sent to multimedia.nt.qq.com.cn to prevent
-        accidental credential leakage to arbitrary redirect targets.
+        QQ's multimedia URLs (multimedia.nt.qq.com.cn) require the bot's
+        access token in an Authorization header, otherwise the download
+        returns a non-200 status.
         """
-        if not self._access_token:
-            return {}
-        try:
-            hostname = urlparse(url).hostname
-        except Exception:
-            return {}
-        if hostname and hostname.lower() == self._TRUSTED_QQ_MEDIA_HOST:
+        if self._access_token:
             return {"Authorization": f"QQBot {self._access_token}"}
         return {}
 
@@ -1839,7 +1834,7 @@ class QQAdapter(BasePlatformAdapter):
                 logger.warning("[%s] STT: no HTTP client", self._log_tag)
                 return None
 
-            download_headers = self._qq_media_headers(download_url)
+            download_headers = self._qq_media_headers()
             logger.debug(
                 "[%s] STT: downloading voice from %s (pre_wav=%s, headers=%s)",
                 self._log_tag,

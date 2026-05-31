@@ -521,8 +521,10 @@ class TestResizeToolPool:
 
         old_executor = MagicMock()
         new_executor = MagicMock()
+        mock_logger = MagicMock()
 
         monkeypatch.setattr(agent_loop_module, "_tool_executor", old_executor)
+        monkeypatch.setattr(agent_loop_module, "logger", mock_logger)
         monkeypatch.setattr(
             agent_loop_module.concurrent.futures,
             "ThreadPoolExecutor",
@@ -562,3 +564,4 @@ class TestResizeToolPool:
 
         # The future should still complete successfully because wait=False was used
         assert future.result(timeout=1.0) == "done"
+        mock_logger.info.assert_called_once_with("Tool thread pool resized to %d workers", 16)

@@ -191,6 +191,13 @@ def evaluate_code(results_json: dict, test_cases: list):
         expected = test["expected"].strip()
         passed = actual == expected
 
+def evaluate_outputs(actual_outputs: list[str], test_cases: list[dict]):
+    """Score outputs produced by a trusted benchmark harness."""
+    results = {"public": [], "private": []}
+
+    for actual, test in zip(actual_outputs, test_cases):
+        expected = test["expected"].strip()
+        passed = actual.strip() == expected
         category = "public" if test.get("public") else "private"
         results[category].append(passed)
 
@@ -199,6 +206,11 @@ def evaluate_code(results_json: dict, test_cases: list):
         "private_pass_rate": sum(results["private"]) / max(len(results["private"]), 1),
     }
 ```
+
+Do not execute model-generated or repository-provided code directly from this
+skill. For code benchmarks, use a trusted evaluation harness that already
+provides isolation (for example, a disposable container or managed judge) and
+then pass the captured outputs into the scoring helper above.
 
 ### Compute-Matched Comparison
 
