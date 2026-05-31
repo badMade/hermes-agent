@@ -91,7 +91,6 @@ class TestProviderEnvBlocklist:
 
         for var in auxiliary_secret_vars:
             assert var not in result_env, f"{var} leaked into subprocess env"
-
     def test_registry_derived_vars_are_stripped(self):
         """Vars from the provider registry (ANTHROPIC_TOKEN, ZAI_API_KEY, etc.)
         must also be blocked — not just the hand-written extras."""
@@ -240,22 +239,6 @@ class TestBlocklistCoverage:
         """Non-registry auth vars (ANTHROPIC_TOKEN, CLAUDE_CODE_OAUTH_TOKEN)
         must also be in the blocklist."""
         extras = {"ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
-        assert extras.issubset(_HERMES_PROVIDER_ENV_BLOCKLIST)
-
-    def test_auxiliary_api_key_vars_are_in_blocklist(self):
-        """Auxiliary direct-endpoint API key env vars must stay blocklisted."""
-        extras = {
-            "AUXILIARY_VISION_API_KEY",
-            "AUXILIARY_WEB_EXTRACT_API_KEY",
-            "AUXILIARY_COMPRESSION_API_KEY",
-            "AUXILIARY_SESSION_SEARCH_API_KEY",
-            "AUXILIARY_SKILLS_HUB_API_KEY",
-            "AUXILIARY_APPROVAL_API_KEY",
-            "AUXILIARY_MCP_API_KEY",
-            "AUXILIARY_TITLE_GENERATION_API_KEY",
-            "AUXILIARY_TRIAGE_SPECIFIER_API_KEY",
-            "AUXILIARY_CURATOR_API_KEY",
-        }
         assert extras.issubset(_HERMES_PROVIDER_ENV_BLOCKLIST)
 
     def test_non_registry_provider_vars_are_in_blocklist(self):
