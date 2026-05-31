@@ -140,7 +140,6 @@ def test_star_wildcard_works_for_any_platform(monkeypatch):
     assert runner._is_user_authorized(source) is True
 
 
-<<<<<<< HEAD
 def test_discord_allow_bots_does_not_bypass_user_authorization(monkeypatch):
     """DISCORD_ALLOW_BOTS should not bypass DISCORD_ALLOWED_USERS at gateway level."""
     _clear_auth_env(monkeypatch)
@@ -188,8 +187,6 @@ def test_discord_allow_bots_still_allows_explicitly_allowlisted_bot(monkeypatch)
     assert runner._is_user_authorized(source) is True
 
 
-=======
->>>>>>> origin/main
 def test_qq_group_allowlist_authorizes_group_chat_without_user_allowlist(monkeypatch):
     _clear_auth_env(monkeypatch)
     monkeypatch.setenv("QQ_GROUP_ALLOWED_USERS", "group-openid-1")

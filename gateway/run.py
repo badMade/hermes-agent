@@ -5417,13 +5417,9 @@ class GatewayRunner:
             Platform.QQBOT: "QQ_ALLOW_ALL_USERS",
             Platform.YUANBAO: "YUANBAO_ALLOW_ALL_USERS",
         }
-<<<<<<< HEAD
-        # Bots admitted by {PLATFORM}_ALLOW_BOTS bypass the human allowlist.
+        # Bots admitted by {PLATFORM}_ALLOW_BOTS bypass the human allowlist (#4466).
         # Only platforms with explicit gateway-level bot bypass semantics
         # should be listed here.
-=======
-        # Bots admitted by {PLATFORM}_ALLOW_BOTS bypass the human allowlist (#4466).
->>>>>>> origin/main
         platform_allow_bots_map = {
             Platform.FEISHU: "FEISHU_ALLOW_BOTS",
         }
