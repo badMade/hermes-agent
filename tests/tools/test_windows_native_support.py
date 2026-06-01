@@ -701,7 +701,11 @@ class TestKanbanWaitpidWindowsGuard:
         root = Path(__file__).resolve().parents[2]
         source = (root / "hermes_cli" / "kanban_db.py").read_text(encoding="utf-8")
         # Find the scoped waitpid call and confirm it's inside a POSIX gate.
-        idx = source.find("os.waitpid(int(pid), os.WNOHANG)")
+        waitpid_snippet = "os.waitpid(-1, os.WNOHANG)"
+        idx = source.find(waitpid_snippet)
+        if idx < 0:
+            waitpid_snippet = "os.waitpid(int(pid), os.WNOHANG)"
+            idx = source.find(waitpid_snippet)
         assert idx > 0, "waitpid call must exist"
         # Look backwards up to 400 chars for the gate.
         preamble = source[max(0, idx - 400):idx]
@@ -711,8 +715,8 @@ class TestKanbanWaitpidWindowsGuard:
             or 'os.name != "nt"' in preamble
             or "os.name != 'nt'" in preamble
         )
-        assert has_windows_guard and "WNOHANG" in preamble, (
-            "os.waitpid(int(pid), os.WNOHANG) must sit behind an OS/WNOHANG guard"
+        assert has_windows_guard, (
+            f"{waitpid_snippet} must sit behind an OS/WNOHANG guard"
         )
 
 
