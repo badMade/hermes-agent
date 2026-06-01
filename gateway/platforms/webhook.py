@@ -92,7 +92,7 @@ def _looks_unresolved_secret(secret: str) -> bool:
     with the literal placeholder string is almost certainly a mistake.
     """
     s = (secret or "").strip()
-    return bool(re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", s))
+    return bool(re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}", s))
 
 
 def check_webhook_requirements() -> bool:
