@@ -9,15 +9,15 @@ import { stripAnsi } from '../lib/text.js'
 import { DEFAULT_THEME } from '../theme.js'
 
 const matches = (text: string) => [...text.matchAll(INLINE_RE)].map(m => m[0])
-const BEL = String.fromCharCode(7)
-const ESC = String.fromCharCode(27)
-const CSI_RE = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, 'g')
-const OSC_RE = new RegExp(`${ESC}\\][\\s\\S]*?(?:${BEL}|${ESC}\\\\)`, 'g')
 
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
+const BEL = String.fromCharCode(7)
+const ESC = String.fromCharCode(27)
+const CSI_RE = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, 'g')
+const OSC_RE = new RegExp(`${ESC}\\][\\s\\S]*?(?:${BEL}|${ESC}\\\\)`, 'g')
 
 const renderPlain = (node: React.ReactNode) => {
   const stdout = new PassThrough()
@@ -257,21 +257,25 @@ describe('Md link labels', () => {
     expect(lines.join('\n')).toContain('Trip details')
   })
 
-  it('does not fetch titles while rendering untrusted links', () => {
+  it('does not fetch markdown link titles while rendering assistant text', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
-    renderPlain(
+    const lines = renderPlain(
       React.createElement(
         Box,
         { width: 120 },
         React.createElement(Md, {
           t: DEFAULT_THEME,
-          text: '[details](https://attacker.example/collect?secret=token) and https://attacker.example/bare?secret=token'
+          text: '[details](https://attacker.example/collect?secret=TOPSECRET123) and https://attacker.example/bare?token=abc'
         })
       )
     )
 
+    const rendered = lines.join('\n')
+
+    expect(rendered).toContain('details')
+    expect(rendered).toContain('Bare')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
