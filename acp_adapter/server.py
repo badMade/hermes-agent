@@ -73,6 +73,8 @@ from acp_adapter.events import (
 from acp_adapter.permissions import make_approval_callback
 from acp_adapter.session import SessionManager, SessionState, _expand_acp_enabled_toolsets
 from acp_adapter.tools import build_tool_complete, build_tool_start
+from agent.file_safety import get_read_block_error
+from agent.redact import redact_sensitive_text
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +210,35 @@ def _format_resource_text(
     return f"{header}\nURI: {uri}\n\n{body}"
 
 
-def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]:
+def _resolve_acp_resource_path(path: Path, cwd: Path | None) -> tuple[Path | None, str | None]:
+    """Resolve an ACP file resource under the session cwd and read policy."""
+    if cwd is None:
+        return None, "ACP file resources require an active session cwd."
+
+    try:
+        root = cwd.expanduser().resolve()
+        candidate = path.expanduser()
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        resolved = candidate.resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError) as exc:
+        return None, f"Access denied: file resource is outside the ACP session directory ({exc})."
+
+    block_error = get_read_block_error(str(resolved))
+    if block_error:
+        return None, block_error
+
+    try:
+        if not resolved.is_file():
+            return None, "Access denied: ACP file resource is not a regular file."
+    except OSError as exc:
+        return None, f"Access denied: could not inspect ACP file resource ({exc})."
+
+    return resolved, None
+
+
+def _resource_link_to_parts(block: ResourceContentBlock, *, cwd: Path | None = None) -> list[dict[str, Any]]:
     """Convert an ACP resource_link block to OpenAI content parts.
 
     Returns a list of {"type": "text", ...} and/or {"type": "image_url", ...}
@@ -235,6 +265,15 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
                 body="[Resource link only; Hermes cannot read non-file ACP resource URIs directly.]",
             ),
         }]
+
+    path, path_error = _resolve_acp_resource_path(path, cwd)
+    if path_error:
+        return [{
+            "type": "text",
+            "text": _format_resource_text(uri=uri, name=name, title=title, body=f"[{path_error}]"),
+        }]
+    if path is None:
+        return []
 
     # Image files: emit a short text header + image_url data URL so vision
     # models can see the attachment instead of a "binary omitted" note.
@@ -288,6 +327,7 @@ def _resource_link_to_parts(block: ResourceContentBlock) -> list[dict[str, Any]]
                 ),
             }]
         note = None
+        text = redact_sensitive_text(text, code_file=True)
         if size > _MAX_ACP_RESOURCE_BYTES:
             note = f"truncated to {_MAX_ACP_RESOURCE_BYTES} of {size} bytes"
         return [{
@@ -399,6 +439,8 @@ def _content_blocks_to_openai_user_content(
         | ResourceContentBlock
         | EmbeddedResourceContentBlock
     ],
+    *,
+    cwd: Path | None = None,
 ) -> str | list[dict[str, Any]]:
     """Convert ACP prompt blocks into a Hermes/OpenAI-compatible user content payload."""
     parts: list[dict[str, Any]] = []
@@ -416,7 +458,7 @@ def _content_blocks_to_openai_user_content(
                 parts.append(image_part)
             continue
         if isinstance(block, ResourceContentBlock):
-            resource_parts = _resource_link_to_parts(block)
+            resource_parts = _resource_link_to_parts(block, cwd=cwd)
             for part in resource_parts:
                 parts.append(part)
                 if part.get("type") == "text":
@@ -1087,7 +1129,7 @@ class HermesACPAgent(acp.Agent):
             return PromptResponse(stop_reason="refusal")
 
         user_text = _extract_text(prompt).strip()
-        user_content = _content_blocks_to_openai_user_content(prompt)
+        user_content = _content_blocks_to_openai_user_content(prompt, cwd=state.cwd)
         text_only_prompt = all(isinstance(block, TextContentBlock) for block in prompt)
         has_content = bool(user_text) or (
             isinstance(user_content, list) and bool(user_content)

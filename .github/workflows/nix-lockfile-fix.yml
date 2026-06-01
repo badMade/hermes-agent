@@ -18,7 +18,7 @@ on:
     types: [edited]
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 concurrency:
@@ -48,6 +48,9 @@ jobs:
     concurrency:
       group: auto-fix-main
       cancel-in-progress: true
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -122,8 +125,9 @@ jobs:
           exit 1
 
   # ── PR fix (manual / checkbox) ─────────────────────────────────────
-  # Existing behavior: run on manual dispatch OR when a task-list
-  # checkbox in the sticky lockfile-check comment flips from [ ] to [x].
+  # Runs untrusted PR content as data only: the base-repository checkout owns
+  # the action and Nix code that receive secrets; the PR checkout never gets
+  # persisted credentials or Cachix credentials.
   fix:
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -133,14 +137,15 @@ jobs:
        && !contains(github.event.changes.body.from, '[x] **Apply lockfile fix**'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Authorize & resolve PR
         id: resolve
         uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71  # v9
         with:
           script: |
-            // 1. Verify the actor has write access — applies to both checkbox
-            //    clicks and manual dispatch.
             const { data: perm } =
               await github.rest.repos.getCollaboratorPermissionLevel({
                 owner: context.repo.owner,
@@ -154,7 +159,6 @@ jobs:
               return;
             }
 
-            // 2. Resolve which ref to check out.
             let prNumber = '';
             if (context.eventName === 'issue_comment') {
               prNumber = String(context.payload.issue.number);
@@ -162,11 +166,13 @@ jobs:
               prNumber = context.payload.inputs.pr_number || '';
             }
 
+            core.setOutput('trusted_ref', context.payload.repository.default_branch);
             if (!prNumber) {
               core.setOutput('ref', context.ref.replace(/^refs\/heads\//, ''));
               core.setOutput('repo', context.repo.repo);
               core.setOutput('owner', context.repo.owner);
               core.setOutput('pr', '');
+              core.setOutput('head_sha', '');
               return;
             }
 
@@ -179,10 +185,8 @@ jobs:
             core.setOutput('repo', pr.head.repo.name);
             core.setOutput('owner', pr.head.repo.owner.login);
             core.setOutput('pr', String(pr.number));
+            core.setOutput('head_sha', pr.head.sha);
 
-      # Wipe the sticky lockfile-check comment to a "running" state as soon
-      # as the job is authorized, so the user sees their click was picked up
-      # before the ~minute of nix build work.
       - name: Mark sticky as running
         if: steps.resolve.outputs.pr != ''
         uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0  # v3
@@ -194,34 +198,83 @@ jobs:
 
             Triggered by @${{ github.actor }} — [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
 
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - name: Checkout trusted workflow code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.resolve.outputs.trusted_ref }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Checkout target tree without credentials
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
         with:
           repository: ${{ steps.resolve.outputs.owner }}/${{ steps.resolve.outputs.repo }}
-          ref: ${{ steps.resolve.outputs.ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ steps.resolve.outputs.head_sha || steps.resolve.outputs.ref }}
+          path: target
           fetch-depth: 0
+          persist-credentials: false
+          token: ''
 
-      - uses: ./.github/actions/nix-setup
-        with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
-      - name: Apply lockfile hashes
-        id: apply
-        run: nix run .#fix-lockfiles
-
-      - name: Commit & push
-        if: steps.apply.outputs.changed == 'true'
+      - name: Overlay package manifests onto trusted checkout
         shell: bash
         run: |
           set -euo pipefail
+          for f in \
+            ui-tui/package.json \
+            ui-tui/package-lock.json \
+            web/package.json \
+            web/package-lock.json
+          do
+            cp "target/$f" "trusted/$f"
+          done
+
+      - uses: ./trusted/.github/actions/nix-setup
+        with:
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Apply lockfile hashes using trusted Nix code
+        id: apply
+        working-directory: trusted
+        run: nix run .#fix-lockfiles -- --apply
+
+      - name: Copy generated lockfile hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp trusted/nix/tui.nix target/nix/tui.nix
+          cp trusted/nix/web.nix target/nix/web.nix
+          if git -C target diff --quiet -- nix/tui.nix nix/web.nix; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        id: copy
+
+      - name: Commit & push
+        if: steps.copy.outputs.changed == 'true'
+        working-directory: target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_OWNER: ${{ steps.resolve.outputs.owner }}
+          TARGET_REPO: ${{ steps.resolve.outputs.repo }}
+          TARGET_REF: ${{ steps.resolve.outputs.ref }}
+        run: |
+          set -euo pipefail
+          unexpected="$(git diff --name-only | grep -Ev '^nix/(tui|web)\.nix$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::Unexpected modified files: $unexpected"
+            exit 1
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add nix/tui.nix nix/web.nix
           git commit -m "fix(nix): refresh npm lockfile hashes"
-          git push
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_OWNER}/${TARGET_REPO}.git" "HEAD:refs/heads/${TARGET_REF}"
 
       - name: Update sticky (applied)
-        if: steps.apply.outputs.changed == 'true' && steps.resolve.outputs.pr != ''
+        if: steps.copy.outputs.changed == 'true' && steps.resolve.outputs.pr != ''
         uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0  # v3
         with:
           header: nix-lockfile-check
@@ -232,7 +285,7 @@ jobs:
             Pushed a commit refreshing the npm lockfile hashes — [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
 
       - name: Update sticky (already current)
-        if: steps.apply.outputs.changed == 'false' && steps.resolve.outputs.pr != ''
+        if: steps.copy.outputs.changed == 'false' && steps.resolve.outputs.pr != ''
         uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0  # v3
         with:
           header: nix-lockfile-check

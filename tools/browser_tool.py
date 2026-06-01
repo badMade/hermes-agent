@@ -184,7 +184,7 @@ def _browser_eval_security_error(expression: str) -> Optional[str]:
         if error:
             return error
 
-    if not _is_local_backend() and _BROWSER_EVAL_NAV_OR_NETWORK_RE.search(expression):
+    if (not _is_local_backend() or _is_camofox_mode()) and _BROWSER_EVAL_NAV_OR_NETWORK_RE.search(expression):
         return (
             "Blocked: browser JavaScript evaluation cannot perform navigation "
             "or network requests in cloud browser sessions. Use browser_navigate "
@@ -2890,6 +2890,10 @@ def browser_console(clear: bool = False, expression: Optional[str] = None, task_
 
 def _browser_eval(expression: str, task_id: Optional[str] = None) -> str:
     """Evaluate a JavaScript expression in the page context and return the result."""
+    security_error = _browser_eval_security_error(expression)
+    if security_error:
+        return json.dumps({"success": False, "error": security_error}, ensure_ascii=False)
+
     if _is_camofox_mode():
         return _camofox_eval(expression, task_id)
 
@@ -2916,6 +2920,10 @@ def _browser_eval(expression: str, task_id: Optional[str] = None) -> str:
                         parsed = json.loads(raw_result)
                     except (json.JSONDecodeError, ValueError):
                         pass  # keep as string
+                final_url_error = _browser_eval_final_url_error(effective_task_id)
+                if final_url_error:
+                    _blank_browser_after_block(effective_task_id)
+                    return json.dumps({"success": False, "error": final_url_error}, ensure_ascii=False)
                 response = {
                     "success": True,
                     "result": parsed,
@@ -2970,6 +2978,11 @@ def _browser_eval(expression: str, task_id: Optional[str] = None) -> str:
         except (json.JSONDecodeError, ValueError):
             pass  # keep as string
 
+    final_url_error = _browser_eval_final_url_error(effective_task_id)
+    if final_url_error:
+        _blank_browser_after_block(effective_task_id)
+        return json.dumps({"success": False, "error": final_url_error}, ensure_ascii=False)
+
     response = {
         "success": True,
         "result": parsed,
@@ -2980,6 +2993,10 @@ def _browser_eval(expression: str, task_id: Optional[str] = None) -> str:
 
 def _camofox_eval(expression: str, task_id: Optional[str] = None) -> str:
     """Evaluate JS via Camofox's /tabs/{tab_id}/eval endpoint (if available)."""
+    security_error = _browser_eval_security_error(expression)
+    if security_error:
+        return json.dumps({"success": False, "error": security_error}, ensure_ascii=False)
+
     from tools.browser_camofox import _ensure_tab, _post
     try:
         tab_info = _ensure_tab(task_id or "default")

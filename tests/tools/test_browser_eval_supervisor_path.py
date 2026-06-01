@@ -361,3 +361,34 @@ class TestEvaluateRuntimeResponseShaping:
         finally:
             loop.call_soon_threadsafe(loop.stop)
             thread.join(timeout=2)
+
+
+class TestBrowserEvalSecurityGuards:
+    def test_eval_blocks_metadata_fetch_before_supervisor(self, monkeypatch):
+        import tools.browser_tool as bt
+
+        sup = MagicMock()
+        _patch_supervisor(monkeypatch, sup)
+        monkeypatch.setattr(bt, "_is_local_backend", lambda: False)
+
+        out = json.loads(bt._browser_eval("fetch('http://169.254.169.254/latest/meta-data/')"))
+
+        assert out["success"] is False
+        assert "Blocked" in out["error"]
+        sup.evaluate_runtime.assert_not_called()
+
+    def test_camofox_eval_blocks_navigation_side_effect(self, monkeypatch):
+        import tools.browser_tool as bt
+        import tools.browser_camofox as camofox
+
+        monkeypatch.setattr(bt, "_is_camofox_mode", lambda: True)
+        monkeypatch.setattr(bt, "_is_local_backend", lambda: True)
+        post = MagicMock()
+        monkeypatch.setattr(camofox, "_ensure_tab", lambda task_id: {"tab_id": "t", "user_id": "u"})
+        monkeypatch.setattr(camofox, "_post", post)
+
+        out = json.loads(bt._camofox_eval("location.href='http://169.254.169.254/latest/meta-data/'"))
+
+        assert out["success"] is False
+        assert "Blocked" in out["error"]
+        post.assert_not_called()
