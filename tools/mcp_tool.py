@@ -1150,14 +1150,11 @@ class MCPServerTask:
                 # Timeout — no lifecycle event fired.  Send a keepalive
                 # to exercise the connection and detect stale sockets.
                 if self.session:
-                    if self._rpc_lock.locked():
-                        continue
                     try:
-                        async with self._rpc_lock:
-                            await asyncio.wait_for(
-                                self.session.list_tools(),
-                                timeout=30.0,
-                            )
+                        await asyncio.wait_for(
+                            self.session.list_tools(),
+                            timeout=30.0,
+                        )
                     except Exception as exc:
                         logger.warning(
                             "MCP server '%s' keepalive failed, "
@@ -1649,8 +1646,8 @@ def _reset_server_error(server_name: str) -> None:
     """Fully close the breaker for ``server_name``.
 
     Clears both the failure count and the breaker-open timestamp. Call
-    this on any unambiguous success signal (successful tool call or
-    manual /mcp refresh).
+    this on any unambiguous success signal (successful tool call,
+    successful reconnect, manual /mcp refresh).
     """
     _server_error_counts[server_name] = 0
     _server_breaker_opened_at.pop(server_name, None)
@@ -1792,6 +1789,16 @@ def _handle_auth_error_and_retry(
                     if srv.session is not None and srv._ready.is_set():
                         break
                     time.sleep(0.25)
+
+        # A successful OAuth recovery is independent evidence that the
+        # server is viable again, so close the circuit breaker here —
+        # not only on retry success. Without this, a reconnect
+        # followed by a failing retry would leave the breaker pinned
+        # above threshold forever (the retry-exception branch below
+        # bumps the count again).  The post-reset retry still goes
+        # through _bump_server_error on failure, so a genuinely broken
+        # server will re-trip the breaker as normal.
+        _reset_server_error(server_name)
 
         try:
             result = retry_call()
@@ -2617,21 +2624,13 @@ def _normalize_mcp_input_schema(schema: dict | None) -> dict:
         return strip_nullable_unions(node, keep_nullable_hint=True)
 
     def _repair_object_shape(node):
-        """Recursively repair schema nodes without mutating container maps."""
+        """Recursively repair object-shaped nodes: fill type, prune required."""
         if isinstance(node, list):
             return [_repair_object_shape(item) for item in node]
         if not isinstance(node, dict):
             return node
 
-        repaired = {}
-        for key, value in node.items():
-            if key in {"properties", "$defs"} and isinstance(value, dict):
-                repaired[key] = {
-                    prop_name: _repair_object_shape(prop_schema)
-                    for prop_name, prop_schema in value.items()
-                }
-            else:
-                repaired[key] = _repair_object_shape(value)
+        repaired = {k: _repair_object_shape(v) for k, v in node.items()}
 
         # Coerce missing / null type when the shape is clearly an object
         # (has properties or required but no type).

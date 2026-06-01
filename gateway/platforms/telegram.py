@@ -73,12 +73,10 @@ from gateway.platforms.base import (
     cache_audio_from_bytes,
     cache_video_from_bytes,
     cache_document_from_bytes,
-    MAX_VIDEO_BYTES,
     resolve_proxy_url,
     SUPPORTED_VIDEO_TYPES,
     SUPPORTED_DOCUMENT_TYPES,
     utf16_len,
-    _same_message_sender,
 )
 from gateway.platforms.telegram_network import (
     TelegramFallbackTransport,
@@ -3620,31 +3618,6 @@ class TelegramAdapter(BasePlatformAdapter):
             yield getattr(message, "text", None) or "", getattr(message, "entities", None) or []
             yield getattr(message, "caption", None) or "", getattr(message, "caption_entities", None) or []
 
-        def _entity_text(source_text: str, entity) -> str:
-            parse_entity = getattr(message, "parse_entity", None)
-            if callable(parse_entity):
-                try:
-                    return parse_entity(entity) or ""
-                except Exception:
-                    logger.debug("[%s] Failed to parse Telegram entity", self.name, exc_info=True)
-
-            offset = int(getattr(entity, "offset", -1))
-            length = int(getattr(entity, "length", 0))
-            if offset < 0 or length <= 0:
-                return ""
-
-            # Telegram entity offsets/lengths are UTF-16 code units, not
-            # Python code points. Decode the corresponding UTF-16 byte span so
-            # non-BMP characters before an entity cannot shift extraction onto
-            # unrelated text.
-            encoded = source_text.encode("utf-16-le")
-            start = offset * 2
-            end = start + length * 2
-            try:
-                return encoded[start:end].decode("utf-16-le")
-            except UnicodeDecodeError:
-                return ""
-
         # Telegram parses mentions server-side and emits MessageEntity objects
         # (type=mention for @username, type=text_mention for @FirstName targeting
         # a user without a public username). Only those entities are authoritative —
@@ -3655,7 +3628,11 @@ class TelegramAdapter(BasePlatformAdapter):
             for entity in entities:
                 entity_type = str(getattr(entity, "type", "")).split(".")[-1].lower()
                 if entity_type == "mention" and expected:
-                    if _entity_text(source_text, entity).strip().lower() == expected:
+                    offset = int(getattr(entity, "offset", -1))
+                    length = int(getattr(entity, "length", 0))
+                    if offset < 0 or length <= 0:
+                        continue
+                    if source_text[offset:offset + length].strip().lower() == expected:
                         return True
                 elif entity_type == "text_mention":
                     user = getattr(entity, "user", None)
@@ -3671,9 +3648,11 @@ class TelegramAdapter(BasePlatformAdapter):
                     # autocomplete produces in groups, so dropping it at the
                     # mention gate would break /new, /reset, /help, ... for
                     # every group that has ``require_mention`` enabled (#15415).
-                    command_text = _entity_text(source_text, entity)
-                    if not command_text:
+                    offset = int(getattr(entity, "offset", -1))
+                    length = int(getattr(entity, "length", 0))
+                    if offset < 0 or length <= 0:
                         continue
+                    command_text = source_text[offset:offset + length]
                     at_index = command_text.find("@")
                     if at_index < 0:
                         continue
@@ -3835,13 +3814,18 @@ class TelegramAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     def _text_batch_key(self, event: MessageEvent) -> str:
-        """Session-scoped key for text message batching."""
+        """Return a pre-auth text batching key scoped to one Telegram sender."""
         from gateway.session import build_session_key
-        return build_session_key(
+
+        session_key = build_session_key(
             event.source,
             group_sessions_per_user=self.config.extra.get("group_sessions_per_user", True),
             thread_sessions_per_user=self.config.extra.get("thread_sessions_per_user", False),
         )
+        sender_id = event.source.user_id_alt or event.source.user_id
+        if sender_id:
+            return f"{session_key}:sender:{sender_id}"
+        return session_key
 
     def _enqueue_text_event(self, event: MessageEvent) -> None:
         """Buffer a text event and reset the flush timer.
@@ -3924,18 +3908,17 @@ class TelegramAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     def _photo_batch_key(self, event: MessageEvent, msg: Message) -> str:
-        """Return a sender-scoped batching key for Telegram photos/albums."""
+        """Return a batching key for Telegram photos/albums."""
         from gateway.session import build_session_key
         session_key = build_session_key(
             event.source,
             group_sessions_per_user=self.config.extra.get("group_sessions_per_user", True),
             thread_sessions_per_user=self.config.extra.get("thread_sessions_per_user", False),
         )
-        sender_id = getattr(event.source, "user_id_alt", None) or getattr(event.source, "user_id", None) or "unknown"
         media_group_id = getattr(msg, "media_group_id", None)
         if media_group_id:
-            return f"{session_key}:sender:{sender_id}:album:{media_group_id}"
-        return f"{session_key}:sender:{sender_id}:photo-burst"
+            return f"{session_key}:album:{media_group_id}"
+        return f"{session_key}:photo-burst"
 
     async def _flush_photo_batch(self, batch_key: str) -> None:
         """Send a buffered photo burst/album as a single MessageEvent."""
@@ -3957,13 +3940,10 @@ class TelegramAdapter(BasePlatformAdapter):
         if existing is None:
             self._pending_photo_batches[batch_key] = event
         else:
-            if not _same_message_sender(existing, event):
-                self._pending_photo_batches[batch_key] = event
-            else:
-                existing.media_urls.extend(event.media_urls)
-                existing.media_types.extend(event.media_types)
-                if event.text:
-                    existing.text = self._merge_caption(existing.text, event.text)
+            existing.media_urls.extend(event.media_urls)
+            existing.media_types.extend(event.media_types)
+            if event.text:
+                existing.text = self._merge_caption(existing.text, event.text)
 
         prior_task = self._pending_photo_batch_tasks.get(batch_key)
         if prior_task and not prior_task.done():
@@ -4064,16 +4044,6 @@ class TelegramAdapter(BasePlatformAdapter):
 
         elif msg.video:
             try:
-                video_size = getattr(msg.video, "file_size", None)
-                if not video_size or video_size > MAX_VIDEO_BYTES:
-                    event.text = (
-                        "The video is too large or its size could not be verified. "
-                        "Maximum: 20 MB."
-                    )
-                    logger.info("[Telegram] Video too large: %s bytes", video_size)
-                    await self.handle_message(event)
-                    return
-
                 file_obj = await msg.video.get_file()
                 video_bytes = await file_obj.download_as_bytearray()
                 ext = ".mp4"
