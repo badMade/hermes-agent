@@ -6544,11 +6544,9 @@ def _(rid, params: dict) -> dict:
     except ImportError:
         pass
     try:
-        import shlex
-        from tools.environments.local import _sanitize_subprocess_env
-        sanitized_env = _sanitize_subprocess_env(os.environ.copy())
         r = subprocess.run(
-            shlex.split(cmd),
+            cmd,
+            shell=True,
             capture_output=True,
             text=True,
             timeout=30,
