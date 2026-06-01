@@ -38,6 +38,7 @@ needs to replace the import + call site:
 
 from contextvars import ContextVar
 from typing import Any
+import os
 
 # Sentinel to distinguish "never set in this context" from "explicitly set to empty".
 # When a contextvar holds _UNSET, we fall back to os.environ (CLI/cron compat).
@@ -149,8 +150,6 @@ def get_session_env(name: str, default: str = "") -> str:
        don't use ``set_session_vars`` at all).
     3. *default*
     """
-    import os
-
     var = _VAR_MAP.get(name)
     if var is not None:
         value = var.get()
@@ -169,8 +168,6 @@ def get_terminal_cwd(default: str = "") -> str:
     2. ``TERMINAL_CWD`` environment variable (CLI and test compatibility).
     3. *default* (typically ``""`` or ``os.getcwd()`` at the call site).
     """
-    import os
-
     value = _TERMINAL_CWD.get()
     if value is not _UNSET:
         return value
