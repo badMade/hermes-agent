@@ -125,6 +125,7 @@ hermes claw migrate --overwrite  # 覆盖已有冲突
 ```
 
 导入内容：
+
 - **SOUL.md** — 人格文件
 - **记忆** — MEMORY.md 和 USER.md 条目
 - **技能** — 用户创建的技能 → `~/.hermes/skills/openclaw-imports/`
@@ -162,6 +163,7 @@ python -m pytest tests/ -q
 ```
 
 > **RL 训练（可选）：** 如需参与 RL/Tinker-Atropos 集成开发：
+>
 > ```bash
 > git submodule update --init tinker-atropos
 > uv pip install -e "./tinker-atropos"

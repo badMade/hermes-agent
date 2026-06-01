@@ -555,9 +555,9 @@ def get_toolset(name: str) -> Optional[Dict[str, Any]]:
     alias_target = registry.get_toolset_alias_target(name)
 
     if name not in _get_plugin_toolset_names():
-        registry_toolset = alias_target
-        if not registry_toolset:
+        if not alias_target:
             return None
+        registry_toolset = alias_target
         description = f"MCP server '{name}' tools"
     else:
         reverse_aliases = {
@@ -576,7 +576,7 @@ def get_toolset(name: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def resolve_toolset(name: str, visited: Set[str] = None) -> List[str]:
+def resolve_toolset(name: str, visited: Optional[Set[str]] = None) -> List[str]:
     """
     Recursively resolve a toolset to get all tool names.
     
@@ -766,8 +766,8 @@ def validate_toolset(name: str) -> bool:
 def create_custom_toolset(
     name: str,
     description: str,
-    tools: List[str] = None,
-    includes: List[str] = None
+    tools: Optional[List[str]] = None,
+    includes: Optional[List[str]] = None
 ) -> None:
     """
     Create a custom toolset at runtime.
@@ -787,7 +787,7 @@ def create_custom_toolset(
 
 
 
-def get_toolset_info(name: str) -> Dict[str, Any]:
+def get_toolset_info(name: str) -> Optional[Dict[str, Any]]:
     """
     Get detailed information about a toolset including resolved tools.
     
@@ -824,6 +824,8 @@ if __name__ == "__main__":
     print("-" * 40)
     for name, toolset in get_all_toolsets().items():
         info = get_toolset_info(name)
+        if info is None:
+            continue
         composite = "[composite]" if info["is_composite"] else "[leaf]"
         print(f"  {composite} {name:20} - {toolset['description']}")
         print(f"     Tools: {len(info['resolved_tools'])} total")
@@ -851,5 +853,6 @@ if __name__ == "__main__":
     )
     custom_info = get_toolset_info("my_custom")
     print("  Created 'my_custom' toolset:")
-    print(f"    Description: {custom_info['description']}")
-    print(f"    Resolved tools: {', '.join(custom_info['resolved_tools'])}")
+    if custom_info is not None:
+        print(f"    Description: {custom_info['description']}")
+        print(f"    Resolved tools: {', '.join(custom_info['resolved_tools'])}")

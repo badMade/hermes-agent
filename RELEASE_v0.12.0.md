@@ -56,6 +56,7 @@
 ## 🧠 Autonomous Curator & Self-Improvement Loop
 
 ### Curator — autonomous skill maintenance
+
 - **`hermes curator` as a background agent** — runs on the gateway's cron ticker, 7-day cycle by default, umbrella-first prompt, inherits parent config, unbounded iterations ([#17277](https://github.com/NousResearch/hermes-agent/pull/17277) — issue #7816)
 - **Per-run reports** — `logs/curator/run.json` + `REPORT.md` per cycle ([#17307](https://github.com/NousResearch/hermes-agent/pull/17307))
 - **Consolidated vs pruned classification** — archived skills split with model + heuristic ([#17941](https://github.com/NousResearch/hermes-agent/pull/17941))
@@ -69,6 +70,7 @@
 - Fix: `bump_use()` wired into skill invocation + preload + skill_view (salvage #17782) ([#17932](https://github.com/NousResearch/hermes-agent/pull/17932))
 
 ### Self-improvement loop (background review fork)
+
 - **Class-first skill-review prompt** — rubric-based grading rather than free-form "should this update" ([#16026](https://github.com/NousResearch/hermes-agent/pull/16026))
 - **Active-update bias** — prefers updating skills the agent just loaded, handles `references/` + `templates/` sub-files ([#17213](https://github.com/NousResearch/hermes-agent/pull/17213))
 - **Fork inherits parent's live runtime** — provider, model, credentials actually propagate now ([#16099](https://github.com/NousResearch/hermes-agent/pull/16099))
@@ -81,6 +83,7 @@
 ## 🧩 Skills Ecosystem
 
 ### Skill integrations — newly bundled or promoted
+
 - **ComfyUI v5** — official CLI + REST + hardware-gated local install; **moved from optional to built-in** ([#17610](https://github.com/NousResearch/hermes-agent/pull/17610), [#17631](https://github.com/NousResearch/hermes-agent/pull/17631), [#17734](https://github.com/NousResearch/hermes-agent/pull/17734), [#17612](https://github.com/NousResearch/hermes-agent/pull/17612))
 - **TouchDesigner-MCP** — **bundled by default** ([#16753](https://github.com/NousResearch/hermes-agent/pull/16753) — @kshitijk4poor), expanded with GLSL, post-FX, audio, geometry references ([#16624](https://github.com/NousResearch/hermes-agent/pull/16624)), 9 new reference docs ([#16768](https://github.com/NousResearch/hermes-agent/pull/16768) — @SHL0MS)
 - **Humanizer** — strips AI-isms from text ([#16787](https://github.com/NousResearch/hermes-agent/pull/16787))
@@ -91,6 +94,7 @@
 - **spike** + **sketch** — throwaway experiments + HTML mockups, adapted from gsd-build ([#17421](https://github.com/NousResearch/hermes-agent/pull/17421))
 
 ### Skills UX
+
 - **Install skills from a direct HTTP(S) URL** — `hermes skills install <url>` ([#16323](https://github.com/NousResearch/hermes-agent/pull/16323))
 - **`/reload-skills`** slash command (salvage #17670) ([#17744](https://github.com/NousResearch/hermes-agent/pull/17744))
 - **`hermes skills list`** shows enabled/disabled status ([#16129](https://github.com/NousResearch/hermes-agent/pull/16129))
@@ -110,6 +114,7 @@
 ### Provider & Model Support
 
 #### New providers
+
 - **GMI Cloud** — first-class API-key provider on par with Arcee/Kilocode/Xiaomi (salvage of #11955 — @isaachuangGMICLOUD) ([#16663](https://github.com/NousResearch/hermes-agent/pull/16663))
 - **Azure AI Foundry** — auto-detection, full wiring ([#15845](https://github.com/NousResearch/hermes-agent/pull/15845))
 - **LM Studio** — upgraded from custom-endpoint alias to first-class provider: dedicated auth, doctor checks, reasoning transport, live `/models` (salvage of #17061 — @kshitijk4poor) ([#17102](https://github.com/NousResearch/hermes-agent/pull/17102))
@@ -117,6 +122,7 @@
 - **Tencent Tokenhub** — new provider (salvage of #16860) ([#16960](https://github.com/NousResearch/hermes-agent/pull/16960))
 
 #### Model catalog
+
 - **Remote model catalog manifest** — OpenRouter + Nous Portal catalogs pulled from remote manifest so new models show up without a release ([#16033](https://github.com/NousResearch/hermes-agent/pull/16033))
 - `openai/gpt-5.5` and `gpt-5.5-pro` added to OpenRouter + Nous Portal ([#15343](https://github.com/NousResearch/hermes-agent/pull/15343))
 - `deepseek-v4-pro` and `deepseek-v4-flash` added ([#14934](https://github.com/NousResearch/hermes-agent/pull/14934))
@@ -124,12 +130,14 @@
 - Gemini free-tier keys blocked at setup with 429 guidance surfacing ([#15100](https://github.com/NousResearch/hermes-agent/pull/15100))
 
 #### Model configuration
+
 - **Configurable `prompt_caching.cache_ttl`** — 5m default, 1h opt-in (salvage #12659) ([#15065](https://github.com/NousResearch/hermes-agent/pull/15065))
 - `/fast` whitelist broadened to all OpenAI + Anthropic models ([#16883](https://github.com/NousResearch/hermes-agent/pull/16883))
 - `auxiliary.extra_body.reasoning` translates into Codex Responses API ([#17004](https://github.com/NousResearch/hermes-agent/pull/17004))
 - `hermes fallback` command for managing fallback providers ([#16052](https://github.com/NousResearch/hermes-agent/pull/16052))
 
 ### Agent Loop & Conversation
+
 - **Native multimodal image routing** — based on model vision capability, not provider defaults ([#16506](https://github.com/NousResearch/hermes-agent/pull/16506))
 - **Delegate `child_timeout_seconds` default bumped to 600s** ([#14809](https://github.com/NousResearch/hermes-agent/pull/14809))
 - **Diagnostic dump when subagent times out with 0 API calls** ([#15105](https://github.com/NousResearch/hermes-agent/pull/15105))
@@ -148,6 +156,7 @@
 - Fix: rename `[SYSTEM:` → `[IMPORTANT:` in all user-injected markers (dodges Azure content filter) ([#16114](https://github.com/NousResearch/hermes-agent/pull/16114))
 
 ### Compression
+
 - **Retry summary on main model for unknown errors before giving up** ([#16774](https://github.com/NousResearch/hermes-agent/pull/16774))
 - **Notify users when configured aux model fails even if main-model fallback recovers** ([#16775](https://github.com/NousResearch/hermes-agent/pull/16775))
 - `/compress` wrapped in `_busy_command` to block input during compression ([#15388](https://github.com/NousResearch/hermes-agent/pull/15388))
@@ -155,6 +164,7 @@
 - Fix: use text-char sum for multimodal token estimation in `_find_tail_cut_by_tokens` ([#16369](https://github.com/NousResearch/hermes-agent/pull/16369))
 
 ### Session, Memory & State
+
 - **Trigram FTS5 index for CJK search, replace LIKE fallback** (@alt-glitch) ([#16651](https://github.com/NousResearch/hermes-agent/pull/16651))
 - **Index `tool_name` + `tool_calls` in FTS5, with repair + migration** (salvages #16866) ([#16914](https://github.com/NousResearch/hermes-agent/pull/16914))
 - **Checkpoints: auto-prune orphan and stale shadow repos at startup** ([#16303](https://github.com/NousResearch/hermes-agent/pull/16303))
@@ -169,6 +179,7 @@
 - Refactor: remove `flush_memories` entirely ([#15696](https://github.com/NousResearch/hermes-agent/pull/15696))
 
 ### Auxiliary models
+
 - Fix: surface auxiliary failures in UI (previously silent) ([#15324](https://github.com/NousResearch/hermes-agent/pull/15324))
 - Fix: surface title-gen auxiliary failures instead of silently dropping ([#16371](https://github.com/NousResearch/hermes-agent/pull/16371))
 - Fix: generalize unsupported-parameter detector and harden `max_tokens` retry ([#15633](https://github.com/NousResearch/hermes-agent/pull/15633))
@@ -178,13 +189,16 @@
 ## 📱 Messaging Platforms (Gateway)
 
 ### New Platforms
+
 - **Microsoft Teams (19th platform)** — as a plugin, + xdist collision guard ([#17828](https://github.com/NousResearch/hermes-agent/pull/17828))
 - **Yuanbao (Tencent 元宝, 18th platform)** — native adapter with text + media delivery ([#16298](https://github.com/NousResearch/hermes-agent/pull/16298), [#17424](https://github.com/NousResearch/hermes-agent/pull/17424), [#16880](https://github.com/NousResearch/hermes-agent/pull/16880))
 
 ### Pluggable Gateway Platforms
+
 - **Drop-in messaging adapters** — the gateway is now a plugin host for platforms (salvage of #17664) ([#17751](https://github.com/NousResearch/hermes-agent/pull/17751))
 
 ### Telegram
+
 - **Chat allowlists for groups and forums** (@web3blind) ([#15027](https://github.com/NousResearch/hermes-agent/pull/15027))
 - **Send fresh finals for stale preview streams** (port openclaw#72038) ([#16261](https://github.com/NousResearch/hermes-agent/pull/16261))
 - **Render markdown tables as row-group bullets + prompt hint** ([#16997](https://github.com/NousResearch/hermes-agent/pull/16997))
@@ -192,22 +206,27 @@
 - Native multi-image sending ([#17909](https://github.com/NousResearch/hermes-agent/pull/17909))
 
 ### Discord
+
 - **Opt-in toolsets + ID injection + tool split + Feishu wiring** (salvage #15457, #15458) ([#15610](https://github.com/NousResearch/hermes-agent/pull/15610), [#15613](https://github.com/NousResearch/hermes-agent/pull/15613))
 - Fix: coerce `limit` parameter to int before `min()` call ([#16319](https://github.com/NousResearch/hermes-agent/pull/16319))
 
 ### Slack
+
 - **Register every gateway command as a native slash (Discord/Telegram parity)** ([#16164](https://github.com/NousResearch/hermes-agent/pull/16164))
 - **`strict_mention` config** — prevents thread auto-engagement ([#16193](https://github.com/NousResearch/hermes-agent/pull/16193))
 - **`channel_skill_bindings`** — bind specific skills to specific Slack channels ([#16283](https://github.com/NousResearch/hermes-agent/pull/16283))
 
 ### Signal
+
 - **Native formatting** — markdown → bodyRanges, reply quotes, reactions ([#17417](https://github.com/NousResearch/hermes-agent/pull/17417))
 - Native multi-image sending ([#17909](https://github.com/NousResearch/hermes-agent/pull/17909))
 
 ### Feishu / Mattermost / Email / Signal
+
 - All participate in **native multi-image sending** ([#17909](https://github.com/NousResearch/hermes-agent/pull/17909))
 
 ### Gateway Core
+
 - **Centralized audio routing + FLAC support + Telegram doc fallback** ([#17833](https://github.com/NousResearch/hermes-agent/pull/17833))
 - **Native multi-image sending** across Telegram, Discord, Slack, Mattermost, Email, Signal ([#17909](https://github.com/NousResearch/hermes-agent/pull/17909))
 - **Make hygiene hard message limit configurable** ([#17000](https://github.com/NousResearch/hermes-agent/pull/17000))
@@ -222,6 +241,7 @@
 ## 🔧 Tool System
 
 ### Plugin-first architecture
+
 - **Pluggable gateway platforms** — platforms can ship as plugins ([#17751](https://github.com/NousResearch/hermes-agent/pull/17751))
 - **Microsoft Teams as first plugin-shipped platform** ([#17828](https://github.com/NousResearch/hermes-agent/pull/17828))
 - **`pre_gateway_dispatch` hook** ([#15050](https://github.com/NousResearch/hermes-agent/pull/15050))
@@ -232,10 +252,12 @@
 - **Declarative plugin installation for NixOS module** (@alt-glitch) ([#15953](https://github.com/NousResearch/hermes-agent/pull/15953))
 
 ### Browser
+
 - **CDP supervisor** — dialog detection + response + cross-origin iframe eval ([#14540](https://github.com/NousResearch/hermes-agent/pull/14540))
 - **Auto-spawn local Chromium for LAN/localhost URLs** when cloud provider is configured ([#16136](https://github.com/NousResearch/hermes-agent/pull/16136))
 
 ### Execute code / Terminal
+
 - **Vercel Sandbox backend** for `execute_code` / terminal (@kshitijk4poor) ([#17445](https://github.com/NousResearch/hermes-agent/pull/17445))
 - **Collapse subagent `task_id`s to shared container** ([#16177](https://github.com/NousResearch/hermes-agent/pull/16177))
 - **Docker: run container as host user** to avoid root-owned bind mounts (@benbarclay) ([#17305](https://github.com/NousResearch/hermes-agent/pull/17305))
@@ -244,38 +266,47 @@
 - Fix: SSH — prevent tar from overwriting remote home dir permissions ([#17898](https://github.com/NousResearch/hermes-agent/pull/17898), [#17867](https://github.com/NousResearch/hermes-agent/pull/17867))
 
 ### Image generation
+
 - See Provider section for updates; no new image providers this window.
 
 ### TTS / Voice
+
 - **Pluggable TTS provider registry** under `tts.providers.<name>` ([#17843](https://github.com/NousResearch/hermes-agent/pull/17843))
 - **Piper** as native local TTS provider (closes #8508) ([#17885](https://github.com/NousResearch/hermes-agent/pull/17885))
 - **Voice mode CLI parity in the TUI** — VAD loop + TTS + crash forensics ([#14810](https://github.com/NousResearch/hermes-agent/pull/14810))
 - Fix: vision — use HERMES_HOME-based cache dir instead of cwd ([#17719](https://github.com/NousResearch/hermes-agent/pull/17719))
 
 ### Cron
+
 - **Honor `hermes tools` config for the cron platform** ([#14798](https://github.com/NousResearch/hermes-agent/pull/14798))
 - **Per-job `workdir`** — project-aware cron runs ([#15110](https://github.com/NousResearch/hermes-agent/pull/15110))
 - **`context_from` field** — chain cron job outputs ([#15606](https://github.com/NousResearch/hermes-agent/pull/15606))
 - Fix: promote `croniter` to a core dependency ([#17577](https://github.com/NousResearch/hermes-agent/pull/17577))
 
 ### Web search
+
 - **Expose `limit` for `web_search`** ([#16934](https://github.com/NousResearch/hermes-agent/pull/16934))
 
 ### Maps
+
 - Fix: include seconds in timezone UTC offset output ([#16300](https://github.com/NousResearch/hermes-agent/pull/16300))
 
 ### Approvals
+
 - **Hardline blocklist for unrecoverable commands** ([#15878](https://github.com/NousResearch/hermes-agent/pull/15878))
 - Perf: precompile DANGEROUS_PATTERNS and HARDLINE_PATTERNS ([#17206](https://github.com/NousResearch/hermes-agent/pull/17206))
 
 ### ACP
+
 - **Advertise and forward image prompts** ([#18030](https://github.com/NousResearch/hermes-agent/pull/18030))
 
 ### API Server
+
 - **POST `/v1/runs/{run_id}/stop`** (salvage of #15656) ([#15842](https://github.com/NousResearch/hermes-agent/pull/15842))
 - **Expose run status for external UIs** (#17085) ([#17458](https://github.com/NousResearch/hermes-agent/pull/17458))
 
 ### Nix
+
 - **Declarative plugin installation for NixOS module** (@alt-glitch) ([#15953](https://github.com/NousResearch/hermes-agent/pull/15953))
 - Fix: use `--rebuild` in fix-lockfiles to bypass cached FOD store paths ([#15444](https://github.com/NousResearch/hermes-agent/pull/15444))
 - Fix: `extraPackages` now actually works via per-user profile ([#17047](https://github.com/NousResearch/hermes-agent/pull/17047))
@@ -287,6 +318,7 @@
 ## 🖥️ TUI
 
 ### New features
+
 - **LaTeX rendering** (@austinpickett) ([#17175](https://github.com/NousResearch/hermes-agent/pull/17175))
 - **`/reload` .env hot-reload** — ported from the classic CLI ([#17286](https://github.com/NousResearch/hermes-agent/pull/17286))
 - **Pluggable busy-indicator styles** (@OutThisLife, #13610) ([#17150](https://github.com/NousResearch/hermes-agent/pull/17150))
@@ -301,6 +333,7 @@
 - **Mini help menu on `?` in the input field** (@ethernet8023) ([#18043](https://github.com/NousResearch/hermes-agent/pull/18043))
 
 ### Fixes
+
 - Fix: proactive mouse disable on ConPTY + `/mouse` toggle command (@kevin-ho, WSL2 ghost-mouse fix) ([#15488](https://github.com/NousResearch/hermes-agent/pull/15488))
 - Fix: restore skills search RPC ([#15870](https://github.com/NousResearch/hermes-agent/pull/15870))
 - Perf: cache text measurements across yoga flex re-passes ([#14818](https://github.com/NousResearch/hermes-agent/pull/14818))
@@ -313,6 +346,7 @@
 ## 🖱️ CLI & User Experience
 
 ### New commands
+
 - **`hermes -z <prompt>`** — non-interactive one-shot mode ([#15702](https://github.com/NousResearch/hermes-agent/pull/15702))
 - **`hermes -z` with `--model` / `--provider` / `HERMES_INFERENCE_MODEL`** ([#15704](https://github.com/NousResearch/hermes-agent/pull/15704))
 - **`hermes update --check`** preflight flag ([#15841](https://github.com/NousResearch/hermes-agent/pull/15841))
@@ -324,12 +358,14 @@
 - **Surface `/queue`, `/bg`, `/steer` in agent-running placeholder** ([#16118](https://github.com/NousResearch/hermes-agent/pull/16118))
 
 ### Setup / onboarding
+
 - **Auto-reconfigure on existing installs** ([#15879](https://github.com/NousResearch/hermes-agent/pull/15879))
 - **Contextual first-touch hints for `/busy` and `/verbose`** ([#16046](https://github.com/NousResearch/hermes-agent/pull/16046))
 - **Cost-saving tips from the April 30 tip-of-the-day** ([#17841](https://github.com/NousResearch/hermes-agent/pull/17841))
 - **Hyperlink startup banner title to the latest GitHub Release** ([#14945](https://github.com/NousResearch/hermes-agent/pull/14945))
 
 ### Update / backup
+
 - **Snapshot pairing data before `git pull`** ([#16383](https://github.com/NousResearch/hermes-agent/pull/16383))
 - **Auto-backup HERMES_HOME before `hermes update`** (opt-in, off by default) ([#16539](https://github.com/NousResearch/hermes-agent/pull/16539), [#16566](https://github.com/NousResearch/hermes-agent/pull/16566))
 - **Exclude `checkpoints/` from backups** ([#16572](https://github.com/NousResearch/hermes-agent/pull/16572))
@@ -339,10 +375,12 @@
 - Fix: show correct update status on nix-built hermes ([#17550](https://github.com/NousResearch/hermes-agent/pull/17550))
 
 ### Slash-command housekeeping
+
 - Refactor: drop `/provider`, `/plan` handler, and clean up slash registry ([#15047](https://github.com/NousResearch/hermes-agent/pull/15047))
 - Refactor: drop `persist_session` plumbing + fix broken `/btw` mid-turn bypass ([#16075](https://github.com/NousResearch/hermes-agent/pull/16075))
 
 ### OpenClaw migration (for folks coming from OpenClaw)
+
 - **Hardened OpenClaw import** — plan-first apply, redaction, pre-migration backup ([#16911](https://github.com/NousResearch/hermes-agent/pull/16911))
 - Fix: case-preserving brand rewrite + one-time `~/.openclaw` residue banner ([#16327](https://github.com/NousResearch/hermes-agent/pull/16327))
 - Fix: resolve `openclaw` workspace files from `agents.defaults.workspace` ([#16879](https://github.com/NousResearch/hermes-agent/pull/16879))
@@ -446,6 +484,7 @@ The vast majority of the 360 fixes landed in the streaming/compression/tool-call
 ## 👥 Contributors
 
 ### Core
+
 - **@teknium1** (Teknium)
 
 ### Top Community Contributors (by merged PR count since v0.11.0)
@@ -467,6 +506,7 @@ The vast majority of the 360 fixes landed in the streaming/compression/tool-call
 - **@y0shua1ee** — curator `use` activity fix (#17953)
 
 ### Also contributing
+
 Salvaged or co-authored work from **@isaachuangGMICLOUD** (GMI Cloud), earlier upstream PRs from the original author of each salvage chain, and a long tail of one-shot fixes, documentation nudges, and skill contributions from the community.
 
 ### All Contributors (alphabetical, excluding @teknium1)

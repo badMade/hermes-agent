@@ -23,6 +23,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+from typing import Any, Optional, Tuple
 
 import fire
 import yaml
@@ -199,7 +200,7 @@ def check_requirements():
     return True
 
 
-def check_tinker_atropos():
+def check_tinker_atropos() -> Tuple[bool, Any]:
     """Check if tinker-atropos submodule is properly set up."""
     tinker_path = Path(__file__).parent / "tinker-atropos"
     
@@ -233,10 +234,10 @@ def list_environments_sync():
 # ============================================================================
 
 def main(
-    task: str = None,
-    model: str = None,
-    api_key: str = None,
-    base_url: str = None,
+    task: Optional[str] = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
     max_iterations: int = RL_MAX_ITERATIONS,
     interactive: bool = False,
     list_environments: bool = False,

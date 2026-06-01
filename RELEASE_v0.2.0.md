@@ -31,6 +31,7 @@
 ## 🏗️ Core Agent & Architecture
 
 ### Provider & Model Support
+
 - Centralized provider router with `resolve_provider_client()` + `call_llm()` API ([#1003](https://github.com/NousResearch/hermes-agent/pull/1003))
 - Nous Portal as first-class provider in setup ([#644](https://github.com/NousResearch/hermes-agent/issues/644))
 - OpenAI Codex (Responses API) with ChatGPT subscription support ([#43](https://github.com/NousResearch/hermes-agent/pull/43)) — @grp06
@@ -45,6 +46,7 @@
 - Unified `/model` and `/provider` into single view
 
 ### Agent Loop & Conversation
+
 - Simple fallback model for provider resilience ([#740](https://github.com/NousResearch/hermes-agent/pull/740))
 - Shared iteration budget across parent + subagent delegation
 - Iteration budget pressure via tool result injection
@@ -57,6 +59,7 @@
 - Detect and block file re-read/search loops after context compression ([#705](https://github.com/NousResearch/hermes-agent/pull/705)) — @0xbyt4
 
 ### Session & Memory
+
 - Session naming with unique titles, auto-lineage, rich listing, and resume by name ([#720](https://github.com/NousResearch/hermes-agent/pull/720))
 - Interactive session browser with search filtering ([#733](https://github.com/NousResearch/hermes-agent/pull/733))
 - Display previous messages when resuming a session ([#734](https://github.com/NousResearch/hermes-agent/pull/734))
@@ -71,6 +74,7 @@
 ## 📱 Messaging Platforms (Gateway)
 
 ### Telegram
+
 - Native file attachments: send_document + send_video
 - Document file processing for PDF, text, and Office files — @tekelala
 - Forum topic session isolation ([#766](https://github.com/NousResearch/hermes-agent/pull/766)) — @spanishflu-est1918
@@ -81,34 +85,41 @@
 - Italic regex newline fix + 43 format tests ([#204](https://github.com/NousResearch/hermes-agent/pull/204)) — @0xbyt4
 
 ### Discord
+
 - Channel topic included in session context ([#248](https://github.com/NousResearch/hermes-agent/pull/248)) — @Bartok9
 - DISCORD_ALLOW_BOTS config for bot message filtering ([#758](https://github.com/NousResearch/hermes-agent/pull/758))
 - Document and video support ([#784](https://github.com/NousResearch/hermes-agent/pull/784))
 - Improved error handling and logging ([#761](https://github.com/NousResearch/hermes-agent/pull/761)) — @aydnOktay
 
 ### Slack
+
 - App_mention 404 fix + document/video support ([#784](https://github.com/NousResearch/hermes-agent/pull/784))
 - Structured logging replacing print statements — @aydnOktay
 
 ### WhatsApp
+
 - Native media sending — images, videos, documents ([#292](https://github.com/NousResearch/hermes-agent/pull/292)) — @satelerd
 - Multi-user session isolation ([#75](https://github.com/NousResearch/hermes-agent/pull/75)) — @satelerd
 - Cross-platform port cleanup replacing Linux-only fuser ([#433](https://github.com/NousResearch/hermes-agent/pull/433)) — @Farukest
 - DM interrupt key mismatch fix ([#350](https://github.com/NousResearch/hermes-agent/pull/350)) — @Farukest
 
 ### Signal
+
 - Full Signal messenger gateway via signal-cli-rest-api ([#405](https://github.com/NousResearch/hermes-agent/issues/405))
 - Media URL support in message events ([#871](https://github.com/NousResearch/hermes-agent/pull/871))
 
 ### Email (IMAP/SMTP)
+
 - New email gateway platform — @0xbyt4
 
 ### Home Assistant
+
 - REST tools + WebSocket gateway integration ([#184](https://github.com/NousResearch/hermes-agent/pull/184)) — @0xbyt4
 - Service discovery and enhanced setup
 - Toolset mapping fix ([#538](https://github.com/NousResearch/hermes-agent/pull/538)) — @Himess
 
 ### Gateway Core
+
 - Expose subagent tool calls and thinking to users ([#186](https://github.com/NousResearch/hermes-agent/pull/186)) — @cutepawss
 - Configurable background process watcher notifications ([#840](https://github.com/NousResearch/hermes-agent/pull/840))
 - `edit_message()` for Telegram/Discord/Slack with fallback
@@ -125,6 +136,7 @@
 ## 🖥️ CLI & User Experience
 
 ### Interactive CLI
+
 - Data-driven skin/theme engine — 7 built-in skins (default, ares, mono, slate, poseidon, sisyphus, charizard) + custom YAML skins
 - `/personality` command with custom personality + disable support ([#773](https://github.com/NousResearch/hermes-agent/pull/773)) — @teyrebaz33
 - User-defined quick commands that bypass the agent loop ([#746](https://github.com/NousResearch/hermes-agent/pull/746)) — @teyrebaz33
@@ -145,6 +157,7 @@
 - Multi-line paste detection fix ([#84](https://github.com/NousResearch/hermes-agent/pull/84)) — @0xbyt4
 
 ### Setup & Configuration
+
 - Modular setup wizard with section subcommands and tool-first UX
 - Container resource configuration prompts
 - Backend validation for required binaries
@@ -165,6 +178,7 @@
 ## 🔧 Tool System
 
 ### MCP (Model Context Protocol)
+
 - Native MCP client with stdio + HTTP transports ([#291](https://github.com/NousResearch/hermes-agent/pull/291) — @0xbyt4, [#301](https://github.com/NousResearch/hermes-agent/pull/301))
 - Sampling support — server-initiated LLM requests ([#753](https://github.com/NousResearch/hermes-agent/pull/753))
 - Resource and prompt discovery
@@ -173,11 +187,13 @@
 - `hermes tools` UI integration
 
 ### Browser
+
 - Local browser backend — zero-cost headless Chromium (no Browserbase needed)
 - Console/errors tool, annotated screenshots, auto-recording, dogfood QA skill ([#745](https://github.com/NousResearch/hermes-agent/pull/745))
 - Screenshot sharing via MEDIA: on all messaging platforms ([#657](https://github.com/NousResearch/hermes-agent/pull/657))
 
 ### Terminal & Execution
+
 - `execute_code` sandbox with json_parse, shell_quote, retry helpers
 - Docker: custom volume mounts ([#158](https://github.com/NousResearch/hermes-agent/pull/158)) — @Indelwin
 - Daytona cloud sandbox backend ([#451](https://github.com/NousResearch/hermes-agent/pull/451)) — @rovle
@@ -187,6 +203,7 @@
 - Configurable background process notification modes
 
 ### File Operations
+
 - Filesystem checkpoints and `/rollback` command ([#824](https://github.com/NousResearch/hermes-agent/pull/824))
 - Structured tool result hints (next-action guidance) for patch and search_files ([#722](https://github.com/NousResearch/hermes-agent/issues/722))
 - Docker volumes passed to sandbox container config ([#687](https://github.com/NousResearch/hermes-agent/pull/687)) — @manuelschipper
@@ -196,6 +213,7 @@
 ## 🧩 Skills Ecosystem
 
 ### Skills System
+
 - Per-platform skill enable/disable ([#743](https://github.com/NousResearch/hermes-agent/pull/743)) — @teyrebaz33
 - Conditional skill activation based on tool availability ([#785](https://github.com/NousResearch/hermes-agent/pull/785)) — @teyrebaz33
 - Skill prerequisites — hide skills with unmet dependencies ([#659](https://github.com/NousResearch/hermes-agent/pull/659)) — @kshitijk4poor
@@ -208,6 +226,7 @@
 - Dynamic skill slash commands for CLI and gateway
 
 ### New Skills (selected)
+
 - **ASCII Art** — pyfiglet (571 fonts), cowsay, image-to-ascii ([#209](https://github.com/NousResearch/hermes-agent/pull/209)) — @0xbyt4
 - **ASCII Video** — Full production pipeline ([#854](https://github.com/NousResearch/hermes-agent/pull/854)) — @SHL0MS
 - **DuckDuckGo Search** — Firecrawl fallback ([#267](https://github.com/NousResearch/hermes-agent/pull/267)) — @gamedevCloudy; DDGS API expansion ([#598](https://github.com/NousResearch/hermes-agent/pull/598)) — @areu01or00
@@ -225,6 +244,7 @@
 ## 🔒 Security & Reliability
 
 ### Security Hardening
+
 - Path traversal fix in skill_view — prevented reading arbitrary files ([#220](https://github.com/NousResearch/hermes-agent/issues/220)) — @Farukest
 - Shell injection prevention in sudo password piping ([#65](https://github.com/NousResearch/hermes-agent/pull/65)) — @leonsgithub
 - Dangerous command detection: multiline bypass fix ([#233](https://github.com/NousResearch/hermes-agent/pull/233)) — @Farukest; tee/process substitution patterns ([#280](https://github.com/NousResearch/hermes-agent/pull/280)) — @dogiladeveloper
@@ -240,6 +260,7 @@
 - In-memory permanent allowlist to prevent data leak ([#600](https://github.com/NousResearch/hermes-agent/pull/600)) — @alireza78a
 
 ### Atomic Writes (data loss prevention)
+
 - sessions.json ([#611](https://github.com/NousResearch/hermes-agent/pull/611)) — @alireza78a
 - Cron jobs ([#146](https://github.com/NousResearch/hermes-agent/pull/146)) — @alireza78a
 - .env config ([#954](https://github.com/NousResearch/hermes-agent/pull/954))
@@ -248,6 +269,7 @@
 - Skill files ([#551](https://github.com/NousResearch/hermes-agent/pull/551)) — @aydnOktay
 
 ### Reliability
+
 - Guard all print() against OSError for systemd/headless environments ([#963](https://github.com/NousResearch/hermes-agent/pull/963))
 - Reset all retry counters at start of run_conversation ([#607](https://github.com/NousResearch/hermes-agent/pull/607)) — @0xbyt4
 - Return deny on approval callback timeout instead of None ([#603](https://github.com/NousResearch/hermes-agent/pull/603)) — @0xbyt4
@@ -262,6 +284,7 @@
 - Timezone-aware now() for prompt, cron, and execute_code ([#309](https://github.com/NousResearch/hermes-agent/pull/309)) — @areu01or00
 
 ### Windows Compatibility
+
 - Guard POSIX-only process functions ([#219](https://github.com/NousResearch/hermes-agent/pull/219)) — @Farukest
 - Windows native support via Git Bash + ZIP-based update fallback
 - pywinpty for PTY support ([#457](https://github.com/NousResearch/hermes-agent/pull/457)) — @shitcoinsherpa
@@ -357,9 +380,11 @@
 Thank you to the 63 contributors who made this release possible! In just over two weeks, the Hermes Agent community came together to ship an extraordinary amount of work.
 
 ### Core
+
 - **@teknium1** — 43 PRs: Project lead, core architecture, provider router, sessions, skills, CLI, documentation
 
 ### Top Community Contributors
+
 - **@0xbyt4** — 40 PRs: MCP client, Home Assistant, security fixes (symlink, prompt injection, cron), extensive test coverage (6 batches), ascii-art skill, shell noise elimination, skills sync, Telegram formatting, and dozens more
 - **@Farukest** — 16 PRs: Security hardening (path traversal, dangerous command detection, symlink boundary), Windows compatibility (POSIX guards, path handling), WhatsApp fixes, max-iterations retry, gateway fixes
 - **@aydnOktay** — 11 PRs: Atomic writes (process checkpoints, batch runner, skill files), error handling improvements across Telegram, Discord, code execution, transcription, TTS, and skills
@@ -376,6 +401,7 @@ Thank you to the 63 contributors who made this release possible! In just over tw
 - **@SHL0MS** — 1 PR: ASCII video skill
 
 ### All Contributors
+
 @0xbyt4, @BP602, @Bartok9, @Farukest, @FurkanL0, @Himess, @Indelwin, @JackTheGit, @JoshuaMart, @Jr-kenny, @OutThisLife, @PercyDikec, @SHL0MS, @Sertug17, @VencentSoliman, @VolodymyrBg, @adavyas, @alireza78a, @areu01or00, @aydnOktay, @batuhankocyigit, @bierlingm, @caentzminger, @cesareth, @ch3ronsa, @christomitov, @cutepawss, @deankerr, @dmahan93, @dogiladeveloper, @dragonkhoi, @erosika, @gamedevCloudy, @gizdusum, @grp06, @intertwine, @jackx707, @jdblackstar, @johnh4098, @kaos35, @kshitijk4poor, @leonsgithub, @luisv-1, @manuelschipper, @mehmetkr-31, @memosr, @PeterFile, @rewbs, @rovle, @rsavitt, @satelerd, @spanishflu-est1918, @stablegenius49, @tars90percent, @tekelala, @teknium1, @teyrebaz33, @tripledoublev, @unmodeled-tyler, @voidborne-d, @voteblake, @ygd58
 
 ---

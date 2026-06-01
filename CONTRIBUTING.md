@@ -22,14 +22,14 @@ We value contributions in this order:
 
 This is the most common question for new contributors. The answer is almost always **skill**.
 
-### Make it a Skill when:
+### Make it a Skill when
 
 - The capability can be expressed as instructions + shell commands + existing tools
 - It wraps an external CLI or API that the agent can call via `terminal` or `web_extract`
 - It doesn't need custom Python integration or API key management baked into the agent
 - Examples: arXiv search, git workflows, Docker management, PDF processing, email via CLI tools
 
-### Make it a Tool when:
+### Make it a Tool when
 
 - It requires end-to-end integration with API keys, auth flows, or multi-component configuration managed by the agent harness
 - It needs custom processing logic that must execute precisely every time (not "best effort" from LLM interpretation)
@@ -118,7 +118,7 @@ pytest tests/ -v
 
 ## Project Structure
 
-```
+```text
 hermes-agent/
 ├── run_agent.py              # AIAgent class — core conversation loop, tool dispatch, session persistence
 ├── cli.py                    # HermesCLI class — interactive TUI, prompt_toolkit integration
@@ -206,7 +206,7 @@ hermes-agent/
 
 ### Core Loop
 
-```
+```text
 User message → AIAgent._run_agent_loop()
   ├── Build system prompt (prompt_builder.py)
   ├── Build API kwargs (model, messages, tools, reasoning config)
@@ -310,7 +310,7 @@ plugin vs core guidance.
 
 Bundled skills live in `skills/` organized by category. Official optional skills use the same structure in `optional-skills/`:
 
-```
+```text
 skills/
 ├── research/
 │   └── arxiv/
@@ -401,6 +401,7 @@ metadata:
 ```
 
 **Semantics:**
+
 - `fallback_for_*`: The skill is a backup. It is **hidden** when the listed tools/toolsets are available, and **shown** when they are unavailable. Use this for free alternatives to premium tools.
 - `requires_*`: The skill needs certain tools to function. It is **hidden** when the listed tools/toolsets are unavailable. Use this for skills that depend on specific capabilities (e.g., a skill that only makes sense with terminal access).
 - If both are specified, both conditions must be satisfied for the skill to appear.
@@ -452,10 +453,12 @@ prerequisites:
 Gateway and messaging sessions never collect secrets in-band; they instruct the user to run `hermes setup` or update `~/.hermes/.env` locally.
 
 **When to declare required environment variables:**
+
 - The skill uses an API key or token that should be collected securely at load time
 - The skill can still be useful if the user skips setup, but may degrade gracefully
 
 **When to declare command prerequisites:**
+
 - The skill relies on a CLI tool that may not be installed (e.g., `himalaya`, `openhue`, `ddgs`)
 - Treat command checks as guidance, not discovery-time hiding
 
@@ -513,6 +516,7 @@ All fields are optional — missing values inherit from the default skin.
 Add to `_BUILTIN_SKINS` dict in `hermes_cli/skin_engine.py`. Use the same schema as above but as a Python dict. Built-in skins ship with the package and are always available.
 
 **Activating:**
+
 - CLI: `/skin mytheme` or set `display.skin: mytheme` in config.yaml
 - Config: `display: { skin: mytheme }`
 
@@ -573,6 +577,7 @@ that touches the OS, assume *any* platform can hit your code path.
 
 3. **`termios` and `fcntl` are Unix-only.** Always catch both `ImportError`
    and `NotImplementedError`:
+
    ```python
    try:
        from simple_term_menu import TerminalMenu
@@ -587,12 +592,14 @@ that touches the OS, assume *any* platform can hit your code path.
 
 4. **File encoding.** Windows may save `.env` files in `cp1252`. Always
    handle encoding errors:
+
    ```python
    try:
        load_dotenv(env_path)
    except UnicodeDecodeError:
        load_dotenv(env_path, encoding="latin-1")
    ```
+
    Config files (`config.yaml`) may be saved with a UTF-8 BOM by Notepad and
    similar editors — use `encoding="utf-8-sig"` when reading files that
    could have been touched by a Windows GUI editor.
@@ -600,6 +607,7 @@ that touches the OS, assume *any* platform can hit your code path.
 5. **Process management.** `os.setsid()`, `os.killpg()`, `os.fork()`,
    `os.getuid()`, and POSIX signal handling differ on Windows. Guard with
    `platform.system()`, `sys.platform`, or `hasattr(os, "setsid")`:
+
    ```python
    if platform.system() != "Windows":
        kwargs["preexec_fn"] = os.setsid
@@ -609,6 +617,7 @@ that touches the OS, assume *any* platform can hit your code path.
 
    **Preferred:** for killing a process AND its children (what `os.killpg`
    does on POSIX), use `psutil` — it works on every platform:
+
    ```python
    import psutil
    try:
@@ -694,6 +703,7 @@ that touches the OS, assume *any* platform can hit your code path.
 ### Testing cross-platform
 
 Tests that use POSIX-only syscalls need a skip marker. Common ones:
+
 - Symlinks → `@pytest.mark.skipif(sys.platform == "win32", ...)`
 - `0o600` file modes → `@pytest.mark.skipif(sys.platform.startswith("win"), ...)`
 - `signal.SIGALRM` → Unix-only (see `tests/conftest.py::_enforce_test_timeout`)
@@ -740,7 +750,7 @@ If your PR affects security, note it explicitly in the description.
 
 ### Branch naming
 
-```
+```text
 fix/description        # Bug fixes
 feat/description       # New features
 docs/description       # Documentation
@@ -758,6 +768,7 @@ refactor/description   # Code restructuring
 ### PR description
 
 Include:
+
 - **What** changed and **why**
 - **How to test** it (reproduction steps for bugs, usage examples for features)
 - **What platforms** you tested on
@@ -767,7 +778,7 @@ Include:
 
 We use [Conventional Commits](https://www.conventionalcommits.org/):
 
-```
+```text
 <type>(<scope>): <description>
 ```
 
@@ -783,7 +794,8 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 Scopes: `cli`, `gateway`, `tools`, `skills`, `agent`, `install`, `whatsapp`, `security`, etc.
 
 Examples:
-```
+
+```text
 fix(cli): prevent crash in save_config_value when model is a string
 feat(gateway): add WhatsApp multi-user session isolation
 fix(security): prevent shell injection in sudo password piping

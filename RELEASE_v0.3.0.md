@@ -41,6 +41,7 @@
 ## 🏗️ Core Agent & Architecture
 
 ### Provider & Model Support
+
 - **Centralized provider router** with `call_llm` API and unified `/model` command — switch models and providers seamlessly ([#1003](https://github.com/NousResearch/hermes-agent/pull/1003))
 - **Vercel AI Gateway** provider support ([#1628](https://github.com/NousResearch/hermes-agent/pull/1628))
 - **Auto-detect provider** when switching models via `/model` ([#1506](https://github.com/NousResearch/hermes-agent/pull/1506))
@@ -61,6 +62,7 @@
 - Strip `call_id`/`response_item_id` for Mistral compatibility ([#1058](https://github.com/NousResearch/hermes-agent/pull/1058))
 
 ### Agent Loop & Conversation
+
 - **Anthropic Context Editing API** support ([#1147](https://github.com/NousResearch/hermes-agent/pull/1147))
 - Improved context compaction handoff summaries — compressor now preserves more actionable state ([#1273](https://github.com/NousResearch/hermes-agent/pull/1273))
 - Sync session_id after mid-run context compression ([#1160](https://github.com/NousResearch/hermes-agent/pull/1160))
@@ -71,6 +73,7 @@
 - Handle dict tool call arguments from Codex and local backends ([#1393](https://github.com/NousResearch/hermes-agent/pull/1393), [#1440](https://github.com/NousResearch/hermes-agent/pull/1440))
 
 ### Memory & Sessions
+
 - **Improve memory prioritization** — user preferences and corrections weighted above procedural knowledge ([#1548](https://github.com/NousResearch/hermes-agent/pull/1548))
 - Tighter memory and session recall guidance in system prompts ([#1329](https://github.com/NousResearch/hermes-agent/pull/1329))
 - Persist CLI token counts to session DB for `/insights` ([#1498](https://github.com/NousResearch/hermes-agent/pull/1498))
@@ -83,6 +86,7 @@
 ## 📱 Messaging Platforms (Gateway)
 
 ### Gateway Core
+
 - **System gateway service mode** — run as a system-level systemd service, not just user-level ([#1371](https://github.com/NousResearch/hermes-agent/pull/1371))
 - **Gateway install scope prompts** — choose user vs system scope during setup ([#1374](https://github.com/NousResearch/hermes-agent/pull/1374))
 - **Reasoning hot reload** — change reasoning settings without restarting the gateway ([#1275](https://github.com/NousResearch/hermes-agent/pull/1275))
@@ -101,6 +105,7 @@
 - PID-based gateway kill and deferred config write ([#1499](https://github.com/NousResearch/hermes-agent/pull/1499))
 
 ### Telegram
+
 - Buffer media groups to prevent self-interruption from photo bursts ([#1341](https://github.com/NousResearch/hermes-agent/pull/1341), [#1422](https://github.com/NousResearch/hermes-agent/pull/1422))
 - Retry on transient TLS failures during connect and send ([#1535](https://github.com/NousResearch/hermes-agent/pull/1535))
 - Harden polling conflict handling ([#1339](https://github.com/NousResearch/hermes-agent/pull/1339))
@@ -108,6 +113,7 @@
 - Check updater/app state before disconnect ([#1389](https://github.com/NousResearch/hermes-agent/pull/1389))
 
 ### Discord
+
 - `/thread` command with `auto_thread` config and media metadata fixes ([#1178](https://github.com/NousResearch/hermes-agent/pull/1178))
 - Auto-thread on @mention, skip mention text in bot threads ([#1438](https://github.com/NousResearch/hermes-agent/pull/1438))
 - Retry without reply reference for system messages ([#1385](https://github.com/NousResearch/hermes-agent/pull/1385))
@@ -115,6 +121,7 @@
 - Defer discord adapter annotations to avoid optional import crashes ([#1314](https://github.com/NousResearch/hermes-agent/pull/1314))
 
 ### Slack
+
 - Thread handling overhaul — progress messages, responses, and session isolation all respect threads ([#1103](https://github.com/NousResearch/hermes-agent/pull/1103))
 - Formatting, reactions, user resolution, and command improvements ([#1106](https://github.com/NousResearch/hermes-agent/pull/1106))
 - Fix MAX_MESSAGE_LENGTH 3900 → 39000 ([#1117](https://github.com/NousResearch/hermes-agent/pull/1117))
@@ -122,10 +129,12 @@
 - Improve setup guidance ([#1387](https://github.com/NousResearch/hermes-agent/pull/1387))
 
 ### Email
+
 - Fix IMAP UID tracking and SMTP TLS verification ([#1305](https://github.com/NousResearch/hermes-agent/pull/1305))
 - Add `skip_attachments` option via config.yaml ([#1536](https://github.com/NousResearch/hermes-agent/pull/1536))
 
 ### Home Assistant
+
 - Event filtering closed by default ([#1169](https://github.com/NousResearch/hermes-agent/pull/1169))
 
 ---
@@ -133,6 +142,7 @@
 ## 🖥️ CLI & User Experience
 
 ### Interactive CLI
+
 - **Persistent CLI status bar** — always-visible model, provider, and token counts ([#1522](https://github.com/NousResearch/hermes-agent/pull/1522))
 - **File path autocomplete** in the input prompt ([#1545](https://github.com/NousResearch/hermes-agent/pull/1545))
 - **`/plan` command** — generate implementation plans from specs ([#1372](https://github.com/NousResearch/hermes-agent/pull/1372), [#1381](https://github.com/NousResearch/hermes-agent/pull/1381))
@@ -153,6 +163,7 @@
 - Seed a default global SOUL.md ([#1311](https://github.com/NousResearch/hermes-agent/pull/1311))
 
 ### Setup & Configuration
+
 - **OpenClaw migration** during first-time setup — by @kshitijk4poor ([#981](https://github.com/NousResearch/hermes-agent/pull/981))
 - `hermes claw migrate` command + migration docs ([#1059](https://github.com/NousResearch/hermes-agent/pull/1059))
 - Smart vision setup that respects the user's chosen provider ([#1323](https://github.com/NousResearch/hermes-agent/pull/1323))
@@ -170,6 +181,7 @@
 ## 🔧 Tool System
 
 ### Terminal & Execution
+
 - **Persistent shell mode** for local and SSH backends — maintain shell state across tool calls — by @alt-glitch ([#1067](https://github.com/NousResearch/hermes-agent/pull/1067), [#1483](https://github.com/NousResearch/hermes-agent/pull/1483))
 - **Tirith pre-exec command scanning** — security layer that analyzes commands before execution ([#1256](https://github.com/NousResearch/hermes-agent/pull/1256))
 - Strip Hermes provider env vars from all subprocess environments ([#1157](https://github.com/NousResearch/hermes-agent/pull/1157), [#1172](https://github.com/NousResearch/hermes-agent/pull/1172), [#1399](https://github.com/NousResearch/hermes-agent/pull/1399), [#1419](https://github.com/NousResearch/hermes-agent/pull/1419)) — initial fix by @eren-karakus0
@@ -180,21 +192,25 @@
 - Clearer docker backend preflight errors ([#1276](https://github.com/NousResearch/hermes-agent/pull/1276))
 
 ### Browser
+
 - **`/browser connect`** — attach browser tools to a live Chrome instance via CDP ([#1549](https://github.com/NousResearch/hermes-agent/pull/1549))
 - Improve browser cleanup, local browser PATH setup, and screenshot recovery ([#1333](https://github.com/NousResearch/hermes-agent/pull/1333))
 
 ### MCP
+
 - **Selective tool loading** with utility policies — filter which MCP tools are available ([#1302](https://github.com/NousResearch/hermes-agent/pull/1302))
 - Auto-reload MCP tools when `mcp_servers` config changes without restart ([#1474](https://github.com/NousResearch/hermes-agent/pull/1474))
 - Resolve npx stdio connection failures ([#1291](https://github.com/NousResearch/hermes-agent/pull/1291))
 - Preserve MCP toolsets when saving platform tool config ([#1421](https://github.com/NousResearch/hermes-agent/pull/1421))
 
 ### Vision
+
 - Unify vision backend gating ([#1367](https://github.com/NousResearch/hermes-agent/pull/1367))
 - Surface actual error reason instead of generic message ([#1338](https://github.com/NousResearch/hermes-agent/pull/1338))
 - Make Claude image handling work end-to-end ([#1408](https://github.com/NousResearch/hermes-agent/pull/1408))
 
 ### Cron
+
 - **Compress cron management into one tool** — single `cronjob` tool replaces multiple commands ([#1343](https://github.com/NousResearch/hermes-agent/pull/1343))
 - Suppress duplicate cron sends to auto-delivery targets ([#1357](https://github.com/NousResearch/hermes-agent/pull/1357))
 - Persist cron sessions to SQLite ([#1255](https://github.com/NousResearch/hermes-agent/pull/1255))
@@ -203,10 +219,12 @@
 - Preserve thread context for `deliver=origin` ([#1437](https://github.com/NousResearch/hermes-agent/pull/1437))
 
 ### Patch Tool
+
 - Avoid corrupting pipe chars in V4A patch apply ([#1286](https://github.com/NousResearch/hermes-agent/pull/1286))
 - Permissive `block_anchor` thresholds and unicode normalization ([#1539](https://github.com/NousResearch/hermes-agent/pull/1539))
 
 ### Delegation
+
 - Add observability metadata to subagent results (model, tokens, duration, tool trace) ([#1175](https://github.com/NousResearch/hermes-agent/pull/1175))
 
 ---
@@ -214,6 +232,7 @@
 ## 🧩 Skills Ecosystem
 
 ### Skills System
+
 - **Integrate skills.sh** as a hub source alongside ClawHub ([#1303](https://github.com/NousResearch/hermes-agent/pull/1303))
 - Secure skill env setup on load ([#1153](https://github.com/NousResearch/hermes-agent/pull/1153))
 - Honor policy table for dangerous verdicts ([#1330](https://github.com/NousResearch/hermes-agent/pull/1330))
@@ -222,6 +241,7 @@
 - Avoid mislabeling local skills as builtin — by @arceus77-7 ([#862](https://github.com/NousResearch/hermes-agent/pull/862))
 
 ### New Skills
+
 - **Linear** project management ([#1230](https://github.com/NousResearch/hermes-agent/pull/1230))
 - **X/Twitter** via x-cli ([#1285](https://github.com/NousResearch/hermes-agent/pull/1285))
 - **Telephony** — Twilio, SMS, and AI calls ([#1289](https://github.com/NousResearch/hermes-agent/pull/1289))
@@ -263,6 +283,7 @@
 ## 🔒 Security & Reliability
 
 ### Security Hardening
+
 - **Tirith pre-exec command scanning** — static analysis of terminal commands before execution ([#1256](https://github.com/NousResearch/hermes-agent/pull/1256))
 - **PII redaction** when `privacy.redact_pii` is enabled ([#1542](https://github.com/NousResearch/hermes-agent/pull/1542))
 - Strip Hermes provider/gateway/tool env vars from all subprocess environments ([#1157](https://github.com/NousResearch/hermes-agent/pull/1157), [#1172](https://github.com/NousResearch/hermes-agent/pull/1172), [#1399](https://github.com/NousResearch/hermes-agent/pull/1399), [#1419](https://github.com/NousResearch/hermes-agent/pull/1419))
@@ -272,6 +293,7 @@
 - Use description as `pattern_key` to prevent approval collisions ([#1395](https://github.com/NousResearch/hermes-agent/pull/1395))
 
 ### Reliability
+
 - Guard init-time stdio writes ([#1271](https://github.com/NousResearch/hermes-agent/pull/1271))
 - Session log writes reuse shared atomic JSON helper ([#1280](https://github.com/NousResearch/hermes-agent/pull/1280))
 - Atomic temp cleanup protected on interrupts ([#1401](https://github.com/NousResearch/hermes-agent/pull/1401))
@@ -349,6 +371,7 @@
 ## 👥 Contributors
 
 ### Core
+
 - **@teknium1** — 220+ PRs spanning every area of the codebase
 
 ### Top Community Contributors

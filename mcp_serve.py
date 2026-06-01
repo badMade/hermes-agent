@@ -38,7 +38,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("hermes.mcp_serve")
 
@@ -447,9 +447,9 @@ class EventBridge:
 # MCP Server
 # ---------------------------------------------------------------------------
 
-def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
+def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> Any:
     """Create and return the Hermes MCP server with all tools registered."""
-    if not _MCP_SERVER_AVAILABLE:
+    if not _MCP_SERVER_AVAILABLE or FastMCP is None:
         raise ImportError(
             "MCP server requires the 'mcp' package. "
             f"Install with: {sys.executable} -m pip install 'mcp'"
@@ -781,7 +781,7 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
             entries = _load_sessions_index()
             targets = []
             seen = set()
-            for key, entry in entries.items():
+            for entry in entries.values():
                 origin = entry.get("origin", {})
                 p = entry.get("platform") or origin.get("platform", "")
                 chat_id = origin.get("chat_id", "")

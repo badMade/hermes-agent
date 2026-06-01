@@ -57,7 +57,7 @@ def _get_tool_loop():
         return _tool_loop
 
 
-def _get_worker_loop():
+def _get_worker_loop() -> asyncio.AbstractEventLoop:
     """Return a persistent event loop for the current worker thread.
 
     Each worker thread (e.g., delegate_task's ThreadPoolExecutor threads)
@@ -71,7 +71,7 @@ def _get_worker_loop():
     By keeping the loop alive for the thread's lifetime, cached clients
     stay valid and their cleanup runs on a live loop.
     """
-    loop = getattr(_worker_thread_local, 'loop', None)
+    loop: Optional[asyncio.AbstractEventLoop] = getattr(_worker_thread_local, 'loop', None)
     if loop is None or loop.is_closed():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -269,8 +269,8 @@ def _clear_tool_defs_cache() -> None:
 
 
 def get_tool_definitions(
-    enabled_toolsets: List[str] = None,
-    disabled_toolsets: List[str] = None,
+    enabled_toolsets: Optional[List[str]] = None,
+    disabled_toolsets: Optional[List[str]] = None,
     quiet_mode: bool = False,
 ) -> List[Dict[str, Any]]:
     """
@@ -333,8 +333,8 @@ def get_tool_definitions(
 
 
 def _compute_tool_definitions(
-    enabled_toolsets: List[str] = None,
-    disabled_toolsets: List[str] = None,
+    enabled_toolsets: Optional[List[str]] = None,
+    disabled_toolsets: Optional[List[str]] = None,
     quiet_mode: bool = False,
 ) -> List[Dict[str, Any]]:
     """Uncached implementation of :func:`get_tool_definitions`."""
@@ -401,7 +401,7 @@ def _compute_tool_definitions(
     # disabled (#560-discord).
     if "execute_code" in available_tool_names:
         from tools.code_execution_tool import SANDBOX_ALLOWED_TOOLS, build_execute_code_schema, _get_execution_mode
-        sandbox_enabled = SANDBOX_ALLOWED_TOOLS & available_tool_names
+        sandbox_enabled = available_tool_names & SANDBOX_ALLOWED_TOOLS
         dynamic_schema = build_execute_code_schema(sandbox_enabled, mode=_get_execution_mode())
         for i, td in enumerate(filtered_tools):
             if td.get("function", {}).get("name") == "execute_code":

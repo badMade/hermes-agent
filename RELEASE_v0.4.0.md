@@ -29,6 +29,7 @@
 ## 🖥️ CLI & User Experience
 
 ### New Commands & Interactions
+
 - **@ context completions** — Tab-completable `@file`/`@url` references that inject file content or web pages into the conversation ([#2482](https://github.com/NousResearch/hermes-agent/pull/2482), [#2343](https://github.com/NousResearch/hermes-agent/pull/2343))
 - **`/statusbar`** — Toggle a persistent config bar showing model + provider info in the prompt ([#2240](https://github.com/NousResearch/hermes-agent/pull/2240), [#1917](https://github.com/NousResearch/hermes-agent/pull/1917))
 - **`/queue`** — Queue prompts for the agent without interrupting the current run ([#2191](https://github.com/NousResearch/hermes-agent/pull/2191), [#2469](https://github.com/NousResearch/hermes-agent/pull/2469))
@@ -38,6 +39,7 @@
 - **`/approve` and `/deny`** — Replaced bare text approval in gateway with explicit commands ([#2002](https://github.com/NousResearch/hermes-agent/pull/2002))
 
 ### Streaming & Display
+
 - Streaming enabled by default in CLI ([#2340](https://github.com/NousResearch/hermes-agent/pull/2340))
 - Show spinners and tool progress during streaming mode ([#2161](https://github.com/NousResearch/hermes-agent/pull/2161))
 - Show reasoning/thinking blocks when `show_reasoning` enabled ([#2118](https://github.com/NousResearch/hermes-agent/pull/2118))
@@ -52,6 +54,7 @@
 - Fix: normalize toolset labels and use skin colors in banner ([#1912](https://github.com/NousResearch/hermes-agent/pull/1912))
 
 ### CLI Polish
+
 - Fix: prevent 'Press ENTER to continue...' on exit ([#2555](https://github.com/NousResearch/hermes-agent/pull/2555))
 - Fix: flush stdout during agent loop to prevent macOS display freeze ([#1654](https://github.com/NousResearch/hermes-agent/pull/1654))
 - Fix: show human-readable error when `hermes setup` hits permissions error ([#2196](https://github.com/NousResearch/hermes-agent/pull/2196))
@@ -60,6 +63,7 @@
 - Fix: Kitty keyboard protocol Shift+Enter for Ghostty/WezTerm (attempted + reverted due to prompt_toolkit crash) ([#2345](https://github.com/NousResearch/hermes-agent/pull/2345), [#2349](https://github.com/NousResearch/hermes-agent/pull/2349))
 
 ### Configuration
+
 - **`${ENV_VAR}` substitution** in config.yaml ([#2684](https://github.com/NousResearch/hermes-agent/pull/2684))
 - **Real-time config reload** — config.yaml changes apply without restart ([#2210](https://github.com/NousResearch/hermes-agent/pull/2210))
 - **`custom_models.yaml`** for user-managed model additions ([#2214](https://github.com/NousResearch/hermes-agent/pull/2214))
@@ -83,6 +87,7 @@
 ## 🏗️ Core Agent & Architecture
 
 ### New Providers
+
 - **GitHub Copilot** — Full OAuth auth, API routing, token validation, and 400k context. ([#1924](https://github.com/NousResearch/hermes-agent/pull/1924), [#1896](https://github.com/NousResearch/hermes-agent/pull/1896), [#1879](https://github.com/NousResearch/hermes-agent/pull/1879) by @mchzimm, [#2507](https://github.com/NousResearch/hermes-agent/pull/2507))
 - **Alibaba Cloud / DashScope** — Full integration with DashScope v1 runtime, model dot preservation, and 401 auth fixes ([#1673](https://github.com/NousResearch/hermes-agent/pull/1673), [#2332](https://github.com/NousResearch/hermes-agent/pull/2332), [#2459](https://github.com/NousResearch/hermes-agent/pull/2459))
 - **Kilo Code** — First-class inference provider ([#1666](https://github.com/NousResearch/hermes-agent/pull/1666))
@@ -90,6 +95,7 @@
 - **NeuTTS** — Local TTS provider backend with built-in setup flow, replacing the old optional skill ([#1657](https://github.com/NousResearch/hermes-agent/pull/1657), [#1664](https://github.com/NousResearch/hermes-agent/pull/1664))
 
 ### Provider Improvements
+
 - **Eager fallback** to backup model on rate-limit errors ([#1730](https://github.com/NousResearch/hermes-agent/pull/1730))
 - **Endpoint metadata** for custom model context and pricing; query local servers for actual context window size ([#1906](https://github.com/NousResearch/hermes-agent/pull/1906), [#2091](https://github.com/NousResearch/hermes-agent/pull/2091) by @dusterbloom)
 - **Context length detection overhaul** — models.dev integration, provider-aware resolution, fuzzy matching for custom endpoints, `/v1/props` for llama.cpp ([#2158](https://github.com/NousResearch/hermes-agent/pull/2158), [#2051](https://github.com/NousResearch/hermes-agent/pull/2051), [#2403](https://github.com/NousResearch/hermes-agent/pull/2403))
@@ -112,6 +118,7 @@
 - Fix: auxiliary client skips expired Codex JWT ([#2397](https://github.com/NousResearch/hermes-agent/pull/2397))
 
 ### Agent Loop
+
 - **Gateway prompt caching** — Cache AIAgent per session, keep assistant turns, fix session restore ([#2282](https://github.com/NousResearch/hermes-agent/pull/2282), [#2284](https://github.com/NousResearch/hermes-agent/pull/2284), [#2361](https://github.com/NousResearch/hermes-agent/pull/2361))
 - **Context compression overhaul** — Structured summaries, iterative updates, token-budget tail protection, configurable `summary_base_url` ([#2323](https://github.com/NousResearch/hermes-agent/pull/2323), [#1727](https://github.com/NousResearch/hermes-agent/pull/1727), [#2224](https://github.com/NousResearch/hermes-agent/pull/2224))
 - **Pre-call sanitization and post-call tool guardrails** ([#1732](https://github.com/NousResearch/hermes-agent/pull/1732))
@@ -139,6 +146,7 @@
 - Fix: only strip last assistant message if empty string ([#2326](https://github.com/NousResearch/hermes-agent/pull/2326))
 
 ### Session & Memory
+
 - **Session search** and management slash commands ([#2198](https://github.com/NousResearch/hermes-agent/pull/2198))
 - **Auto session titles** and `.hermes.md` project config ([#1712](https://github.com/NousResearch/hermes-agent/pull/1712))
 - Fix: concurrent memory writes silently drop entries — added file locking ([#1726](https://github.com/NousResearch/hermes-agent/pull/1726))
@@ -154,6 +162,7 @@
 - Fix: unify resume logic in batch mode ([#2331](https://github.com/NousResearch/hermes-agent/pull/2331))
 
 ### Honcho Memory
+
 - Honcho config fixes and @ context reference integration ([#2343](https://github.com/NousResearch/hermes-agent/pull/2343))
 - Self-hosted / Docker configuration documentation ([#2475](https://github.com/NousResearch/hermes-agent/pull/2475))
 
@@ -162,6 +171,7 @@
 ## 📱 Messaging Platforms (Gateway)
 
 ### New Platform Adapters
+
 - **Signal Messenger** — Full adapter with attachment handling, group message filtering, and Note to Self echo-back protection ([#2206](https://github.com/NousResearch/hermes-agent/pull/2206), [#2400](https://github.com/NousResearch/hermes-agent/pull/2400), [#2297](https://github.com/NousResearch/hermes-agent/pull/2297), [#2156](https://github.com/NousResearch/hermes-agent/pull/2156))
 - **DingTalk** — Adapter with gateway wiring and setup docs ([#1685](https://github.com/NousResearch/hermes-agent/pull/1685), [#1690](https://github.com/NousResearch/hermes-agent/pull/1690), [#1692](https://github.com/NousResearch/hermes-agent/pull/1692))
 - **SMS (Twilio)** ([#1688](https://github.com/NousResearch/hermes-agent/pull/1688))
@@ -171,6 +181,7 @@
 - **OpenAI-compatible API server** — `/v1/chat/completions` endpoint with `/api/jobs` cron management ([#1756](https://github.com/NousResearch/hermes-agent/pull/1756), [#2450](https://github.com/NousResearch/hermes-agent/pull/2450), [#2456](https://github.com/NousResearch/hermes-agent/pull/2456))
 
 ### Telegram Improvements
+
 - MarkdownV2 support — strikethrough, spoiler, blockquotes, escape parentheses/braces/backslashes/backticks ([#2199](https://github.com/NousResearch/hermes-agent/pull/2199), [#2200](https://github.com/NousResearch/hermes-agent/pull/2200) by @llbn, [#2386](https://github.com/NousResearch/hermes-agent/pull/2386))
 - Auto-detect HTML tags and use `parse_mode=HTML` ([#1709](https://github.com/NousResearch/hermes-agent/pull/1709))
 - Telegram group vision support + thread-based sessions ([#2153](https://github.com/NousResearch/hermes-agent/pull/2153))
@@ -182,6 +193,7 @@
 - Fix: topic delivery via `platform:chat_id:thread_id` format ([#2455](https://github.com/NousResearch/hermes-agent/pull/2455))
 
 ### Discord Improvements
+
 - Document caching and text-file injection ([#2503](https://github.com/NousResearch/hermes-agent/pull/2503))
 - Persistent typing indicator for DMs ([#2468](https://github.com/NousResearch/hermes-agent/pull/2468))
 - Discord DM vision — inline images + attachment analysis ([#2186](https://github.com/NousResearch/hermes-agent/pull/2186))
@@ -194,11 +206,13 @@
 - Fix: voice channel TTS when streaming enabled ([#2322](https://github.com/NousResearch/hermes-agent/pull/2322))
 
 ### WhatsApp & Other Adapters
+
 - WhatsApp: outbound `send_message` routing ([#1769](https://github.com/NousResearch/hermes-agent/pull/1769) by @sai-samarth), LID format self-chat ([#1667](https://github.com/NousResearch/hermes-agent/pull/1667)), `reply_prefix` config fix ([#1923](https://github.com/NousResearch/hermes-agent/pull/1923)), restart on bridge child exit ([#2334](https://github.com/NousResearch/hermes-agent/pull/2334)), image/bridge improvements ([#2181](https://github.com/NousResearch/hermes-agent/pull/2181))
 - Matrix: correct `reply_to_message_id` parameter ([#1895](https://github.com/NousResearch/hermes-agent/pull/1895)), bare media types fix ([#1736](https://github.com/NousResearch/hermes-agent/pull/1736))
 - Mattermost: MIME types for media attachments ([#2329](https://github.com/NousResearch/hermes-agent/pull/2329))
 
 ### Gateway Core
+
 - **Auto-reconnect** failed platforms with exponential backoff ([#2584](https://github.com/NousResearch/hermes-agent/pull/2584))
 - **Notify users when session auto-resets** ([#2519](https://github.com/NousResearch/hermes-agent/pull/2519))
 - **Reply-to message context** for out-of-session replies ([#1662](https://github.com/NousResearch/hermes-agent/pull/1662))
@@ -233,6 +247,7 @@
 ## 🔧 Tool System
 
 ### MCP Enhancements
+
 - **MCP server management CLI** + OAuth 2.1 PKCE auth ([#2465](https://github.com/NousResearch/hermes-agent/pull/2465))
 - **Expose MCP servers as standalone toolsets** ([#1907](https://github.com/NousResearch/hermes-agent/pull/1907))
 - **Interactive MCP tool configuration** in `hermes tools` ([#1694](https://github.com/NousResearch/hermes-agent/pull/1694))
@@ -243,17 +258,20 @@
 - Fix: `tool_choice` `mcp_` prefix handling ([#1775](https://github.com/NousResearch/hermes-agent/pull/1775))
 
 ### Web Tool Backends
+
 - **Tavily** as web search/extract/crawl backend ([#1731](https://github.com/NousResearch/hermes-agent/pull/1731))
 - **Parallel** as alternative web search/extract backend ([#1696](https://github.com/NousResearch/hermes-agent/pull/1696))
 - **Configurable web backend** — Firecrawl/BeautifulSoup/Playwright selection ([#2256](https://github.com/NousResearch/hermes-agent/pull/2256))
 - Fix: whitespace-only env vars bypass web backend detection ([#2341](https://github.com/NousResearch/hermes-agent/pull/2341))
 
 ### New Tools
+
 - **IMAP email** reading and sending ([#2173](https://github.com/NousResearch/hermes-agent/pull/2173))
 - **STT (speech-to-text)** tool using Whisper API ([#2072](https://github.com/NousResearch/hermes-agent/pull/2072))
 - **Route-aware pricing estimates** ([#1695](https://github.com/NousResearch/hermes-agent/pull/1695))
 
 ### Tool Improvements
+
 - TTS: `base_url` support for OpenAI TTS provider ([#2064](https://github.com/NousResearch/hermes-agent/pull/2064) by @hanai)
 - Vision: configurable timeout, tilde expansion in file paths, DM vision with multi-image and base64 fallback ([#2480](https://github.com/NousResearch/hermes-agent/pull/2480), [#2585](https://github.com/NousResearch/hermes-agent/pull/2585), [#2211](https://github.com/NousResearch/hermes-agent/pull/2211))
 - Browser: race condition fix in session creation ([#1721](https://github.com/NousResearch/hermes-agent/pull/1721)), TypeError on unexpected LLM params ([#1735](https://github.com/NousResearch/hermes-agent/pull/1735))
@@ -272,6 +290,7 @@
 ## 🧩 Skills Ecosystem
 
 ### Skills System Improvements
+
 - **Agent-created skills** — Caution-level findings allowed, dangerous skills ask instead of block ([#1840](https://github.com/NousResearch/hermes-agent/pull/1840), [#2446](https://github.com/NousResearch/hermes-agent/pull/2446))
 - **`--yes` flag** to bypass confirmation in `/skills install` and uninstall ([#1647](https://github.com/NousResearch/hermes-agent/pull/1647))
 - **Disabled skills respected** across banner, system prompt, and slash commands ([#1897](https://github.com/NousResearch/hermes-agent/pull/1897))
@@ -283,6 +302,7 @@
 - Fix: agent-created skills keep working after session reset ([#2121](https://github.com/NousResearch/hermes-agent/pull/2121))
 
 ### New Skills
+
 - **OCR-and-documents** — PDF/DOCX/XLS/PPTX/image OCR with optional GPU ([#2236](https://github.com/NousResearch/hermes-agent/pull/2236), [#2461](https://github.com/NousResearch/hermes-agent/pull/2461))
 - **Huggingface-hub** bundled skill ([#1921](https://github.com/NousResearch/hermes-agent/pull/1921))
 - **Sherlock OSINT** username search ([#1671](https://github.com/NousResearch/hermes-agent/pull/1671))
@@ -309,6 +329,7 @@
 ## 🔒 Security & Reliability
 
 ### Security
+
 - **SSRF protection** for vision_tools and web_tools ([#2679](https://github.com/NousResearch/hermes-agent/pull/2679))
 - **Shell injection prevention** in `_expand_path` via `~user` path suffix ([#2685](https://github.com/NousResearch/hermes-agent/pull/2685))
 - **Block untrusted browser-origin** API server access ([#2451](https://github.com/NousResearch/hermes-agent/pull/2451))
@@ -321,6 +342,7 @@
 - **Harden jobs API** — input limits, field whitelist, startup check ([#2456](https://github.com/NousResearch/hermes-agent/pull/2456))
 
 ### Reliability
+
 - Thread locks on 4 SessionDB methods ([#1704](https://github.com/NousResearch/hermes-agent/pull/1704))
 - File locking for concurrent memory writes ([#1726](https://github.com/NousResearch/hermes-agent/pull/1726))
 - Handle OpenRouter errors gracefully ([#2112](https://github.com/NousResearch/hermes-agent/pull/2112))
@@ -333,6 +355,7 @@
 - Fix: `minisweagent_path.py` missing from wheel ([#2098](https://github.com/NousResearch/hermes-agent/pull/2098) by @JiwaniZakir)
 
 ### Cron System
+
 - **`[SILENT]` response** — cron agents can suppress delivery ([#1833](https://github.com/NousResearch/hermes-agent/pull/1833))
 - **Scale missed-job grace window** with schedule frequency ([#2449](https://github.com/NousResearch/hermes-agent/pull/2449))
 - **Recover recent one-shot jobs** ([#1918](https://github.com/NousResearch/hermes-agent/pull/1918))
@@ -375,9 +398,11 @@
 ## 👥 Contributors
 
 ### Core
+
 - **@teknium1** (Teknium) — 280 PRs
 
 ### Community Contributors
+
 - **@mchzimm** (to_the_max) — GitHub Copilot provider integration ([#1879](https://github.com/NousResearch/hermes-agent/pull/1879))
 - **@jquesnelle** (Jeffrey Quesnelle) — Per-thread persistent event loops fix ([#2214](https://github.com/NousResearch/hermes-agent/pull/2214))
 - **@llbn** (lbn) — Telegram MarkdownV2 strikethrough, spoiler, blockquotes, and escape fixes ([#2199](https://github.com/NousResearch/hermes-agent/pull/2199), [#2200](https://github.com/NousResearch/hermes-agent/pull/2200))

@@ -29,12 +29,8 @@ Usage:
 import json
 import logging
 import os
-import sys
-import time
-import uuid
 from datetime import datetime
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional, cast
 
 import fire
 from dotenv import load_dotenv
@@ -59,7 +55,7 @@ def _effective_temperature_for_model(
     result = _fixed_temperature_for_model(model, base_url)
     if result is OMIT_TEMPERATURE:
         return None  # caller must omit temperature
-    return result
+    return cast(Optional[float], result)
 
 
 
@@ -68,7 +64,7 @@ def _effective_temperature_for_model(
 # Terminal Tool Definition (matches Hermes-Agent format)
 # ============================================================================
 
-TERMINAL_TOOL_DEFINITION = {
+TERMINAL_TOOL_DEFINITION: Dict[str, Any] = {
     "type": "function",
     "function": {
         "name": "terminal",
@@ -166,8 +162,8 @@ class MiniSWERunner:
     def __init__(
         self,
         model: str = "anthropic/claude-sonnet-4.6",
-        base_url: str = None,
-        api_key: str = None,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
         env_type: str = "local",
         image: str = "python:3.11-slim",
         cwd: str = "/tmp",
@@ -208,9 +204,10 @@ class MiniSWERunner:
         # Initialize LLM client via centralized provider router.
         # If explicit api_key/base_url are provided (e.g. from CLI args),
         # construct directly.  Otherwise use the router for OpenRouter.
+        self.client: Any
         if api_key or base_url:
             from openai import OpenAI
-            client_kwargs = {
+            client_kwargs: Dict[str, Any] = {
                 "base_url": base_url or "https://openrouter.ai/api/v1",
                 "api_key": api_key or os.getenv(
                     "OPENROUTER_API_KEY",
@@ -231,7 +228,7 @@ class MiniSWERunner:
                     api_key=os.getenv("OPENROUTER_API_KEY", ""))
         
         # Environment will be created per-task
-        self.env = None
+        self.env: Any = None
         
         # Tool definition
         self.tools = [TERMINAL_TOOL_DEFINITION]
@@ -263,7 +260,7 @@ class MiniSWERunner:
                 self.env.stop()
             self.env = None
     
-    def _execute_command(self, command: str, timeout: int = None) -> Dict[str, Any]:
+    def _execute_command(self, command: str, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute a command in the environment.
         
@@ -371,7 +368,7 @@ class MiniSWERunner:
                     trajectory.append({"from": "gpt", "value": content.rstrip()})
                     
                     # Collect subsequent tool responses
-                    tool_responses = []
+                    tool_responses: List[str] = []
                     j = i + 1
                     while j < len(messages) and messages[j]["role"] == "tool":
                         tool_msg = messages[j]
@@ -432,7 +429,7 @@ class MiniSWERunner:
         self._create_env()
         
         # Message history
-        messages = [{"role": "user", "content": task}]
+        messages: List[Dict[str, Any]] = [{"role": "user", "content": task}]
         
         # System prompt for the LLM (ephemeral - not saved to trajectory)
         system_prompt = """You are an AI agent that can execute bash commands to complete tasks.
@@ -639,12 +636,12 @@ Complete the user's task step by step."""
 # ============================================================================
 
 def main(
-    task: str = None,
-    prompts_file: str = None,
+    task: Optional[str] = None,
+    prompts_file: Optional[str] = None,
     output_file: str = "swe-runner-test1.jsonl",
     model: str = "claude-sonnet-4-20250514",
-    base_url: str = None,
-    api_key: str = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
     env: str = "local",
     image: str = "python:3.11-slim",
     cwd: str = "/tmp",

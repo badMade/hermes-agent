@@ -42,6 +42,7 @@ This release also folds in all the highlights deferred from v0.10.0 (which shipp
 ## 🏗️ Core Agent & Architecture
 
 ### Transport Layer (NEW)
+
 - **Transport ABC** abstracts format conversion and HTTP transport from `run_agent.py` into `agent/transports/` ([#13347](https://github.com/NousResearch/hermes-agent/pull/13347))
 - **AnthropicTransport** — Anthropic Messages API path ([#13366](https://github.com/NousResearch/hermes-agent/pull/13366), @kshitijk4poor)
 - **ChatCompletionsTransport** — default path for OpenAI-compatible providers ([#13805](https://github.com/NousResearch/hermes-agent/pull/13805))
@@ -49,6 +50,7 @@ This release also folds in all the highlights deferred from v0.10.0 (which shipp
 - **BedrockTransport** — AWS Bedrock Converse API transport ([#13814](https://github.com/NousResearch/hermes-agent/pull/13814))
 
 ### Provider & Model Support
+
 - **Native AWS Bedrock provider** via Converse API ([#10549](https://github.com/NousResearch/hermes-agent/pull/10549))
 - **NVIDIA NIM native provider** (salvage of #11703) ([#11774](https://github.com/NousResearch/hermes-agent/pull/11774))
 - **Arcee AI direct provider** ([#9276](https://github.com/NousResearch/hermes-agent/pull/9276))
@@ -83,6 +85,7 @@ This release also folds in all the highlights deferred from v0.10.0 (which shipp
 - Fix: stream reasoning content through OpenAI-compatible providers that emit it
 
 ### Agent Loop & Conversation
+
 - **`/steer <prompt>`** — mid-run agent nudges after next tool call ([#12116](https://github.com/NousResearch/hermes-agent/pull/12116))
 - **Orchestrator role + configurable spawn depth** for `delegate_task` (default flat) ([#13691](https://github.com/NousResearch/hermes-agent/pull/13691))
 - **Cross-agent file state coordination** for concurrent subagents ([#13718](https://github.com/NousResearch/hermes-agent/pull/13718))
@@ -109,6 +112,7 @@ This release also folds in all the highlights deferred from v0.10.0 (which shipp
 - Fix: resolve `context_length` for plugin context engines ([#9238](https://github.com/NousResearch/hermes-agent/pull/9238))
 
 ### Session & Memory
+
 - **Auto-prune old sessions + VACUUM state.db** at startup ([#13861](https://github.com/NousResearch/hermes-agent/pull/13861))
 - **Honcho overhaul** — context injection, 5-tool surface, cost safety, session isolation ([#10619](https://github.com/NousResearch/hermes-agent/pull/10619))
 - **Hindsight richer session-scoped retain metadata** (salvage of #6290) ([#13987](https://github.com/NousResearch/hermes-agent/pull/13987))
@@ -124,12 +128,14 @@ This release also folds in all the highlights deferred from v0.10.0 (which shipp
 A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` or `HERMES_TUI=1`. Shipped across ~310 commits to `ui-tui/` and `tui_gateway/`.
 
 ### TUI Foundations
+
 - New TUI based on Ink + Python JSON-RPC backend
 - Prettier + ESLint + vitest tooling for `ui-tui/`
 - Entry split between `src/entry.tsx` (TTY gate) and `src/app.tsx` (state machine)
 - Persistent `_SlashWorker` subprocess for slash command dispatch
 
 ### UX & Features
+
 - **Stable picker keys, /clear confirm, light-theme preset** ([#12312](https://github.com/NousResearch/hermes-agent/pull/12312), @OutThisLife)
 - **Git branch in status bar** cwd label ([#12305](https://github.com/NousResearch/hermes-agent/pull/12305), @OutThisLife)
 - **Per-turn elapsed stopwatch in FaceTicker + done-in sys line** ([#13105](https://github.com/NousResearch/hermes-agent/pull/13105), @OutThisLife)
@@ -143,6 +149,7 @@ A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` o
 - Dozens of resize/ghosting/sticky-prompt fixes landed through the week
 
 ### Structural Refactors
+
 - Decomposed `app.tsx` into `app/event-handler`, `app/slash-handler`, `app/stores`, `app/hooks` ([#14640](https://github.com/NousResearch/hermes-agent/pull/14640) and surrounding)
 - Component split: `branding.tsx`, `markdown.tsx`, `prompts.tsx`, `sessionPicker.tsx`, `messageLine.tsx`, `thinking.tsx`, `maskedPrompt.tsx`
 - Hook split: `useCompletion`, `useInputHistory`, `useQueue`, `useVirtualHistory`
@@ -152,9 +159,11 @@ A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` o
 ## 📱 Messaging Platforms (Gateway)
 
 ### New Platforms
+
 - **QQBot (17th platform)** — QQ Official API v2 adapter with QR setup, streaming, package split ([#9364](https://github.com/NousResearch/hermes-agent/pull/9364), [#11831](https://github.com/NousResearch/hermes-agent/pull/11831))
 
 ### Telegram
+
 - **Dedicated `TELEGRAM_PROXY` env var + config.yaml proxy support** (closes #9414, #6530, #9074, #7786) ([#10681](https://github.com/NousResearch/hermes-agent/pull/10681))
 - **`ignored_threads` config** for Telegram groups ([#9530](https://github.com/NousResearch/hermes-agent/pull/9530))
 - **Config option to disable link previews** (closes #8728) ([#10610](https://github.com/NousResearch/hermes-agent/pull/10610))
@@ -168,6 +177,7 @@ A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` o
 - Many platform hint / streaming / session-key fixes
 
 ### Discord
+
 - **Forum channel support** (salvage of #10145 + media + polish) ([#11920](https://github.com/NousResearch/hermes-agent/pull/11920))
 - **`DISCORD_ALLOWED_ROLES`** for role-based access control ([#11608](https://github.com/NousResearch/hermes-agent/pull/11608))
 - **Config option to disable slash commands** (salvage #13130) ([#14315](https://github.com/NousResearch/hermes-agent/pull/14315))
@@ -177,32 +187,40 @@ A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` o
 - **Extract reply text from message references** ([#9781](https://github.com/NousResearch/hermes-agent/pull/9781))
 
 ### Feishu
+
 - **Intelligent reply on document comments** with 3-tier access control ([#11898](https://github.com/NousResearch/hermes-agent/pull/11898))
 - **Show processing state via reactions** on user messages ([#12927](https://github.com/NousResearch/hermes-agent/pull/12927))
 - **Preserve @mention context for agent consumption** (salvage #13874) ([#14167](https://github.com/NousResearch/hermes-agent/pull/14167))
 
 ### DingTalk
+
 - **`require_mention` + `allowed_users` gating** (parity with Slack/Telegram/Discord) ([#11564](https://github.com/NousResearch/hermes-agent/pull/11564))
 - **QR-code device-flow authorization** for setup wizard ([#11574](https://github.com/NousResearch/hermes-agent/pull/11574))
 - **AI Cards streaming, emoji reactions, and media handling** (salvage of #10985) ([#11910](https://github.com/NousResearch/hermes-agent/pull/11910))
 
 ### WhatsApp
+
 - **`send_voice`** — native audio message delivery ([#13002](https://github.com/NousResearch/hermes-agent/pull/13002))
 - **`dm_policy` and `group_policy`** parity with WeCom/Weixin/QQ adapters ([#13151](https://github.com/NousResearch/hermes-agent/pull/13151))
 
 ### WeCom / Weixin
+
 - **WeCom QR-scan bot creation + interactive setup wizard** (salvage #13923) ([#13961](https://github.com/NousResearch/hermes-agent/pull/13961))
 
 ### Signal
+
 - **Media delivery support** via `send_message` ([#13178](https://github.com/NousResearch/hermes-agent/pull/13178))
 
 ### Slack
+
 - **Per-thread sessions for DMs by default** ([#10987](https://github.com/NousResearch/hermes-agent/pull/10987))
 
 ### BlueBubbles (iMessage)
+
 - Group chat session separation, webhook registration & auth fixes ([#9806](https://github.com/NousResearch/hermes-agent/pull/9806))
 
 ### Gateway Core
+
 - **Gateway proxy mode** — forward messages to a remote API server ([#9787](https://github.com/NousResearch/hermes-agent/pull/9787))
 - **Per-channel ephemeral prompts** (Discord, Telegram, Slack, Mattermost) ([#10564](https://github.com/NousResearch/hermes-agent/pull/10564))
 - **Surface plugin slash commands** natively on all platforms + decision-capable command hook ([#14175](https://github.com/NousResearch/hermes-agent/pull/14175))
@@ -225,6 +243,7 @@ A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` o
 ## 🔧 Tool System
 
 ### Plugin Surface (major expansion)
+
 - **`register_command()`** — plugins can now add slash commands ([#10626](https://github.com/NousResearch/hermes-agent/pull/10626))
 - **`dispatch_tool()`** — plugins can invoke tools from their code ([#10763](https://github.com/NousResearch/hermes-agent/pull/10763))
 - **`pre_tool_call` blocking** — plugins can veto tool execution ([#9377](https://github.com/NousResearch/hermes-agent/pull/9377))
@@ -237,19 +256,23 @@ A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` o
 - **Shell hooks** — wire shell scripts as hook callbacks ([#13296](https://github.com/NousResearch/hermes-agent/pull/13296))
 
 ### Browser
+
 - **`browser_cdp` raw DevTools Protocol passthrough** ([#12369](https://github.com/NousResearch/hermes-agent/pull/12369))
 - Camofox hardening + connection stability across the window
 
 ### Execute Code
+
 - **Project/strict execution modes** (default: project) ([#11971](https://github.com/NousResearch/hermes-agent/pull/11971))
 
 ### Image Generation
+
 - **Multi-model FAL support** with picker in `hermes tools` ([#11265](https://github.com/NousResearch/hermes-agent/pull/11265))
 - **Recraft V3 → V4 Pro, Nano Banana → Pro upgrades** ([#11406](https://github.com/NousResearch/hermes-agent/pull/11406))
 - **GPT Image 2** in FAL catalog ([#13677](https://github.com/NousResearch/hermes-agent/pull/13677))
 - **xAI image generation provider** (grok-imagine-image) ([#14765](https://github.com/NousResearch/hermes-agent/pull/14765))
 
 ### TTS / STT / Voice
+
 - **Google Gemini TTS provider** ([#11229](https://github.com/NousResearch/hermes-agent/pull/11229))
 - **xAI Grok STT provider** ([#14473](https://github.com/NousResearch/hermes-agent/pull/14473))
 - **xAI TTS** (shipped with Responses API upgrade) ([#10783](https://github.com/NousResearch/hermes-agent/pull/10783))
@@ -257,27 +280,33 @@ A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` o
 - **CLI record beep toggle** ([#13247](https://github.com/NousResearch/hermes-agent/pull/13247), @helix4u)
 
 ### Webhook / Cron
+
 - **Webhook direct-delivery mode** — zero-LLM push notifications ([#12473](https://github.com/NousResearch/hermes-agent/pull/12473))
 - **Cron `wakeAgent` gate** — scripts can skip the agent entirely ([#12373](https://github.com/NousResearch/hermes-agent/pull/12373))
 - **Cron per-job `enabled_toolsets`** — cap token overhead + cost per job ([#14767](https://github.com/NousResearch/hermes-agent/pull/14767))
 
 ### Delegate
+
 - **Orchestrator role** + configurable spawn depth (default flat) ([#13691](https://github.com/NousResearch/hermes-agent/pull/13691))
 - **Cross-agent file state coordination** ([#13718](https://github.com/NousResearch/hermes-agent/pull/13718))
 
 ### File / Patch
+
 - **`patch` — "did you mean?" feedback** when patch fails to match ([#13435](https://github.com/NousResearch/hermes-agent/pull/13435))
 
 ### API Server
+
 - **Stream `/v1/responses` SSE tool events** (salvage #9779) ([#10049](https://github.com/NousResearch/hermes-agent/pull/10049))
 - **Inline image inputs** on `/v1/chat/completions` and `/v1/responses` ([#12969](https://github.com/NousResearch/hermes-agent/pull/12969))
 
 ### Docker / Podman
+
 - **Entry-level Podman support** — `find_docker()` + rootless entrypoint ([#10066](https://github.com/NousResearch/hermes-agent/pull/10066))
 - **Add docker-cli to Docker image** (salvage #10096) ([#14232](https://github.com/NousResearch/hermes-agent/pull/14232))
 - **File-sync back to host on teardown** (salvage of #8189 + hardening) ([#11291](https://github.com/NousResearch/hermes-agent/pull/11291))
 
 ### MCP
+
 - 12 MCP improvements across the window (status, timeout handling, tool-call forwarding, etc.)
 
 ---
@@ -285,6 +314,7 @@ A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` o
 ## 🧩 Skills Ecosystem
 
 ### Skill System
+
 - **Namespaced skill registration** for plugin bundles ([#9786](https://github.com/NousResearch/hermes-agent/pull/9786))
 - **`hermes skills reset`** to un-stick bundled skills ([#11468](https://github.com/NousResearch/hermes-agent/pull/11468))
 - **Skills guard opt-in** — `config.skills.guard_agent_created` (default off) ([#14557](https://github.com/NousResearch/hermes-agent/pull/14557))
@@ -294,6 +324,7 @@ A full React/Ink rewrite of the interactive CLI — invoked via `hermes --tui` o
 - **Fuzzy `@` file completions + mtime sorting** ([#9467](https://github.com/NousResearch/hermes-agent/pull/9467))
 
 ### New Skills
+
 - **concept-diagrams** (salvage of #11045, @v1k22) ([#11363](https://github.com/NousResearch/hermes-agent/pull/11363))
 - **architecture-diagram** (Cocoon AI port) ([#9906](https://github.com/NousResearch/hermes-agent/pull/9906))
 - **pixel-art** with hardware palettes and video animation ([#12663](https://github.com/NousResearch/hermes-agent/pull/12663), [#12725](https://github.com/NousResearch/hermes-agent/pull/12725))
@@ -394,9 +425,11 @@ The `fix:` category in this window covers 482 PRs. Highlights:
 ## 👥 Contributors
 
 ### Core
+
 - **@teknium1** (Teknium)
 
 ### Top Community Contributors (by merged PR count)
+
 - **@kshitijk4poor** — 49 PRs · Transport refactor (AnthropicTransport, ResponsesApiTransport), Step Plan provider, Xiaomi MiMo v2.5 support, numerous gateway fixes, promoted Kimi K2.5, @ mention crash fix
 - **@OutThisLife** (Brooklyn) — 31 PRs · TUI polish, git branch in status bar, per-turn stopwatch, stable picker keys, `/clear` confirm, light-theme preset, subagent spawn observability overlay
 - **@helix4u** — 11 PRs · Voice CLI record beep, MCP tool interrupt handling, assorted stability fixes
@@ -407,6 +440,7 @@ The `fix:` category in this window covers 482 PRs. Highlights:
 - **@Aslaaen** — 2 PRs
 
 ### Also contributing
+
 @jerilynzheng (ai-gateway pricing), @JimLiu (baoyu-comic skill), @Dusk1e (trajectory compressor credentials), @DeployFaith (mobile-responsive dashboard), @LeonSGP43, @v1k22 (concept-diagrams), @omnissiah-comelse (adversarial-ux-test), @coekfung (Telegram MarkdownV2 expandable blockquotes), @liftaris (TUI provider resolution), @arihantsethia (skill analytics dashboard), @topcheer + @xing8star (QQBot foundation), @kovyrin, @I3eg1nner (SECURITY.md), @PeterBerthelsen, @lengxii, @priveperfumes, @sjz-ks, @cuyua9, @Disaster-Terminator, @leozeli, @LehaoLin, @trevthefoolish, @loongfay, @MrNiceRicee, @WideLee, @bluefishs, @malaiwah, @bobashopcashier, @dsocolobsky, @iamagenius00, @IAvecilla, @aniruddhaadak80, @Es1la, @asheriif, @walli, @jquesnelle (original Tool Gateway work).
 
 ### All Contributors (alphabetical)
@@ -446,7 +480,6 @@ The `fix:` category in this window covers 482 PRs. Highlights:
 @zhangxicen, @zhongyueming1121, @zhouxiaoya12, @zons-zhaozhy
 
 Also: @maelrx, @Marco Rutsch, @MaxsolcuCrypto, @Mind-Dragon, @Paul Bergeron, @say8hi, @whitehatjr1001.
-
 
 ---
 

@@ -139,6 +139,7 @@ hermes claw migrate --overwrite  # Overwrite existing conflicts
 ```
 
 What gets imported:
+
 - **SOUL.md** — persona file
 - **Memories** — MEMORY.md and USER.md entries
 - **Skills** — user-created skills → `~/.hermes/skills/openclaw-imports/`

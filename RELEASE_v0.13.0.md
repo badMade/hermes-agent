@@ -70,6 +70,7 @@
 ## 🧩 Multi-Agent Kanban (Durable)
 
 ### New — durable multi-profile collaboration board
+
 - **`feat(kanban): durable multi-profile collaboration board`** — post-revert reimplementation, multi-profile by design ([#17805](https://github.com/NousResearch/hermes-agent/pull/17805))
 - **Multi-project boards** — one install, many kanbans ([#19653](https://github.com/NousResearch/hermes-agent/pull/19653), [#19679](https://github.com/NousResearch/hermes-agent/pull/19679))
 - **Share board, workspaces, and worker logs across profiles** ([#19378](https://github.com/NousResearch/hermes-agent/pull/19378))
@@ -79,6 +80,7 @@
 - **Multiline textarea for inline-create title** (salvage of #20970) ([#21243](https://github.com/NousResearch/hermes-agent/pull/21243))
 
 ### Kanban Dashboard
+
 - **Workspace kind + path inputs in inline create form** ([#19679](https://github.com/NousResearch/hermes-agent/pull/19679))
 - **Per-platform home-channel notification toggles** ([#19864](https://github.com/NousResearch/hermes-agent/pull/19864))
 - **Sharper home-channel toggle contrast + drop → running action** ([#19916](https://github.com/NousResearch/hermes-agent/pull/19916))
@@ -92,6 +94,7 @@
 - Fix: avoid fragile failure-column renames (salvage #20848) (@kshitijk4poor) ([#20855](https://github.com/NousResearch/hermes-agent/pull/20855))
 
 ### Worker lifecycle + reliability
+
 - **Heartbeat + reclaim + zombie + retry-cap fixes** (#21147, #21141, #21169, #20881) ([#21183](https://github.com/NousResearch/hermes-agent/pull/21183))
 - **Auto-block workers that exit without completing + shutdown race** (#20894) ([#21214](https://github.com/NousResearch/hermes-agent/pull/21214))
 - **Detect darwin zombie workers** (salvages #20023) ([#20188](https://github.com/NousResearch/hermes-agent/pull/20188))
@@ -105,10 +108,12 @@
 - Fix: allow orchestrator profiles to see kanban tools via toolsets config ([#19606](https://github.com/NousResearch/hermes-agent/pull/19606))
 
 ### Batch salvages
+
 - Tier-1 batch — metadata test, max_spawn config, run-id lifecycle guard (salvages #19522 #19556 #19829) ([#20440](https://github.com/NousResearch/hermes-agent/pull/20440))
 - Tier-2 batch — doctor, started_at, parent-guard, latest_summary, selects, linked-children ([#20448](https://github.com/NousResearch/hermes-agent/pull/20448))
 
 ### Documentation
+
 - Backfill multi-board refs in reference docs ([#19704](https://github.com/NousResearch/hermes-agent/pull/19704))
 - Document `/kanban` slash command ([#19584](https://github.com/NousResearch/hermes-agent/pull/19584))
 - Document recommended handoff evidence metadata (salvage #19512) ([#20415](https://github.com/NousResearch/hermes-agent/pull/20415))
@@ -119,14 +124,17 @@
 ## 🎯 Persistent Goals, Checkpoints & Session Durability
 
 ### `/goal` — persistent cross-turn goals (Ralph loop)
+
 - **`feat: /goal — persistent cross-turn goals`** ([#18262](https://github.com/NousResearch/hermes-agent/pull/18262))
 - **Docs page — Persistent Goals (/goal)** ([#18275](https://github.com/NousResearch/hermes-agent/pull/18275))
 - Fix: honor configured goal turn budget (salvage #19423) ([#21287](https://github.com/NousResearch/hermes-agent/pull/21287))
 
 ### Checkpoints v2
+
 - **Single-store rewrite with real pruning + disk guardrails** ([#20709](https://github.com/NousResearch/hermes-agent/pull/20709))
 
 ### Session durability
+
 - **Auto-resume interrupted sessions after gateway restart** (salvage #20888) ([#21192](https://github.com/NousResearch/hermes-agent/pull/21192))
 - **Preserve pending update prompts across restarts** ([#20160](https://github.com/NousResearch/hermes-agent/pull/20160))
 - **Preserve home-channel thread targets across restart notifications** (salvage #18440) ([#19271](https://github.com/NousResearch/hermes-agent/pull/19271))
@@ -140,6 +148,7 @@
 ## 🛡️ Security & Reliability
 
 ### Security hardening (8 P0 closures)
+
 - **Enable secret redaction by default** (#17691, #20785) ([#21193](https://github.com/NousResearch/hermes-agent/pull/21193))
 - **Discord — scope `DISCORD_ALLOWED_ROLES` to originating guild** (#12136, CVSS 8.1) ([#21241](https://github.com/NousResearch/hermes-agent/pull/21241))
 - **WhatsApp — reject strangers by default, never respond in self-chat** (#8389) ([#21291](https://github.com/NousResearch/hermes-agent/pull/21291))
@@ -156,6 +165,7 @@
 - **OSV-Scanner CI + Dependabot for github-actions only** ([#20037](https://github.com/NousResearch/hermes-agent/pull/20037))
 
 ### Reliability — critical bug closures
+
 - **CLI crash on startup — `Invalid key 'c-S-c'`** (P0, prompt_toolkit doesn't support Shift modifier) ([#19895](https://github.com/NousResearch/hermes-agent/pull/19895), [#19919](https://github.com/NousResearch/hermes-agent/pull/19919))
 - **CLOSE_WAIT fd leak audit** — httpx keepalive + WhatsApp aiohttp leak + Feishu hygiene (#18451) ([#18766](https://github.com/NousResearch/hermes-agent/pull/18766))
 - **Gateway creates AIAgent with empty OpenRouter API key when OPENROUTER_API_KEY is missing** (#20982) — fallback providers correctly honored
@@ -172,9 +182,11 @@
 ## 📱 Messaging Platforms (Gateway)
 
 ### New platform
+
 - **Google Chat — 20th platform** + generic `env_enablement_fn` / `cron_deliver_env_var` platform-plugin hooks (IRC + Teams migrated) ([#21306](https://github.com/NousResearch/hermes-agent/pull/21306), [#21331](https://github.com/NousResearch/hermes-agent/pull/21331))
 
 ### Cross-platform
+
 - **`allowed_{channels,chats,rooms}` whitelist** — Slack (salvage #7401), Telegram, Mattermost, Matrix, DingTalk ([#21251](https://github.com/NousResearch/hermes-agent/pull/21251))
 - **Per-platform `gateway_restart_notification` flag** ([#20892](https://github.com/NousResearch/hermes-agent/pull/20892))
 - **`busy_ack_enabled` config — suppress ack messages** ([#18194](https://github.com/NousResearch/hermes-agent/pull/18194))
@@ -221,32 +233,41 @@
 - Fix: batch critical fixes — session resume, /new race, HA WebSocket scheme (@kshitijk4poor) ([#19182](https://github.com/NousResearch/hermes-agent/pull/19182))
 
 ### Telegram
+
 - **DM user-managed multi-session topics** (salvage of #19185) ([#19206](https://github.com/NousResearch/hermes-agent/pull/19206))
 
 ### Discord
+
 - **Message deletion action** (salvage #19052) ([#21197](https://github.com/NousResearch/hermes-agent/pull/21197))
 - Fix: allow `free_response_channels` to override `DISCORD_IGNORE_NO_MENTION` ([#19629](https://github.com/NousResearch/hermes-agent/pull/19629))
 
 ### Slack
+
 - Fix: ephemeral slash-command ack, private notice delivery, format_message fixes (@kshitijk4poor) ([#18198](https://github.com/NousResearch/hermes-agent/pull/18198))
 
 ### WhatsApp
+
 - Fix: load WhatsApp home channel from env overrides ([#18190](https://github.com/NousResearch/hermes-agent/pull/18190))
 
 ### Feishu
+
 - **Operator-configurable bot admission and mention policy** ([#18208](https://github.com/NousResearch/hermes-agent/pull/18208))
 - Fix: force text mode for markdown tables (salvage of #13723 by @WuTianyi123) ([#20275](https://github.com/NousResearch/hermes-agent/pull/20275))
 
 ### Matrix + Email
+
 - Fix: `/sethome` on Matrix and Email now persists across restarts ([#18272](https://github.com/NousResearch/hermes-agent/pull/18272))
 
 ### Teams
+
 - **Docs + feat: sidebar + threading with group-chat fallback** ([#20042](https://github.com/NousResearch/hermes-agent/pull/20042))
 
 ### Weixin
+
 - Fix: deduplicate Weixin messages by content fingerprint ([#19742](https://github.com/NousResearch/hermes-agent/pull/19742))
 
 ### QQBot
+
 - **Port SDK improvements in-tree — chunked upload, approval keyboards, quoted attachments** ([#21342](https://github.com/NousResearch/hermes-agent/pull/21342))
 - **Wire native tool-approval UX via inline keyboards** ([#21353](https://github.com/NousResearch/hermes-agent/pull/21353))
 
@@ -257,6 +278,7 @@
 ### Provider & Model Support
 
 #### Pluggable providers
+
 - **ProviderProfile ABC + `plugins/model-providers/`** — inference providers are now a pluggable surface (salvage of #14424) ([#20324](https://github.com/NousResearch/hermes-agent/pull/20324))
 - **`list_picker_providers`** — credential-filtered picker (salvage #13561) ([#20298](https://github.com/NousResearch/hermes-agent/pull/20298))
 - **Remove `/provider` alias for `/model`** ([#20358](https://github.com/NousResearch/hermes-agent/pull/20358))
@@ -264,6 +286,7 @@
 - **Nous OAuth persisted across profiles via shared token store** ([#19712](https://github.com/NousResearch/hermes-agent/pull/19712))
 
 #### New models
+
 - `deepseek/deepseek-v4-pro` added to OpenRouter + Nous Portal ([#20495](https://github.com/NousResearch/hermes-agent/pull/20495))
 - `x-ai/grok-4.3` added to OpenRouter + Nous Portal ([#20497](https://github.com/NousResearch/hermes-agent/pull/20497))
 - `openrouter/owl-alpha` (free tier) added to curated OpenRouter list ([#18071](https://github.com/NousResearch/hermes-agent/pull/18071))
@@ -273,6 +296,7 @@
 - Demote Vercel AI Gateway to bottom of provider picker ([#18112](https://github.com/NousResearch/hermes-agent/pull/18112))
 
 #### Provider configuration
+
 - **OpenRouter — response caching support** (@kshitijk4poor) ([#19132](https://github.com/NousResearch/hermes-agent/pull/19132))
 - **`image_gen.model` from config.yaml honored** (salvage #19376) ([#21273](https://github.com/NousResearch/hermes-agent/pull/21273))
 - Fix: honor runtime default model during delegate provider resolution (@johnncenae) ([#17587](https://github.com/NousResearch/hermes-agent/pull/17587))
@@ -281,6 +305,7 @@
 - Fix: auxiliary curator api_key/base_url into runtime resolution ([#19421](https://github.com/NousResearch/hermes-agent/pull/19421))
 
 ### Agent Loop & Conversation
+
 - **`video_analyze` — native video understanding tool** (@alt-glitch) ([#19301](https://github.com/NousResearch/hermes-agent/pull/19301))
 - **Show context compression count in status bar** (CLI + TUI) ([#21218](https://github.com/NousResearch/hermes-agent/pull/21218))
 - **Isolate `get_tool_definitions` quiet_mode cache + dedup LCM injection** (#17335) ([#17889](https://github.com/NousResearch/hermes-agent/pull/17889))
@@ -292,6 +317,7 @@
 - Fix: include system prompt + tool schemas in token estimates for compression ([#18265](https://github.com/NousResearch/hermes-agent/pull/18265))
 
 ### Compression
+
 - Fix: skip non-string tool content in dedup pass to prevent AttributeError ([#19398](https://github.com/NousResearch/hermes-agent/pull/19398))
 - Fix: reset `_summary_failure_cooldown_until` on session reset ([#19622](https://github.com/NousResearch/hermes-agent/pull/19622))
 - Fix: trigger fallback on timeout errors alongside model-unavailable errors ([#19665](https://github.com/NousResearch/hermes-agent/pull/19665))
@@ -299,6 +325,7 @@
 - Fix: soften summary prompt for content filters (salvage #19456) ([#21302](https://github.com/NousResearch/hermes-agent/pull/21302))
 
 ### Delegate
+
 - Fix: inherit parent fallback_chain in `_build_child_agent` ([#19601](https://github.com/NousResearch/hermes-agent/pull/19601))
 - Fix: guard `_load_config()` against `delegation: null` in config.yaml ([#19662](https://github.com/NousResearch/hermes-agent/pull/19662))
 - Fix: inherit parent api_key when `delegation.base_url` set without `delegation.api_key` ([#19741](https://github.com/NousResearch/hermes-agent/pull/19741))
@@ -306,9 +333,11 @@
 - Fix: correct ACP docs — Claude Code CLI has no --acp flag (salvage #19058) ([#21201](https://github.com/NousResearch/hermes-agent/pull/21201))
 
 ### Session & Memory
+
 - **Hindsight — probe API for `update_mode='append'` to dedupe across processes** (@nicoloboschi) ([#20222](https://github.com/NousResearch/hermes-agent/pull/20222))
 
 ### Curator
+
 - **`hermes curator archive` and `prune` subcommands** ([#20200](https://github.com/NousResearch/hermes-agent/pull/20200))
 - **`hermes curator list-archived`** (#20651) ([#21236](https://github.com/NousResearch/hermes-agent/pull/21236))
 - **Synchronous manual `hermes curator run`** (#20555) ([#21216](https://github.com/NousResearch/hermes-agent/pull/21216))
@@ -325,9 +354,11 @@
 ## 🔧 Tool System
 
 ### File tools
+
 - **Post-write delta lint on `write_file` + `patch`** — in-proc linters for Python, JSON, YAML, TOML ([#20191](https://github.com/NousResearch/hermes-agent/pull/20191))
 
 ### Cron
+
 - **`no_agent` mode — script-only cron jobs (watchdog pattern)** ([#19709](https://github.com/NousResearch/hermes-agent/pull/19709))
 - **`context_from` chaining docs** (salvage #15724) ([#20394](https://github.com/NousResearch/hermes-agent/pull/20394))
 - Fix: treat non-dict origin as missing instead of crashing tick ([#19283](https://github.com/NousResearch/hermes-agent/pull/19283))
@@ -339,6 +370,7 @@
 - Fix: initialize MCP servers before constructing the cron AIAgent ([#21354](https://github.com/NousResearch/hermes-agent/pull/21354))
 
 ### MCP
+
 - **SSE transport support** (salvage #19135) ([#21227](https://github.com/NousResearch/hermes-agent/pull/21227))
 - **Forward OAuth auth + bump `sse_read_timeout` on SSE transport** ([#21323](https://github.com/NousResearch/hermes-agent/pull/21323))
 - **Retry stale pipe transport failures as session-expired** ([#21289](https://github.com/NousResearch/hermes-agent/pull/21289))
@@ -355,15 +387,18 @@
 - Fix: gate utility stubs on server-advertised capabilities ([#21347](https://github.com/NousResearch/hermes-agent/pull/21347))
 
 ### Browser
+
 - Fix: allow explicit CDP override without local agent-browser ([#19670](https://github.com/NousResearch/hermes-agent/pull/19670))
 - Fix: inject `--no-sandbox` for root + AppArmor userns restrictions ([#19747](https://github.com/NousResearch/hermes-agent/pull/19747))
 - Fix: tighten Lightpanda fallback edge cases (@kshitijk4poor) ([#20672](https://github.com/NousResearch/hermes-agent/pull/20672))
 
 ### Web tools
+
 - **Per-capability backend selection — search/extract split** (@kshitijk4poor) ([#20061](https://github.com/NousResearch/hermes-agent/pull/20061))
 - **SearXNG native search-only backend** (@kshitijk4poor) ([#20823](https://github.com/NousResearch/hermes-agent/pull/20823))
 
 ### Approval / Tool gating
+
 - Fix: wake blocked gateway approvals on session cleanup ([#18171](https://github.com/NousResearch/hermes-agent/pull/18171))
 - Fix: harden YOLO mode env parsing against quoted-bool strings ([#18214](https://github.com/NousResearch/hermes-agent/pull/18214))
 - Fix: extend sensitive write target to cover shell RC and credential files ([#19282](https://github.com/NousResearch/hermes-agent/pull/19282))
@@ -382,6 +417,7 @@
 ## 🧩 Skills Ecosystem
 
 ### New optional skills
+
 - **Shopify** — Admin + Storefront GraphQL optional skill ([#18116](https://github.com/NousResearch/hermes-agent/pull/18116))
 - **here.now** — optional skill ([#18170](https://github.com/NousResearch/hermes-agent/pull/18170))
 - **shop-app** — personal shopping assistant (optional) ([#20702](https://github.com/NousResearch/hermes-agent/pull/20702))
@@ -390,6 +426,7 @@
 - **searxng-search** — optional skill + Web Search + Extract docs page (@kshitijk4poor) ([#20841](https://github.com/NousResearch/hermes-agent/pull/20841), [#20844](https://github.com/NousResearch/hermes-agent/pull/20844))
 
 ### Skill UX
+
 - **Linear skill — add Documents support + Python helper script** ([#20752](https://github.com/NousResearch/hermes-agent/pull/20752))
 - **Modernize Obsidian skill to use file tools** (salvage #19332) ([#20413](https://github.com/NousResearch/hermes-agent/pull/20413))
 - **Default custom tool creation to plugins** (@kshitijk4poor) ([#19755](https://github.com/NousResearch/hermes-agent/pull/19755))
@@ -406,6 +443,7 @@
 ## 🖥️ CLI & User Experience
 
 ### CLI
+
 - **`/new` accepts optional session name argument** (salvage of #19555) ([#19637](https://github.com/NousResearch/hermes-agent/pull/19637))
 - **100 new CLI startup tips** ([#20168](https://github.com/NousResearch/hermes-agent/pull/20168))
 - **`display.language` — static message translation** (zh/ja/de/es) ([#20231](https://github.com/NousResearch/hermes-agent/pull/20231))
@@ -419,6 +457,7 @@
 - Refactor: drop dead c-S-c key binding (follow-up to #19895) ([#19919](https://github.com/NousResearch/hermes-agent/pull/19919))
 
 ### TUI (Ink)
+
 - **`/model` picker overhaul to match `hermes model` with inline auth** (@austinpickett) ([#18117](https://github.com/NousResearch/hermes-agent/pull/18117))
 - **Collapsible sections in startup banner** — skills, system prompt, MCP (@kshitijk4poor) ([#20625](https://github.com/NousResearch/hermes-agent/pull/20625))
 - **Show context compression count in status bar** ([#21218](https://github.com/NousResearch/hermes-agent/pull/21218))
@@ -427,6 +466,7 @@
 - Fix: kanban button (@austinpickett) ([#18358](https://github.com/NousResearch/hermes-agent/pull/18358))
 
 ### Dashboard
+
 - **Plugins page — manage, enable/disable, auth status** (@austinpickett) ([#18095](https://github.com/NousResearch/hermes-agent/pull/18095))
 - **Profiles management page** (@vincez-hms-coder) ([#16419](https://github.com/NousResearch/hermes-agent/pull/16419))
 - **Interactive column sorting in analytics tables** ([#18192](https://github.com/NousResearch/hermes-agent/pull/18192))
@@ -437,10 +477,12 @@
 - Fix: gateway model picker current context (@helix4u) ([#20513](https://github.com/NousResearch/hermes-agent/pull/20513))
 
 ### Update + setup
+
 - **`hermes update --yes/-y` to skip interactive prompts** ([#18261](https://github.com/NousResearch/hermes-agent/pull/18261))
 - **Restart manual profile gateways after update** ([#18178](https://github.com/NousResearch/hermes-agent/pull/18178))
 
 ### Profiles
+
 - **`--no-skills` flag for empty profile creation** ([#20986](https://github.com/NousResearch/hermes-agent/pull/20986))
 
 ---
@@ -488,32 +530,40 @@
 ## 🐛 Notable Bug Fixes
 
 ### Agent
+
 - Fix: recover lazy session creation regressions (#18370 fallout) (@alt-glitch) ([#20363](https://github.com/NousResearch/hermes-agent/pull/20363))
 - Fix: propagate ContextVars to concurrent tool worker threads (salvage #16660) ([#18123](https://github.com/NousResearch/hermes-agent/pull/18123))
 - Fix: warning-first tool-call loop guardrails ([#18227](https://github.com/NousResearch/hermes-agent/pull/18227))
 - Fix: surface self-improvement review summaries across CLI, TUI, and gateway ([#18073](https://github.com/NousResearch/hermes-agent/pull/18073))
 
 ### Gateway streaming
+
 - Fix: harden StreamingConfig bool and numeric coercion (@simbam99) ([#16463](https://github.com/NousResearch/hermes-agent/pull/16463))
 
 ### Model
+
 - Fix: avoid Bedrock credential probe in provider picker (@helix4u) ([#18998](https://github.com/NousResearch/hermes-agent/pull/18998))
 
 ### Doctor
+
 - Fix: check global agent-browser when local install not found ([#19671](https://github.com/NousResearch/hermes-agent/pull/19671))
 - Test: kimi-coding-cn provider validation regression ([#19734](https://github.com/NousResearch/hermes-agent/pull/19734))
 
 ### Update
+
 - Fix: patch `isatty` on real streams to fix xdist-flaky `--yes` tests (salvage #19026) ([#21175](https://github.com/NousResearch/hermes-agent/pull/21175))
 - Fix: teach restart-mocks about the post-update survivor sweep (salvage #19031) ([#21177](https://github.com/NousResearch/hermes-agent/pull/21177))
 
 ### Auth
+
 - Fix: acp preserve assistant reasoning metadata ([#20296](https://github.com/NousResearch/hermes-agent/pull/20296))
 
 ### Redact
+
 - Fix: add `code_file` param to skip false-positive ENV/JSON patterns ([#19715](https://github.com/NousResearch/hermes-agent/pull/19715))
 
 ### Email
+
 - Fix: quoted-relative file-drop paths + Date header on tool email path ([#19646](https://github.com/NousResearch/hermes-agent/pull/19646))
 
 ---
@@ -530,6 +580,7 @@
 ## 📚 Documentation
 
 ### Major docs additions
+
 - **`llms.txt` + `llms-full.txt` — agent-friendly ingestion** ([#18276](https://github.com/NousResearch/hermes-agent/pull/18276))
 - **User Stories and Use Cases collage page** ([#18282](https://github.com/NousResearch/hermes-agent/pull/18282))
 - **Persistent Goals (/goal) feature page** ([#18275](https://github.com/NousResearch/hermes-agent/pull/18275))
@@ -550,6 +601,7 @@
 - **Bedrock quickstart entry + fallback comment + deployment link** (salvage #11093) ([#20397](https://github.com/NousResearch/hermes-agent/pull/20397))
 
 ### Docs polish
+
 - Collapse exploding skills tree to a single Skills node ([#18259](https://github.com/NousResearch/hermes-agent/pull/18259))
 - Clarify `session_search` auxiliary model docs ([#19593](https://github.com/NousResearch/hermes-agent/pull/19593))
 - Open WebUI Quick Setup gap fill ([#19654](https://github.com/NousResearch/hermes-agent/pull/19654))
@@ -576,6 +628,7 @@
 ## 👥 Contributors
 
 ### Core
+
 - **@teknium1** — salvage, triage, review, feature work, and release management
 
 ### Top Community Contributors
