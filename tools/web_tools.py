@@ -142,7 +142,6 @@ def _get_backend() -> str:
         ("exa", _has_env("EXA_API_KEY")),
         ("searxng", _has_env("SEARXNG_URL")),
         ("brave-free", _has_env("BRAVE_SEARCH_API_KEY")),
-        ("ddgs", _ddgs_package_importable()),
     )
     for backend, available in backend_candidates:
         if available:
@@ -204,8 +203,13 @@ def _is_backend_available(backend: str) -> bool:
     if backend == "brave-free":
         return _has_env("BRAVE_SEARCH_API_KEY")
     if backend == "ddgs":
-        return _ddgs_package_importable()
+        return _ddgs_package_available()
     return False
+
+
+def _ddgs_package_available() -> bool:
+    """Backward-compatible alias for _ddgs_package_importable."""
+    return _ddgs_package_importable()
 
 
 def _ddgs_package_importable() -> bool:
@@ -1239,6 +1243,8 @@ def web_search_tool(query: str, limit: int = 5) -> str:
             return result_json
 
         if backend == "ddgs":
+            if not _ddgs_package_available():
+                return tool_error("DuckDuckGo backend requires the 'ddgs' package. Install it with 'uv add ddgs'.")
             from tools.web_providers.ddgs import DDGSSearchProvider
             response_data = DDGSSearchProvider().search(query, limit)
             debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))

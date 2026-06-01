@@ -83,6 +83,18 @@ def _is_loopback_host(host: str) -> bool:
     return host.strip().lower() in _LOOPBACK_HOSTS
 
 
+def _looks_unresolved_secret(secret: str) -> bool:
+    """True when `secret` appears to be an unexpanded env-var placeholder.
+
+    Matches `${VAR_NAME}` and `${VAR_NAME:-default}` style placeholders.
+    If a secret lands on the platform in this form, it means the user's
+    environment did not contain the expected variable. Computing HMAC
+    with the literal placeholder string is almost certainly a mistake.
+    """
+    s = (secret or "").strip()
+    return bool(re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}", s))
+
+
 def check_webhook_requirements() -> bool:
     """Check if webhook adapter dependencies are available."""
     return AIOHTTP_AVAILABLE
@@ -590,6 +602,10 @@ class WebhookAdapter(BasePlatformAdapter):
         self, request: "web.Request", body: bytes, secret: str
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
+        if _looks_unresolved_secret(secret):
+            logger.warning("[webhook] Unresolved placeholder secret configured")
+            return False
+
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
         gh_sig = request.headers.get("X-Hub-Signature-256", "")
         if gh_sig:

@@ -5464,6 +5464,7 @@ class GatewayRunner:
         if source.platform == Platform.WECOM_CALLBACK and source.chat_id:
             auth_user_id = source.chat_id
         pairing_check_ids = [auth_user_id]
+        team_id = getattr(source, "team_id", "")
         if team_id:
             pairing_check_ids.insert(0, f"{team_id}:{auth_user_id}")
         if any(self.pairing_store.is_approved(platform_name, uid) for uid in pairing_check_ids):
