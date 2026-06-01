@@ -515,6 +515,8 @@ _PLACEHOLDER_SECRET_VALUES = {
     "changeme",
     "your_api_key",
     "your-api-key",
+    "your_api_key_here",
+    "your-api-key-here",
     "placeholder",
     "example",
     "dummy",

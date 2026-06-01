@@ -41,9 +41,11 @@ docker run -d \
 
 Port 8642 exposes the gateway's [OpenAI-compatible API server](./features/api-server.md) and health endpoint. It's optional if you only use chat platforms (Telegram, Discord, etc.), but required if you want the dashboard or external tools to reach the gateway.
 
-Note: the API server is gated on `API_SERVER_ENABLED=true`. To expose it beyond `127.0.0.1` inside the container, also set `API_SERVER_HOST=0.0.0.0` and an `API_SERVER_KEY` (minimum 8 characters — generate one with `openssl rand -hex 32`). Example:
+Note: the API server is gated on `API_SERVER_ENABLED=true`. To expose it beyond `127.0.0.1` inside the container, also set `API_SERVER_HOST=0.0.0.0` and provide a unique `API_SERVER_KEY`. Generate the key outside the command, keep CORS restricted to trusted origins, and never copy a placeholder token into a network-exposed deployment. Example:
 
 ```sh
+export HERMES_API_SERVER_KEY="$(openssl rand -hex 32)"
+
 docker run -d \
   --name hermes \
   --restart unless-stopped \
@@ -51,12 +53,12 @@ docker run -d \
   -p 8642:8642 \
   -e API_SERVER_ENABLED=true \
   -e API_SERVER_HOST=0.0.0.0 \
-  -e API_SERVER_KEY=your_api_key_here \
-  -e API_SERVER_CORS_ORIGINS='*' \
+  -e API_SERVER_KEY="$HERMES_API_SERVER_KEY" \
+  -e API_SERVER_CORS_ORIGINS='https://app.example.com' \
   nousresearch/hermes-agent gateway run
 ```
 
-Opening any port on an internet facing machine is a security risk. You should not do it unless you understand the risks.
+Opening any port on an internet-facing machine is a security risk. Keep the API server behind a firewall or reverse proxy, use a high-entropy bearer key, and set `API_SERVER_CORS_ORIGINS` only to origins you trust.
 
 ## Running the dashboard
 
