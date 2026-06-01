@@ -979,6 +979,27 @@ class TestCJKSearchFallback:
         assert "s2" in session_ids, "漓江/旅游 terms not matched"
         assert "s3" not in session_ids, "unrelated message must not match"
 
+    def test_cjk_repeated_short_token_or_query_does_not_raise(self, db):
+        """Repeated short-token OR queries stay within SQLite limits."""
+        db.create_session(session_id="s1", source="cli")
+        db.append_message("s1", role="user", content="广西旅游攻略")
+
+        query = " OR ".join(["广西"] * 1000)
+        results = db.search_messages(query)
+
+        assert {r["session_id"] for r in results} == {"s1"}
+
+    def test_cjk_distinct_short_token_or_query_does_not_raise(self, db):
+        """Distinct short-token OR queries beyond the cap stay safe."""
+        db.create_session(session_id="s1", source="cli")
+        tokens = [f"测{chr(0x4E00 + i)}" for i in range(300)]
+        db.append_message("s1", role="user", content=f"{tokens[0]}旅游攻略")
+
+        query = " OR ".join(tokens)
+        results = db.search_messages(query)
+
+        assert {r["session_id"] for r in results} == {"s1"}
+
     def test_cjk_short_token_or_query_preserves_filters(self, db):
         """Source filter applies correctly in the short-token LIKE path (#20494)."""
         db.create_session(session_id="s1", source="cli")
@@ -1983,6 +2004,44 @@ class TestTitleLineage:
     def test_resolve_nonexistent_title(self, db):
         assert db.resolve_session_by_title("nonexistent") is None
 
+    def test_resolve_filters_by_source_and_user_id(self, db):
+        db.create_session("victim", "telegram", user_id="victim-user")
+        db.set_session_title("victim", "shared project")
+        assert (
+            db.resolve_session_by_title(
+                "shared project", source="telegram", user_id="attacker-user"
+            )
+            is None
+        )
+        assert (
+            db.resolve_session_by_title(
+                "shared project", source="telegram", user_id="victim-user"
+            )
+            == "victim"
+        )
+
+    def test_resolve_lineage_filters_by_source_and_user_id(self, db):
+        import time
+
+        db.create_session("victim_v1", "telegram", user_id="victim-user")
+        db.set_session_title("victim_v1", "shared project")
+        time.sleep(0.01)
+        db.create_session("victim_v2", "telegram", user_id="victim-user")
+        db.set_session_title("victim_v2", "shared project #2")
+
+        assert (
+            db.resolve_session_by_title(
+                "shared project", source="telegram", user_id="attacker-user"
+            )
+            is None
+        )
+        assert (
+            db.resolve_session_by_title(
+                "shared project", source="telegram", user_id="victim-user"
+            )
+            == "victim_v2"
+        )
+
     def test_next_title_no_existing(self, db):
         """With no existing sessions, base title is returned as-is."""
         assert db.get_next_title_in_lineage("my project") == "my project"
@@ -2046,6 +2105,16 @@ class TestTitleSqlWildcards:
 
 class TestListSessionsRich:
     """Tests for enhanced session listing with preview and last_active."""
+
+    def test_filters_by_user_id(self, db):
+        db.create_session("victim", "telegram", user_id="victim-user")
+        db.create_session("attacker", "telegram", user_id="attacker-user")
+        db.set_session_title("victim", "Victim Work")
+        db.set_session_title("attacker", "Attacker Work")
+
+        sessions = db.list_sessions_rich(source="telegram", user_id="attacker-user")
+
+        assert [s["id"] for s in sessions] == ["attacker"]
 
     def test_preview_from_first_user_message(self, db):
         db.create_session("s1", "cli")
@@ -2942,4 +3011,3 @@ class TestFTS5ToolCallMigration:
             assert version == 11
         finally:
             session_db.close()
-

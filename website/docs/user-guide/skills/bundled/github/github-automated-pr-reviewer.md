@@ -20,7 +20,7 @@ Automated PR reviewer: scans for '@jules code review' comments and triggers code
 | Author | Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
-| Tags | `GitHub`, `Code-Review`, `Automation`, `Pull-Requests`, `Cron`, `Review` |
+| Tags | `GitHub`, `Code-Review`, `Automation`, `Pull-Requests`, `Cron`, `review` |
 | Related skills | [`github-code-review`](/docs/user-guide/skills/bundled/github/github-github-code-review), `cronjob` |
 
 ## Reference: full SKILL.md

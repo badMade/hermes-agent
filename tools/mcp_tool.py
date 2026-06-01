@@ -87,9 +87,14 @@ import sys
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Collection, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Maximum decoded size for a single MCP ImageContent payload. MCP servers can
+# be remote or compromised, so cap image blocks before caching them locally.
+_MCP_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+_MCP_IMAGE_MAX_BASE64_CHARS = ((_MCP_IMAGE_MAX_BYTES + 2) // 3) * 4
 
 
 # ---------------------------------------------------------------------------
@@ -459,9 +464,33 @@ def _cache_mcp_image_block(block) -> str:
         return ""
 
     try:
-        raw_bytes = base64.b64decode(data)
+        encoded_len = len(data)
+    except TypeError as exc:
+        logger.warning("MCP image block decode failed (%s): %s", normalized_mime, exc)
+        return ""
+
+    if encoded_len > _MCP_IMAGE_MAX_BASE64_CHARS:
+        logger.warning(
+            "MCP image block rejected (%s): base64 payload is %d chars; max is %d chars",
+            normalized_mime,
+            encoded_len,
+            _MCP_IMAGE_MAX_BASE64_CHARS,
+        )
+        return ""
+
+    try:
+        raw_bytes = base64.b64decode(data, validate=True)
     except (TypeError, ValueError) as exc:
         logger.warning("MCP image block decode failed (%s): %s", normalized_mime, exc)
+        return ""
+
+    if len(raw_bytes) > _MCP_IMAGE_MAX_BYTES:
+        logger.warning(
+            "MCP image block rejected (%s): decoded payload is %d bytes; max is %d",
+            normalized_mime,
+            len(raw_bytes),
+            _MCP_IMAGE_MAX_BYTES,
+        )
         return ""
 
     try:
@@ -3128,7 +3157,7 @@ def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
     return _existing_tool_names()
 
 
-def discover_mcp_tools() -> List[str]:
+def discover_mcp_tools(allowed_server_names: Collection[str] | None = None) -> List[str]:
     """Entry point: load config, connect to MCP servers, register tools.
 
     Called from ``model_tools`` after ``discover_builtin_tools()``. Safe to call even when
@@ -3136,6 +3165,10 @@ def discover_mcp_tools() -> List[str]:
 
     Idempotent for already-connected servers. If some servers failed on a
     previous call, only the missing ones are retried.
+
+    Args:
+        allowed_server_names: Optional MCP server-name allowlist. When provided,
+            only matching configured servers may be connected.
 
     Returns:
         List of all registered MCP tool names.
@@ -3145,6 +3178,9 @@ def discover_mcp_tools() -> List[str]:
         return []
 
     servers = _load_mcp_config()
+    if allowed_server_names is not None:
+        allowed = {str(name) for name in allowed_server_names}
+        servers = {name: cfg for name, cfg in servers.items() if str(name) in allowed}
     if not servers:
         logger.debug("No MCP servers configured")
         return []
