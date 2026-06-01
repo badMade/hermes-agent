@@ -70,8 +70,25 @@ class TestCamofoxIdentitySecret:
 
     def test_secret_differs_across_profiles(self, tmp_path):
         state = _load_module()
+
         with patch.object(state, "get_hermes_home", return_value=tmp_path / "a"):
-            a = state.get_camofox_identity("task-1")
+            a_first = state.get_camofox_identity("task-1")
+            a_secret_path = state.get_camofox_state_dir() / state.CAMOFOX_SECRET_FILE
+            assert a_secret_path.exists()
+            a_secret = a_secret_path.read_text()
+
         with patch.object(state, "get_hermes_home", return_value=tmp_path / "b"):
-            b = state.get_camofox_identity("task-1")
-        assert a["user_id"] != b["user_id"]
+            b_first = state.get_camofox_identity("task-1")
+            b_secret_path = state.get_camofox_state_dir() / state.CAMOFOX_SECRET_FILE
+            assert b_secret_path.exists()
+            b_secret = b_secret_path.read_text()
+
+        assert a_secret != b_secret
+
+        with patch.object(state, "get_hermes_home", return_value=tmp_path / "a"):
+            a_second = state.get_camofox_identity("task-1")
+        with patch.object(state, "get_hermes_home", return_value=tmp_path / "b"):
+            b_second = state.get_camofox_identity("task-1")
+
+        assert a_first == a_second
+        assert b_first == b_second
