@@ -154,3 +154,16 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+
+def get_terminal_cwd(default: str = "") -> str:
+    """Return the current terminal working directory for this session.
+
+    Today this mirrors the existing ``TERMINAL_CWD`` environment bridge used by
+    CLI, gateway, and cron entrypoints. Keeping the lookup behind a helper lets
+    callers share one import path and makes future session-scoped handling
+    possible without touching every call site again.
+    """
+    import os
+
+    return os.getenv("TERMINAL_CWD", default)
