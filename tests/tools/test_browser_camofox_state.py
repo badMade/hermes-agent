@@ -1,5 +1,8 @@
 """Tests for Hermes-managed Camofox state helpers."""
 
+import os
+import stat
+
 from unittest.mock import patch
 
 
@@ -65,6 +68,8 @@ class TestCamofoxIdentitySecret:
             first = state.get_camofox_identity("task-1")
             secret_path = state.get_camofox_state_dir() / state.CAMOFOX_SECRET_FILE
             assert secret_path.exists()
+            if os.name == "posix":
+                assert stat.S_IMODE(secret_path.stat().st_mode) == 0o600
             second = state.get_camofox_identity("task-1")
             assert first == second
 
