@@ -8,7 +8,7 @@ def test_ensure_tui_node_passes_helper_path_as_bash_argument(monkeypatch, tmp_pa
     project_root = tmp_path / 'hermes-$(touch pwned)"quoted`tick`'
     helper = project_root / "scripts" / "lib" / "node-bootstrap.sh"
     helper.parent.mkdir(parents=True)
-    helper.write_text("ensure_node() { :; }\n")
+    helper.write_text("ensure_node() { :; }\n", encoding="utf-8")
 
     calls = []
 
@@ -19,6 +19,7 @@ def test_ensure_tui_node_passes_helper_path_as_bash_argument(monkeypatch, tmp_pa
     monkeypatch.setattr(hm, "PROJECT_ROOT", project_root)
     monkeypatch.setattr(hm.shutil, "which", lambda _name: None)
     monkeypatch.setattr(hm.subprocess, "run", fake_run)
+    monkeypatch.delenv("HERMES_SKIP_NODE_BOOTSTRAP", raising=False)
 
     hm._ensure_tui_node()
 
@@ -26,7 +27,7 @@ def test_ensure_tui_node_passes_helper_path_as_bash_argument(monkeypatch, tmp_pa
     assert cmd == [
         "bash",
         "-c",
-        'source "$1" >&2 && ensure_node >&2 && command -v node',
+        'source -- "$1" >&2 && ensure_node >&2 && command -v node',
         "bash",
         str(helper),
     ]

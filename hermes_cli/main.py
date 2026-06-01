@@ -998,7 +998,7 @@ def _ensure_tui_node() -> None:
             [
                 "bash",
                 "-c",
-                'source "$1" >&2 && ensure_node >&2 && command -v node',
+                'source -- "$1" >&2 && ensure_node >&2 && command -v node',
                 "bash",
                 str(helper),
             ],
