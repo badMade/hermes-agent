@@ -36,8 +36,8 @@ needs to replace the import + call site:
     platform = get_session_env("HERMES_SESSION_PLATFORM", "")
 """
 
-import os
 from contextvars import ContextVar
+import os
 from typing import Any
 
 # Sentinel to distinguish "never set in this context" from "explicitly set to empty".
