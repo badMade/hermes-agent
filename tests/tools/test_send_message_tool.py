@@ -182,6 +182,42 @@ class TestSendMessageTool:
             force_document=False,
         )
 
+    def test_resolved_nonnumeric_target_does_not_fallback_to_home_channel(self):
+        config, _telegram_cfg = _make_config()
+        whatsapp_cfg = SimpleNamespace(enabled=True, token="wa-token", extra={})
+        config.platforms[Platform.WHATSAPP] = whatsapp_cfg
+        config.get_home_channel = lambda platform: (
+            SimpleNamespace(chat_id="HOME-GROUP@lid") if platform == Platform.WHATSAPP else None
+        )
+
+        with patch("gateway.config.load_gateway_config", return_value=config), \
+             patch("tools.interrupt.is_interrupted", return_value=False), \
+             patch("gateway.channel_directory.resolve_channel_name", return_value="12345678901234@lid"), \
+             patch("model_tools._run_async", side_effect=_run_async_immediately), \
+             patch("tools.send_message_tool._send_to_platform", new=AsyncMock(return_value={"success": True})) as send_mock, \
+             patch("gateway.mirror.mirror_to_session", return_value=True):
+            result = json.loads(
+                send_message_tool(
+                    {
+                        "action": "send",
+                        "target": "whatsapp:Alice (dm)",
+                        "message": "hello",
+                    }
+                )
+            )
+
+        assert result["success"] is True
+        assert "note" not in result
+        send_mock.assert_awaited_once_with(
+            Platform.WHATSAPP,
+            whatsapp_cfg,
+            "12345678901234@lid",
+            "hello",
+            thread_id=None,
+            media_files=[],
+            force_document=False,
+        )
+
     def test_mirror_receives_current_session_user_id(self):
         config, _telegram_cfg = _make_config()
 
