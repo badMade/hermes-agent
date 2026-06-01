@@ -590,24 +590,28 @@ class WebhookAdapter(BasePlatformAdapter):
         self, request: "web.Request", body: bytes, secret: str
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
+        secret_text = secret.strip()
+        if secret_text.startswith("${") and secret_text.endswith("}"):
+            return False
+
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
         gh_sig = request.headers.get("X-Hub-Signature-256", "")
         if gh_sig:
             expected = "sha256=" + hmac.new(
-                secret.encode(), body, hashlib.sha256
+                secret_text.encode(), body, hashlib.sha256
             ).hexdigest()
             return hmac.compare_digest(gh_sig, expected)
 
         # GitLab: X-Gitlab-Token = <plain secret>
         gl_token = request.headers.get("X-Gitlab-Token", "")
         if gl_token:
-            return hmac.compare_digest(gl_token, secret)
+            return hmac.compare_digest(gl_token, secret_text)
 
         # Generic: X-Webhook-Signature = <hex HMAC-SHA256>
         generic_sig = request.headers.get("X-Webhook-Signature", "")
         if generic_sig:
             expected = hmac.new(
-                secret.encode(), body, hashlib.sha256
+                secret_text.encode(), body, hashlib.sha256
             ).hexdigest()
             return hmac.compare_digest(generic_sig, expected)
 
