@@ -729,3 +729,35 @@ class TestProxyKwargsForAiohttp:
             assert sess_kw == {}
             assert req_kw == {"proxy": "http://proxy:8080"}
 
+
+
+def test_filter_trusted_gateway_media_paths_blocks_outside_cache(tmp_path, monkeypatch):
+    from gateway.platforms import base as base_mod
+
+    hermes_home = tmp_path / "hermes"
+    cache_dir = hermes_home / "cache" / "images"
+    cache_dir.mkdir(parents=True)
+    trusted = cache_dir / "ok.png"
+    trusted.write_bytes(b"image")
+    outside = tmp_path / "private.png"
+    outside.write_bytes(b"secret")
+    monkeypatch.setattr(base_mod, "get_hermes_home", lambda: hermes_home)
+
+    result = base_mod._filter_trusted_gateway_media_paths([
+        (str(trusted), False),
+        (str(outside), False),
+    ])
+
+    assert result == [(str(trusted), False)]
+
+
+def test_filter_trusted_gateway_media_paths_blocks_bare_local_outside_cache(tmp_path, monkeypatch):
+    from gateway.platforms import base as base_mod
+
+    hermes_home = tmp_path / "hermes"
+    (hermes_home / "cache" / "images").mkdir(parents=True)
+    outside = tmp_path / "private.pdf"
+    outside.write_bytes(b"secret")
+    monkeypatch.setattr(base_mod, "get_hermes_home", lambda: hermes_home)
+
+    assert base_mod._filter_trusted_gateway_media_paths([str(outside)]) == []

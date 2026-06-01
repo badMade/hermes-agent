@@ -49,7 +49,7 @@ def test_acp_resource_link_file_is_inlined_as_text(tmp_path):
             uri=attached.as_uri(),
             mimeType="text/markdown",
         ),
-    ])
+    ], cwd=tmp_path)
 
     assert content == (
         "Please read this file\n"
@@ -106,7 +106,7 @@ def test_acp_resource_link_image_file_is_inlined_as_image_url(tmp_path):
             uri=attached.as_uri(),
             mimeType="image/png",
         ),
-    ])
+    ], cwd=tmp_path)
 
     assert isinstance(content, list)
     # [user text, image header, image_url]
@@ -129,7 +129,7 @@ def test_acp_resource_link_image_mime_inferred_from_suffix(tmp_path):
             name="pic.jpg",
             uri=attached.as_uri(),
         ),
-    ])
+    ], cwd=tmp_path)
 
     assert isinstance(content, list)
     image_parts = [p for p in content if p.get("type") == "image_url"]
@@ -157,3 +157,40 @@ def test_acp_embedded_blob_image_is_inlined_as_image_url():
         "type": "image_url",
         "image_url": {"url": f"data:image/png;base64,{b64}"},
     }
+
+
+def test_acp_resource_link_outside_cwd_is_not_inlined(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.env"
+    outside.write_text("ACP_SECRET_OUTSIDE_CWD=supersecret", encoding="utf-8")
+
+    content = _content_blocks_to_openai_user_content([
+        ResourceContentBlock(
+            type="resource_link",
+            name="outside.env",
+            uri=outside.as_uri(),
+            mimeType="text/plain",
+        ),
+    ], cwd=workspace)
+
+    assert "ACP_SECRET_OUTSIDE_CWD" not in content
+    assert "Access denied" in content
+
+
+def test_acp_resource_link_redacts_inlined_secret(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent.redact._REDACT_ENABLED", True)
+    attached = tmp_path / "secret.env"
+    attached.write_text("OPENAI_API_KEY=sk-" + "a" * 48, encoding="utf-8")
+
+    content = _content_blocks_to_openai_user_content([
+        ResourceContentBlock(
+            type="resource_link",
+            name="secret.env",
+            uri=attached.as_uri(),
+            mimeType="text/plain",
+        ),
+    ], cwd=tmp_path)
+
+    assert "sk-" + "a" * 48 not in content
+    assert "[REDACTED" in content
