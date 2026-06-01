@@ -134,6 +134,25 @@ def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
     return allowed is None or platform in allowed
 
 
+def _implicit_default_off_toolsets(platform: str) -> Set[str]:
+    """Default-off toolsets that should be suppressed for ``platform``.
+
+    This only applies to configurable toolsets that are valid on the target
+    platform.
+    """
+    configurable_keys = {ts_key for ts_key, _, _ in CONFIGURABLE_TOOLSETS}
+    # Dedicated Home Assistant sessions should keep the homeassistant toolset
+    # enabled by default on that platform.
+    platform_defaults = {"homeassistant"} if platform == "homeassistant" else set()
+    return {
+        ts_key
+        for ts_key in _DEFAULT_OFF_TOOLSETS
+        if (
+            ts_key in configurable_keys
+            and _toolset_allowed_for_platform(ts_key, platform)
+            and ts_key not in platform_defaults
+        )
+    }
 def _get_effective_configurable_toolsets():
     """Return CONFIGURABLE_TOOLSETS + any plugin-provided toolsets.
 
@@ -1183,25 +1202,6 @@ def _parse_enabled_flag(value, default: bool = True) -> bool:
 _LEGACY_PLATFORM_TOOLSET_ALIASES = {
     "qqbot": ("qq",),
 }
-
-
-def _implicit_default_off_toolsets(platform: str) -> Set[str]:
-    """Return default-off toolsets to suppress for implicit platform config.
-
-    A platform's own unrestricted toolset remains available for backwards
-    compatibility (for example the ``homeassistant`` platform keeps the
-    ``homeassistant`` toolset). Credentials such as ``HASS_TOKEN`` are not an
-    authorization grant for other platforms; they must opt in explicitly.
-    """
-    default_off = set(_DEFAULT_OFF_TOOLSETS)
-    if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
-        default_off.remove(platform)
-    import os
-    if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
-        default_off.remove("homeassistant")
-    return default_off
-
-
 def _get_platform_tools(
     config: dict,
     platform: str,
@@ -1381,9 +1381,9 @@ def _get_platform_tools(
         explicit_mcp_servers = explicit_passthrough & enabled_mcp_servers
         enabled_toolsets.update(explicit_passthrough - enabled_mcp_servers)
     if include_default_mcp_servers:
-        if "no_mcp" in toolset_names:
+        if explicit_mcp_servers or "no_mcp" in toolset_names:
             enabled_toolsets.update(explicit_mcp_servers)
-        else:
+        elif not has_explicit_platform_toolsets:
             enabled_toolsets.update(enabled_mcp_servers)
     else:
         enabled_toolsets.update(explicit_mcp_servers)
