@@ -5372,6 +5372,11 @@ class GatewayRunner:
         if not user_id:
             return False
 
+        # Extract team_id (Slack workspace ID) or guild_id (Discord server ID)
+        # for scoped authorization checks. This allows allowlists to be workspace/server-specific
+        # using the "team_id:user_id" format.
+        team_id = getattr(source, "guild_id", None)
+
         platform_env_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
             Platform.DISCORD: "DISCORD_ALLOWED_USERS",

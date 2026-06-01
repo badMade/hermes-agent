@@ -234,6 +234,13 @@ def _normalize_multimodal_content(content: Any) -> Any:
                 raise ValueError(
                     "invalid_image_url:Image inputs must use http(s) URLs or data:image/... URLs."
                 )
+            # SSRF protection — reject private/internal addresses and cloud metadata URLs
+            else:
+                from tools.web_tools import is_safe_url
+                if not is_safe_url(url_value):
+                    raise ValueError(
+                        "invalid_image_url:Image URLs must not target private or internal network addresses."
+                    )
             image_part: Dict[str, Any] = {"type": "image_url", "image_url": {"url": url_value}}
             if detail is not None:
                 if not isinstance(detail, str) or not detail.strip():
