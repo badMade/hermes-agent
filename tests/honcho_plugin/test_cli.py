@@ -177,7 +177,7 @@ class TestProfileWorkspaceIsolation:
 
         assert honcho_cli.clone_honcho_for_profile("private") is True
         block = written["cfg"]["hosts"]["hermes.private"]
-        assert block["workspace"] == "hermes.private"
+        assert block["workspace"] == "hermes-private"
 
     def test_cmd_enable_new_profile_defaults_workspace_to_profile_host(self, monkeypatch):
         import plugins.memory.honcho.cli as honcho_cli
