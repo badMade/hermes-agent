@@ -707,8 +707,11 @@ def _pip_install(
     Returns the ``subprocess.CompletedProcess`` from whichever tier succeeded
     (or the last failure for the caller to inspect).
     """
+    from tools.environments.local import _sanitize_subprocess_env
+
     venv_root = Path(sys.executable).parent.parent
-    uv_env = {**os.environ, "VIRTUAL_ENV": str(venv_root)}
+    uv_env = _sanitize_subprocess_env(os.environ.copy())
+    uv_env["VIRTUAL_ENV"] = str(venv_root)
 
     uv_bin = shutil.which("uv")
     if uv_bin:
@@ -728,6 +731,7 @@ def _pip_install(
             pass
 
     pip_cmd = [sys.executable, "-m", "pip"]
+    pip_env = _sanitize_subprocess_env(os.environ.copy())
     try:
         # Probe for pip; bootstrap via ensurepip if missing (uv venv lacks it).
         probe = subprocess.run(
@@ -735,6 +739,7 @@ def _pip_install(
             capture_output=True,
             text=True,
             timeout=15,
+            env=pip_env,
         )
         if probe.returncode != 0:
             raise FileNotFoundError("pip not in venv")
@@ -746,6 +751,7 @@ def _pip_install(
                 text=True,
                 timeout=120,
                 check=True,
+                env=pip_env,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             # Synthesize a result so callers see a clean failure path.
@@ -761,6 +767,7 @@ def _pip_install(
         capture_output=capture_output,
         text=True,
         timeout=timeout,
+        env=pip_env,
     )
 
 
