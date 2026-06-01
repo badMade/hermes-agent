@@ -32,7 +32,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from gateway.config import GatewayConfig, HomeChannel, Platform, PlatformConfig
+from gateway.config import (
+    GatewayConfig,
+    HomeChannel,
+    Platform,
+    PlatformConfig,
+    SessionResetPolicy,
+)
 from gateway.platforms.base import MessageEvent, MessageType, SendResult
 from gateway.run import (
     _auto_continue_freshness_window,
