@@ -1474,8 +1474,8 @@ async def _send_mattermost(token, extra, chat_id, message):
 async def _send_matrix(token, extra, chat_id, message):
     """Send via Matrix Client-Server API.
 
-    Converts markdown to HTML for rich rendering in Matrix clients.
-    Falls back to plain text if the ``markdown`` library is not installed.
+    Converts markdown to sanitized HTML for rich rendering in Matrix clients.
+    Falls back to plain text if Matrix HTML conversion is unavailable.
     """
     try:
         import aiohttp
@@ -1504,7 +1504,7 @@ async def _send_matrix(token, extra, chat_id, message):
                 if html and html != message:
                     payload["format"] = "org.matrix.custom.html"
                     payload["formatted_body"] = html
-            except Exception as exc:
+            except (AttributeError, TypeError, ValueError) as exc:
                 logger.debug(
                     "Matrix HTML conversion failed; sending plain-text body: %s",
                     exc,
