@@ -59,7 +59,7 @@ def clone_honcho_for_profile(profile_name: str) -> bool:
     # Use the bare profile name as the peer identity (not the host key)
     # because Honcho's peer ID pattern is ^[a-zA-Z0-9_-]+$ (no dots).
     new_block["aiPeer"] = profile_name
-    new_block["workspace"] = new_host
+    new_block["workspace"] = new_host.replace(".", "-")
     new_block["enabled"] = default_block.get("enabled", True)
 
     cfg.setdefault("hosts", {})[new_host] = new_block
