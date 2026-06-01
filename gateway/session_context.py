@@ -91,7 +91,6 @@ def set_session_vars(
     chat_id: str = "",
     chat_name: str = "",
     thread_id: str = "",
-    user_id: str = "",
     user_name: str = "",
     session_key: str = "",
     terminal_cwd: Optional[str] = None,
