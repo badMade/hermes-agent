@@ -573,11 +573,12 @@ class SessionEntry:
 def _is_telegram_general_topic(source: SessionSource) -> bool:
     """Return True for Telegram forum General-topic routing metadata.
 
-    Telegram sends and typing indicators need the General-topic id (``1``)
-    for correct routing, but incoming General-topic messages may have this id
-    synthesized by the adapter when Telegram omits ``message_thread_id``.  For
-    session isolation, keep General aligned with regular group messages so the
-    default ``group_sessions_per_user=True`` remains protective.
+    The adapter preserves General-topic routing metadata as thread id ``1``
+    for typing and inbound context, even though Telegram sends must omit
+    ``message_thread_id=1``. Incoming General-topic messages may also have this
+    id synthesized when Telegram omits ``message_thread_id``. For session
+    isolation, keep General aligned with regular group messages so the default
+    ``group_sessions_per_user=True`` remains protective.
     """
     return (
         source.platform == Platform.TELEGRAM
