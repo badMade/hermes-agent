@@ -27,6 +27,7 @@ Requires:
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ import sqlite3
 import time
 import uuid
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 try:
     from aiohttp import web
@@ -234,6 +236,26 @@ def _normalize_multimodal_content(content: Any) -> Any:
                 raise ValueError(
                     "invalid_image_url:Image inputs must use http(s) URLs or data:image/... URLs."
                 )
+            else:
+                parsed = urlparse(url_value)
+                hostname = (parsed.hostname or "").strip().lower()
+                if not hostname:
+                    raise ValueError("invalid_image_url:Image URL must include a hostname.")
+                if hostname in {"localhost", "localhost.localdomain"}:
+                    raise ValueError("invalid_image_url:Local/private image URLs are not allowed.")
+                try:
+                    host_ip = ipaddress.ip_address(hostname)
+                except ValueError:
+                    host_ip = None
+                if host_ip and (
+                    host_ip.is_private
+                    or host_ip.is_loopback
+                    or host_ip.is_link_local
+                    or host_ip.is_multicast
+                    or host_ip.is_reserved
+                    or host_ip.is_unspecified
+                ):
+                    raise ValueError("invalid_image_url:Local/private image URLs are not allowed.")
             image_part: Dict[str, Any] = {"type": "image_url", "image_url": {"url": url_value}}
             if detail is not None:
                 if not isinstance(detail, str) or not detail.strip():
