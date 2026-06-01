@@ -405,6 +405,8 @@ class TestSearchFilesFallbackHiddenPaths:
         env.cwd = "/"
 
         def execute(command, **kwargs):
+            import shlex
+
             if isinstance(command, str):
                 # We need to simulate shell pipe since `file_operations._search_files` issues
                 # `find ... | sort ... | tail ... | head ...`
@@ -529,6 +531,7 @@ class TestShellFileOpsWriteDenied:
         assert "denied" in result.error.lower()
         executed_commands = [call.args[0] for call in mock_env.execute.call_args_list]
         assert not any(command.startswith("cat >") for command in executed_commands)
+
     def test_patch_replace_denied_path(self, file_ops):
         result = file_ops.patch_replace("~/.ssh/authorized_keys", "old", "new")
         assert result.error is not None

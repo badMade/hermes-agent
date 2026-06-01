@@ -723,6 +723,7 @@ from tools.terminal_tool import set_sudo_password_callback, set_approval_callbac
 from tools.skills_tool import set_secret_capture_callback
 from hermes_cli.callbacks import prompt_for_secret
 from tools.browser_tool import _emergency_cleanup_all_sessions as _cleanup_all_browsers
+from tools.ansi_strip import strip_ansi
 
 # Guard to prevent cleanup from running multiple times on exit
 _cleanup_done = False
@@ -2008,7 +2009,7 @@ _TERMINAL_INPUT_MODE_RESET_SEQ = (
     "\x1b[?1002l"  # disable button-motion tracking
     "\x1b[?1000l"  # disable click tracking
     "\x1b[?1004l"  # disable focus events
-    "\x1b[?2004l"  # disable bracketed paste
+    "\x1b[?2004h"  # keep bracketed paste safety enabled while prompt_toolkit runs
     "\x1b[?1049l"  # leave alt screen (if stuck there)
     "\x1b[<u"  # pop kitty keyboard mode
     "\x1b[>4m"  # reset modifyOtherKeys
@@ -8238,17 +8239,15 @@ class HermesCLI:
                 if qcmd.get("type") == "exec":
                     import subprocess
                     import shlex
-                    from tools.environments.local import _sanitize_subprocess_env
+
                     exec_cmd = qcmd.get("command", "")
                     if exec_cmd:
                         try:
-                            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
                             result = subprocess.run(
                                 shlex.split(exec_cmd),
                                 capture_output=True,
                                 text=True,
                                 timeout=30,
-                                env=sanitized_env,
                             )
                             output = result.stdout.strip() or result.stderr.strip()
                             if output:
@@ -9656,14 +9655,8 @@ class HermesCLI:
                     "⚠️  MCP stdio server config changed — run /reload-mcp to apply executable changes."
                 )
                 return
+
         self._config_mcp_servers = new_mcp
-
-        if self._mcp_stdio_config_changed(old_mcp, new_mcp):
-            print()
-            print("⚠️  MCP stdio server config changed — run /reload-mcp to reconnect.")
-            print("   Auto-reload is skipped because stdio MCP servers can execute local commands.")
-            return
-
         # Notify user and reload.  Run in a separate thread with a hard
         # timeout so a hung MCP server cannot block the process_loop
         # indefinitely (which would freeze the entire TUI).
@@ -9676,23 +9669,6 @@ class HermesCLI:
             print(
                 "  ⚠️  MCP reload timed out (30s). Some servers may not have reconnected."
             )
-
-    @staticmethod
-    def _mcp_stdio_config_changed(old_mcp: dict, new_mcp: dict) -> bool:
-        """Return True when auto-reload would start new or changed stdio MCP commands."""
-
-        def _is_enabled_stdio(cfg) -> bool:
-            if not isinstance(cfg, dict) or not cfg.get("command"):
-                return False
-            enabled = cfg.get("enabled", True)
-            if isinstance(enabled, str):
-                return enabled.strip().lower() not in {"0", "false", "no", "off"}
-            return bool(enabled)
-
-        for name, new_cfg in (new_mcp or {}).items():
-            if _is_enabled_stdio(new_cfg) and new_cfg != (old_mcp or {}).get(name):
-                return True
-        return False
 
     def _confirm_destructive_slash(self, command: str, detail: str) -> Optional[str]:
         """Prompt the user to confirm a destructive session slash command.
@@ -14389,7 +14365,7 @@ class HermesCLI:
                                     continue  # already delivered via tool result
                                 _synth = _format_process_notification(evt)
                                 if _synth:
-                                    self._pending_input.put(_synth)
+                                    _cprint(f"\n{_ACCENT}{strip_ansi(_synth)}{_RST}")
                         except Exception:
                             pass  # Non-fatal — don't break the main loop
 
