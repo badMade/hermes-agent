@@ -1871,8 +1871,10 @@ def _synthesize_ended_run(
 def recompute_ready(conn: sqlite3.Connection) -> int:
     """Promote ``todo`` tasks to ``ready`` when all parents are ``done`` or ``archived``.
 
-    Returns the number of tasks promoted.  Safe to call inside or outside
-    an existing transaction; it opens its own IMMEDIATE txn.
+    Returns the number of tasks promoted.  Must be called outside any existing
+    transaction; it opens its own IMMEDIATE write transaction internally.
+    Calling inside an already-open transaction will raise
+    ``sqlite3.OperationalError``.
     """
     promoted = 0
     now = int(time.time())
