@@ -7550,12 +7550,11 @@ class HermesCLI:
                         try:
                             argv = shlex.split(exec_cmd)
                             if not argv:
-                                self._console_print(f"[bold red]Quick command '{base_cmd}' has no command defined[/]")
-                                return
-                            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
+                    if exec_cmd.strip():
+                        try:
                             result = subprocess.run(
-                                argv, shell=False, capture_output=True,
-                                text=True, timeout=30, env=sanitized_env
+                                shlex.split(exec_cmd), shell=False, capture_output=True,
+                                text=True, timeout=30
                             )
                             output = result.stdout.strip() or result.stderr.strip()
                             if output:
