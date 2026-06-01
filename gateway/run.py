@@ -5372,6 +5372,8 @@ class GatewayRunner:
         if not user_id:
             return False
 
+        team_id = getattr(source, "team_id", "")
+
         platform_env_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
             Platform.DISCORD: "DISCORD_ALLOWED_USERS",
