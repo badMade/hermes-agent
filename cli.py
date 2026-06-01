@@ -7546,21 +7546,26 @@ class HermesCLI:
                     import subprocess
                     from tools.environments.local import _sanitize_subprocess_env
                     exec_cmd = qcmd.get("command", "")
-                    if exec_cmd:
+                    if exec_cmd.strip():
                         try:
                             argv = shlex.split(exec_cmd)
                             if not argv:
-                    if exec_cmd.strip():
-                        try:
-                            result = subprocess.run(
-                                shlex.split(exec_cmd), shell=False, capture_output=True,
-                                text=True, timeout=30
-                            )
-                            output = result.stdout.strip() or result.stderr.strip()
-                            if output:
-                                self._console_print(_rich_text_from_ansi(output))
+                                self._console_print(f"[bold red]Quick command '{base_cmd}' has no command defined[/]")
                             else:
-                                self._console_print("[dim]Command returned no output[/]")
+                                if sys.platform == "win32":
+                                    import shutil as _shutil
+                                    resolved = _shutil.which(argv[0])
+                                    if resolved:
+                                        argv[0] = resolved
+                                result = subprocess.run(
+                                    argv, shell=False, capture_output=True,
+                                    text=True, timeout=30
+                                )
+                                output = result.stdout.strip() or result.stderr.strip()
+                                if output:
+                                    self._console_print(_rich_text_from_ansi(output))
+                                else:
+                                    self._console_print("[dim]Command returned no output[/]")
                         except subprocess.TimeoutExpired:
                             self._console_print("[bold red]Quick command timed out (30s)[/]")
                         except Exception as e:
