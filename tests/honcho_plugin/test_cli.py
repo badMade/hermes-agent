@@ -201,3 +201,17 @@ class TestProfileWorkspaceIsolation:
 
         honcho_cli.cmd_enable(SimpleNamespace())
         assert cfg["hosts"]["hermes.gateway"]["workspace"] == "hermes-gateway"
+
+    def test_cmd_enable_default_host_keeps_root_workspace(self, monkeypatch):
+        import plugins.memory.honcho.cli as honcho_cli
+
+        cfg = {"workspace": "custom", "hosts": {"hermes": {}}}
+
+        monkeypatch.setattr(honcho_cli, "_read_config", lambda: cfg)
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_config_path", lambda: "honcho.json")
+        monkeypatch.setattr(honcho_cli, "_write_config", lambda data: None)
+        monkeypatch.setattr(honcho_cli, "_ensure_peer_exists", lambda host_key=None: True)
+
+        honcho_cli.cmd_enable(SimpleNamespace())
+        assert cfg["hosts"]["hermes"]["workspace"] == "custom"
