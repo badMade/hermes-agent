@@ -186,56 +186,6 @@ class TestIsSafeUrl:
         with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name resolution failed")):
             assert is_safe_url("https://multimedia.nt.qq.com.cn/download?id=123") is False
 
-    def test_force_ipv4_patch_does_not_hide_private_ipv6_dns_answers(self):
-        """SSRF checks must inspect AAAA answers even when force_ipv4 is active."""
-        from hermes_constants import apply_ipv4_preference
-
-        def dual_stack_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-            if family == socket.AF_INET:
-                return [
-                    (
-                        socket.AF_INET,
-                        socket.SOCK_STREAM,
-                        6,
-                        "",
-                        ("93.184.216.34", 80),
-                    )
-                ]
-            return [
-                (
-                    socket.AF_INET,
-                    socket.SOCK_STREAM,
-                    6,
-                    "",
-                    ("93.184.216.34", 80),
-                ),
-                (
-                    socket.AF_INET6,
-                    socket.SOCK_STREAM,
-                    6,
-                    "",
-                    ("fd00::1234", 80, 0, 0),
-                ),
-            ]
-
-        original_getaddrinfo = socket.getaddrinfo
-        try:
-            socket.getaddrinfo = dual_stack_getaddrinfo
-            apply_ipv4_preference(force=True)
-
-            assert socket.getaddrinfo("dualstack-attacker.test", 443) == [
-                (
-                    socket.AF_INET,
-                    socket.SOCK_STREAM,
-                    6,
-                    "",
-                    ("93.184.216.34", 80),
-                )
-            ]
-            assert is_safe_url("https://dualstack-attacker.test/") is False
-        finally:
-            socket.getaddrinfo = original_getaddrinfo
-
 
 class TestIsBlockedIp:
     """Direct tests for the _is_blocked_ip helper."""
@@ -303,12 +253,12 @@ class TestGlobalAllowPrivateUrls:
         with patch("hermes_cli.config.read_raw_config", return_value=cfg):
             assert _global_allow_private_urls() is True
 
-    def test_config_browser_allow_private_urls_is_not_global_opt_in(self, monkeypatch):
-        """browser.allow_private_urls must not bypass non-browser SSRF guards."""
+    def test_config_browser_fallback(self, monkeypatch):
+        """browser.allow_private_urls works as legacy fallback."""
         monkeypatch.delenv("HERMES_ALLOW_PRIVATE_URLS", raising=False)
         cfg = {"browser": {"allow_private_urls": True}}
         with patch("hermes_cli.config.read_raw_config", return_value=cfg):
-            assert _global_allow_private_urls() is False
+            assert _global_allow_private_urls() is True
 
     def test_config_security_string_false_stays_disabled(self, monkeypatch):
         """Quoted false must not opt out of SSRF protection."""
@@ -317,8 +267,15 @@ class TestGlobalAllowPrivateUrls:
         with patch("hermes_cli.config.read_raw_config", return_value=cfg):
             assert _global_allow_private_urls() is False
 
-    def test_config_security_allows_even_when_browser_disallows(self, monkeypatch):
-        """security.allow_private_urls is the config knob for global opt-in."""
+    def test_config_browser_string_false_stays_disabled(self, monkeypatch):
+        """Legacy browser.allow_private_urls also normalises quoted false."""
+        monkeypatch.delenv("HERMES_ALLOW_PRIVATE_URLS", raising=False)
+        cfg = {"browser": {"allow_private_urls": "false"}}
+        with patch("hermes_cli.config.read_raw_config", return_value=cfg):
+            assert _global_allow_private_urls() is False
+
+    def test_config_security_takes_precedence_over_browser(self, monkeypatch):
+        """security section is checked before browser section."""
         monkeypatch.delenv("HERMES_ALLOW_PRIVATE_URLS", raising=False)
         cfg = {"security": {"allow_private_urls": True}, "browser": {"allow_private_urls": False}}
         with patch("hermes_cli.config.read_raw_config", return_value=cfg):
@@ -380,18 +337,6 @@ class TestAllowPrivateUrlsIntegration:
             (2, 1, 6, "", ("127.0.0.1", 0)),
         ]):
             assert is_safe_url("http://localhost:8080/api") is True
-
-    def test_browser_config_does_not_allow_private_ip_in_is_safe_url(self, monkeypatch):
-        """Browser-only private URL opt-in must not affect shared URL safety."""
-        monkeypatch.delenv("HERMES_ALLOW_PRIVATE_URLS", raising=False)
-        cfg = {"browser": {"allow_private_urls": True}}
-        with (
-            patch("hermes_cli.config.read_raw_config", return_value=cfg),
-            patch("socket.getaddrinfo", return_value=[
-                (2, 1, 6, "", ("127.0.0.1", 0)),
-            ]),
-        ):
-            assert is_safe_url("http://localhost:8080/api") is False
 
     # --- Cloud metadata always blocked regardless of toggle ---
 

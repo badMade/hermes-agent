@@ -2603,57 +2603,28 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5005, str(e))
 
 
-def _new_conversation_export_path() -> Path:
-    saved_dir = get_hermes_home() / "sessions" / "saved"
-    saved_dir.mkdir(parents=True, exist_ok=True)
-    if os.name != "nt":
-        os.chmod(saved_dir, 0o700)
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    suffix = uuid.uuid4().hex
-    return saved_dir / f"hermes_conversation_{timestamp}_{suffix}.json"
-
-
-def _secure_write_json(path: Path, payload: dict) -> None:
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-
-    fd = None
-    created = False
-    try:
-        fd = os.open(path, flags, 0o600)
-        created = True
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            fd = None
-            json.dump(payload, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-    except Exception:
-        if fd is not None:
-            os.close(fd)
-        if created:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
-        raise
-
-
 @method("session.save")
 def _(rid, params: dict) -> dict:
     session, err = _sess(params, rid)
     if err:
         return err
+    import time as _time
 
+    filename = os.path.abspath(
+        f"hermes_conversation_{_time.strftime('%Y%m%d_%H%M%S')}.json"
+    )
     try:
-        path = _new_conversation_export_path()
-        _secure_write_json(
-            path,
-            {
-                "model": getattr(session["agent"], "model", ""),
-                "messages": session.get("history", []),
-            },
-        )
-        return _ok(rid, {"file": str(path.resolve())})
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "model": getattr(session["agent"], "model", ""),
+                    "messages": session.get("history", []),
+                },
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+        return _ok(rid, {"file": filename})
     except Exception as e:
         return _err(rid, 5011, str(e))
 
@@ -4484,12 +4455,15 @@ def _(rid, params: dict) -> dict:
     if name in qcmds:
         qc = qcmds[name]
         if qc.get("type") == "exec":
+            from tools.environments.local import _sanitize_subprocess_env
+            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
             r = subprocess.run(
                 qc.get("command", ""),
                 shell=True,
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=sanitized_env,
             )
             output = (
                 (r.stdout or "")
@@ -4755,14 +4729,16 @@ _fuzzy_cache: dict[str, tuple[float, list[str]]] = {}
 
 
 def _list_repo_files(root: str) -> list[str]:
-    """Return file paths relative to ``root`` using a bounded filesystem walk.
+    """Return file paths relative to ``root``.
 
-    Completion runs automatically while the user types, so this helper avoids
-    invoking repository tools such as Git. Repository-local Git configuration can
-    execute commands (for example via ``core.fsmonitor``), which is unsafe for an
-    unapproved autocomplete path in an untrusted workspace. Results are cached
-    per-root for ``_FUZZY_CACHE_TTL_S`` so rapid keystrokes do not repeatedly
-    walk the same tree.
+    Uses ``git ls-files`` from the repo top (resolved via
+    ``rev-parse --show-toplevel``) so the listing covers tracked + untracked
+    files anywhere in the repo, then converts each path back to be relative
+    to ``root``. Files outside ``root`` (parent directories of cwd, sibling
+    subtrees) are excluded so the picker stays scoped to what's reachable
+    from the gateway's cwd. Falls back to a bounded ``os.walk(root)`` when
+    ``root`` isn't inside a git repo. Result cached per-root for
+    ``_FUZZY_CACHE_TTL_S`` so rapid keystrokes don't respawn git processes.
     """
     now = time.monotonic()
     with _fuzzy_cache_lock:
@@ -4771,26 +4747,68 @@ def _list_repo_files(root: str) -> list[str]:
             return cached[1]
 
     files: list[str] = []
-    # Skip vendor/build dirs + dot-dirs so the walk stays tractable. Dotfiles
-    # themselves survive — the ranker decides based on whether the query starts
-    # with `.`.
     try:
-        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-            dirnames[:] = [
-                d
-                for d in dirnames
-                if d not in _FUZZY_FALLBACK_EXCLUDES and not d.startswith(".")
-            ]
-            rel_dir = os.path.relpath(dirpath, root)
-            for f in filenames:
-                rel = f if rel_dir == "." else f"{rel_dir}/{f}"
-                files.append(rel.replace(os.sep, "/"))
+        top_result = subprocess.run(
+            ["git", "-C", root, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            timeout=2.0,
+            check=False,
+        )
+        if top_result.returncode == 0:
+            top = top_result.stdout.decode("utf-8", "replace").strip()
+            list_result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    top,
+                    "ls-files",
+                    "-z",
+                    "--cached",
+                    "--others",
+                    "--exclude-standard",
+                ],
+                capture_output=True,
+                timeout=2.0,
+                check=False,
+            )
+            if list_result.returncode == 0:
+                for p in list_result.stdout.decode("utf-8", "replace").split("\0"):
+                    if not p:
+                        continue
+                    rel = os.path.relpath(os.path.join(top, p), root).replace(
+                        os.sep, "/"
+                    )
+                    # Skip parents/siblings of cwd — keep the picker scoped
+                    # to root-and-below, matching Cmd-P workspace semantics.
+                    if rel.startswith("../"):
+                        continue
+                    files.append(rel)
+                    if len(files) >= _FUZZY_CACHE_MAX_FILES:
+                        break
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    if not files:
+        # Fallback walk: skip vendor/build dirs + dot-dirs so the walk stays
+        # tractable. Dotfiles themselves survive — the ranker decides based
+        # on whether the query starts with `.`.
+        try:
+            for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+                dirnames[:] = [
+                    d
+                    for d in dirnames
+                    if d not in _FUZZY_FALLBACK_EXCLUDES and not d.startswith(".")
+                ]
+                rel_dir = os.path.relpath(dirpath, root)
+                for f in filenames:
+                    rel = f if rel_dir == "." else f"{rel_dir}/{f}"
+                    files.append(rel.replace(os.sep, "/"))
+                    if len(files) >= _FUZZY_CACHE_MAX_FILES:
+                        break
                 if len(files) >= _FUZZY_CACHE_MAX_FILES:
                     break
-            if len(files) >= _FUZZY_CACHE_MAX_FILES:
-                break
-    except OSError:
-        pass
+        except OSError:
+            pass
 
     with _fuzzy_cache_lock:
         _fuzzy_cache[root] = (now, files)
@@ -6523,8 +6541,10 @@ def _(rid, params: dict) -> dict:
     except ImportError:
         pass
     try:
+        from tools.environments.local import _sanitize_subprocess_env
+        sanitized_env = _sanitize_subprocess_env(os.environ.copy())
         r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=os.getcwd()
+            cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=os.getcwd(), env=sanitized_env
         )
         return _ok(
             rid,

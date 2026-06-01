@@ -50,8 +50,6 @@ SUMMARY_PREFIX = (
     "config, etc.) may reflect work described here — avoid repeating it:"
 )
 LEGACY_SUMMARY_PREFIX = "[CONTEXT SUMMARY]:"
-_SUMMARY_PROVENANCE_KEY = "_hermes_context_summary"
-_SUMMARY_PROVENANCE_VALUE = "context_compressor_v1"
 
 # Minimum tokens for the summary output
 _MIN_SUMMARY_TOKENS = 2000
@@ -76,16 +74,6 @@ _IMAGE_TOKEN_ESTIMATE = 1600
 # for tail-cut decisions.
 _IMAGE_CHAR_EQUIVALENT = _IMAGE_TOKEN_ESTIMATE * _CHARS_PER_TOKEN
 _SUMMARY_FAILURE_COOLDOWN_SECONDS = 600
-_ERROR_PREVIEW_MAX_CHARS = 220
-
-
-def _redacted_error_preview(exc: Exception) -> str:
-    """Return a bounded, redacted exception message safe for user-visible notices."""
-    err_text = str(exc).strip() or exc.__class__.__name__
-    err_text = redact_sensitive_text(err_text)
-    if len(err_text) > _ERROR_PREVIEW_MAX_CHARS:
-        err_text = err_text[: _ERROR_PREVIEW_MAX_CHARS - 3].rstrip() + "..."
-    return err_text
 
 
 def _content_length_for_budget(raw_content: Any) -> int:
@@ -214,26 +202,23 @@ def _truncate_tool_call_args_json(args: str, head_chars: int = 200) -> str:
     """
     try:
         parsed = json.loads(args)
-    except (ValueError, TypeError, RecursionError):
+    except (ValueError, TypeError):
         return args
 
-    try:
-        def _shrink(obj: Any) -> Any:
-            if isinstance(obj, str):
-                if len(obj) > head_chars:
-                    return obj[:head_chars] + "...[truncated]"
-                return obj
-            if isinstance(obj, dict):
-                return {k: _shrink(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_shrink(v) for v in obj]
+    def _shrink(obj: Any) -> Any:
+        if isinstance(obj, str):
+            if len(obj) > head_chars:
+                return obj[:head_chars] + "...[truncated]"
             return obj
+        if isinstance(obj, dict):
+            return {k: _shrink(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_shrink(v) for v in obj]
+        return obj
 
-        shrunken = _shrink(parsed)
-        # ensure_ascii=False preserves CJK/emoji instead of bloating with \uXXXX
-        return json.dumps(shrunken, ensure_ascii=False)
-    except (TypeError, ValueError, RecursionError):
-        return args
+    shrunken = _shrink(parsed)
+    # ensure_ascii=False preserves CJK/emoji instead of bloating with \uXXXX
+    return json.dumps(shrunken, ensure_ascii=False)
 
 
 def _summarize_tool_result(tool_name: str, tool_args: str, tool_content: str) -> str:
@@ -797,11 +782,11 @@ class ContextCompressor(ContextEngine):
             "Falling back to main model '%s' for compression.",
             self.summary_model, reason, e, self.model,
         )
-        _err_text = redact_sensitive_text(str(e).strip() or e.__class__.__name__, force=True)
+        _err_text = str(e).strip() or e.__class__.__name__
         if len(_err_text) > 220:
             _err_text = _err_text[:217].rstrip() + "..."
         self._last_aux_model_failure_error = _err_text
-        self._last_aux_model_failure_model = redact_sensitive_text(self.summary_model or "", force=True)
+        self._last_aux_model_failure_model = self.summary_model
         self.summary_model = ""  # empty = use main model
         self._summary_failure_cooldown_until = 0.0  # no cooldown — retry immediately
 
@@ -1073,7 +1058,10 @@ The user has requested that this compaction PRIORITISE preserving all informatio
             # streaming-closed since those conditions can self-resolve quickly.
             _transient_cooldown = 30 if (_is_json_decode or _is_streaming_closed) else 60
             self._summary_failure_cooldown_until = time.monotonic() + _transient_cooldown
-            self._last_summary_error = _redacted_error_preview(e)
+            err_text = str(e).strip() or e.__class__.__name__
+            if len(err_text) > 220:
+                err_text = err_text[:217].rstrip() + "..."
+            self._last_summary_error = err_text
             logging.warning(
                 "Failed to generate context summary: %s. "
                 "Further summary attempts paused for %d seconds.",
@@ -1098,11 +1086,8 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         return f"{SUMMARY_PREFIX}\n{text}" if text else SUMMARY_PREFIX
 
     @staticmethod
-    def _is_context_summary_message(message: Dict[str, Any]) -> bool:
-        """Return True only for handoff summaries emitted by this compressor."""
-        if message.get(_SUMMARY_PROVENANCE_KEY) != _SUMMARY_PROVENANCE_VALUE:
-            return False
-        text = _content_text_for_contains(message.get("content")).lstrip()
+    def _is_context_summary_content(content: Any) -> bool:
+        text = _content_text_for_contains(content).lstrip()
         return text.startswith(SUMMARY_PREFIX) or text.startswith(LEGACY_SUMMARY_PREFIX)
 
     @classmethod
@@ -1112,13 +1097,11 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         start: int,
         end: int,
     ) -> tuple[Optional[int], str]:
-        """Find the newest trusted handoff summary inside a compression window."""
+        """Find the newest handoff summary inside a compression window."""
         for idx in range(end - 1, start - 1, -1):
-            message = messages[idx]
-            if cls._is_context_summary_message(message):
-                return idx, cls._strip_summary_prefix(
-                    _content_text_for_contains(message.get("content"))
-                )
+            content = messages[idx].get("content")
+            if cls._is_context_summary_content(content):
+                return idx, cls._strip_summary_prefix(_content_text_for_contains(content))
         return None, ""
 
     # ------------------------------------------------------------------
@@ -1526,11 +1509,7 @@ The user has requested that this compaction PRIORITISE preserving all informatio
             )
 
         if not _merge_summary_into_tail:
-            compressed.append({
-                "role": summary_role,
-                "content": summary,
-                _SUMMARY_PROVENANCE_KEY: _SUMMARY_PROVENANCE_VALUE,
-            })
+            compressed.append({"role": summary_role, "content": summary})
 
         for i in range(compress_end, n_messages):
             msg = messages[i].copy()
@@ -1545,7 +1524,6 @@ The user has requested that this compaction PRIORITISE preserving all informatio
                     merged_prefix,
                     prepend=True,
                 )
-                msg[_SUMMARY_PROVENANCE_KEY] = _SUMMARY_PROVENANCE_VALUE
                 _merge_summary_into_tail = False
             compressed.append(msg)
 

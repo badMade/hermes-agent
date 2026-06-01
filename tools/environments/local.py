@@ -66,9 +66,9 @@ def _build_provider_env_blocklist() -> frozenset:
         from hermes_cli.config import OPTIONAL_ENV_VARS
         for name, metadata in OPTIONAL_ENV_VARS.items():
             category = metadata.get("category")
-            if category in {"tool", "messaging"} or (
-                category == "setting" and metadata.get("password")
-            ):
+            if category in {"tool", "messaging"}:
+                blocked.add(name)
+            elif category == "setting" and metadata.get("password"):
                 blocked.add(name)
     except ImportError:
         pass
@@ -84,16 +84,6 @@ def _build_provider_env_blocklist() -> frozenset:
         "ANTHROPIC_TOKEN",
         "CLAUDE_CODE_OAUTH_TOKEN",
         "LLM_MODEL",
-        "AUXILIARY_VISION_API_KEY",
-        "AUXILIARY_WEB_EXTRACT_API_KEY",
-        "AUXILIARY_COMPRESSION_API_KEY",
-        "AUXILIARY_SESSION_SEARCH_API_KEY",
-        "AUXILIARY_SKILLS_HUB_API_KEY",
-        "AUXILIARY_APPROVAL_API_KEY",
-        "AUXILIARY_MCP_API_KEY",
-        "AUXILIARY_TITLE_GENERATION_API_KEY",
-        "AUXILIARY_TRIAGE_SPECIFIER_API_KEY",
-        "AUXILIARY_CURATOR_API_KEY",
         "GOOGLE_API_KEY",
         "DEEPSEEK_API_KEY",
         "MISTRAL_API_KEY",
@@ -156,20 +146,24 @@ _HERMES_PROVIDER_ENV_BLOCKLIST = _build_provider_env_blocklist()
 
 def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = None) -> dict:
     """Filter Hermes-managed secrets from a subprocess environment."""
+    try:
+        from tools.env_passthrough import is_env_passthrough as _is_passthrough
+    except Exception:
+        _is_passthrough = lambda _: False  # noqa: E731
+
     sanitized: dict[str, str] = {}
 
     for key, value in (base_env or {}).items():
         if key.startswith(_HERMES_PROVIDER_ENV_FORCE_PREFIX):
             continue
-        if key in _HERMES_PROVIDER_ENV_BLOCKLIST:
-            continue
-        sanitized[key] = value
+        if key not in _HERMES_PROVIDER_ENV_BLOCKLIST or _is_passthrough(key):
+            sanitized[key] = value
 
     for key, value in (extra_env or {}).items():
         if key.startswith(_HERMES_PROVIDER_ENV_FORCE_PREFIX):
             real_key = key[len(_HERMES_PROVIDER_ENV_FORCE_PREFIX):]
             sanitized[real_key] = value
-        elif key not in _HERMES_PROVIDER_ENV_BLOCKLIST:
+        elif key not in _HERMES_PROVIDER_ENV_BLOCKLIST or _is_passthrough(key):
             sanitized[key] = value
 
     # Per-profile HOME isolation for background processes (same as _make_run_env).
@@ -238,22 +232,26 @@ def _find_bash() -> str:
 _find_shell = _find_bash
 
 
-# Standard PATH entries for environments with minimal PATH.
-_SANE_PATH = (
-    "/opt/homebrew/bin:/opt/homebrew/sbin:"
-    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-)
+# Standard PATH entries for environments with minimal PATH. User-writable
+# package-manager prefixes such as Homebrew are intentionally not injected when
+# absent from the operator-provided PATH.
+_SANE_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
 
 
 def _make_run_env(env: dict) -> dict:
     """Build a run environment with a sane PATH and provider-var stripping."""
+    try:
+        from tools.env_passthrough import is_env_passthrough as _is_passthrough
+    except Exception:
+        _is_passthrough = lambda _: False  # noqa: E731
+
     merged = dict(os.environ | env)
     run_env = {}
     for k, v in merged.items():
         if k.startswith(_HERMES_PROVIDER_ENV_FORCE_PREFIX):
             real_key = k[len(_HERMES_PROVIDER_ENV_FORCE_PREFIX):]
             run_env[real_key] = v
-        elif k not in _HERMES_PROVIDER_ENV_BLOCKLIST:
+        elif k not in _HERMES_PROVIDER_ENV_BLOCKLIST or _is_passthrough(k):
             run_env[k] = v
     existing_path = run_env.get("PATH", "")
     # The "/usr/bin not already present → inject sane POSIX path" heuristic
@@ -309,28 +307,7 @@ def _read_terminal_shell_init_config() -> tuple[list[str], bool]:
         return [], True
 
 
-
-_ENV_VAR_REF_RE = re.compile(r"\$(?:\{([^}]+)\}|([A-Za-z_][A-Za-z0-9_]*))")
-
-
-def _expand_shell_init_path(raw: str, *, home: str | None = None) -> str:
-    """Expand shell-init path templates against the subprocess environment."""
-    env = dict(os.environ)
-    if home:
-        env["HOME"] = home
-
-    def _replace_var(match: re.Match) -> str:
-        name = match.group(1) or match.group(2)
-        return env.get(name, match.group(0))
-
-    expanded = _ENV_VAR_REF_RE.sub(_replace_var, raw)
-    if home and (expanded == "~" or expanded.startswith(f"~{os.sep}") or expanded.startswith("~/")):
-        suffix = expanded[2:] if expanded.startswith("~/") else expanded[1:]
-        return os.path.join(home, suffix) if suffix else home
-    return os.path.expanduser(expanded)
-
-
-def _resolve_shell_init_files(home: str | None = None) -> list[str]:
+def _resolve_shell_init_files() -> list[str]:
     """Resolve the list of files to source before the login-shell snapshot.
 
     Expands ``~`` and ``${VAR}`` references and drops anything that doesn't
@@ -339,9 +316,6 @@ def _resolve_shell_init_files(home: str | None = None) -> list[str]:
     an explicit list — once they have, Hermes trusts them.
     """
     explicit, auto_bashrc = _read_terminal_shell_init_config()
-    if home is None:
-        from hermes_constants import get_subprocess_home
-        home = get_subprocess_home()
 
     candidates: list[str] = []
     if explicit:
@@ -367,7 +341,7 @@ def _resolve_shell_init_files(home: str | None = None) -> list[str]:
     resolved: list[str] = []
     for raw in candidates:
         try:
-            path = _expand_shell_init_path(raw, home=home)
+            path = os.path.expandvars(os.path.expanduser(raw))
         except Exception:
             continue
         if path and os.path.isfile(path):
@@ -468,12 +442,12 @@ class LocalEnvironment(BaseEnvironment):
         # (nvm, asdf, pyenv, …) end up on PATH in the captured snapshot.
         # Non-login invocations are already sourcing the snapshot and
         # don't need this.
-        run_env = _make_run_env(self.env)
         if login:
-            init_files = _resolve_shell_init_files(home=run_env.get("HOME"))
+            init_files = _resolve_shell_init_files()
             if init_files:
                 cmd_string = _prepend_shell_init(cmd_string, init_files)
         args = [bash, "-l", "-c", cmd_string] if login else [bash, "-c", cmd_string]
+        run_env = _make_run_env(self.env)
 
         # Recover when the cwd has been deleted out from under us — usually by
         # a previous tool call that ran ``rm -rf`` on its own working dir
@@ -615,7 +589,3 @@ class LocalEnvironment(BaseEnvironment):
                 os.unlink(f)
             except OSError:
                 pass
-        try:
-            os.rmdir(self._artifact_dir)
-        except OSError:
-            pass

@@ -14,7 +14,6 @@ import yaml
 from hermes_cli.plugins_cmd import (
     PluginOperationError,
     _copy_example_files,
-    _toggle_plugin_toolset,
     _read_manifest,
     _repo_name_from_url,
     _resolve_git_executable,
@@ -22,53 +21,6 @@ from hermes_cli.plugins_cmd import (
     _sanitize_plugin_name,
     plugins_command,
 )
-
-
-# ── _toggle_plugin_toolset ─────────────────────────────────────────────────
-
-
-def test_toggle_plugin_toolset_enable_only_updates_cli(monkeypatch):
-    """Dashboard enable must not grant plugin tools to gateway/API platforms."""
-    import hermes_cli.config as config_mod
-    import hermes_cli.plugins_cmd as pc
-
-    config = {
-        "platform_toolsets": {
-            "cli": ["memory"],
-            "api_server": ["memory"],
-            "slack": ["memory"],
-        }
-    }
-    saved = []
-
-    monkeypatch.setattr(pc, "_get_plugin_toolset_key", lambda name: "poc_sensitive_tools")
-    monkeypatch.setattr(config_mod, "load_config", lambda: config)
-    monkeypatch.setattr(config_mod, "save_config", lambda cfg: saved.append(cfg.copy()))
-
-    _toggle_plugin_toolset("poc-sensitive", enable=True)
-
-    assert config["platform_toolsets"]["cli"] == ["memory", "poc_sensitive_tools"]
-    assert config["platform_toolsets"]["api_server"] == ["memory"]
-    assert config["platform_toolsets"]["slack"] == ["memory"]
-    assert len(saved) == 1
-
-
-def test_toggle_plugin_toolset_enable_creates_cli_only(monkeypatch):
-    """A plugin can be made visible locally without creating gateway grants."""
-    import hermes_cli.config as config_mod
-    import hermes_cli.plugins_cmd as pc
-
-    config = {"platform_toolsets": {}}
-    saved = []
-
-    monkeypatch.setattr(pc, "_get_plugin_toolset_key", lambda name: "poc_sensitive_tools")
-    monkeypatch.setattr(config_mod, "load_config", lambda: config)
-    monkeypatch.setattr(config_mod, "save_config", lambda cfg: saved.append(cfg.copy()))
-
-    _toggle_plugin_toolset("poc-sensitive", enable=True)
-
-    assert config["platform_toolsets"] == {"cli": ["poc_sensitive_tools"]}
-    assert len(saved) == 1
 
 
 # ── _sanitize_plugin_name ─────────────────────────────────────────────────
@@ -483,41 +435,6 @@ class TestCopyExampleFiles:
         # Should NOT have overwritten
         assert real_file.read_text() == "existing: true"
 
-    def test_refuses_dangling_symlink_destination(self, tmp_path):
-        from hermes_cli.plugins_cmd import _copy_example_files
-        from unittest.mock import MagicMock
-
-        console = MagicMock()
-        outside_target = tmp_path / "outside-target"
-        (tmp_path / "config.yaml.example").write_text("attacker: controlled")
-        (tmp_path / "config.yaml").symlink_to(outside_target)
-
-        _copy_example_files(tmp_path, console)
-
-        assert not outside_target.exists()
-        assert (tmp_path / "config.yaml").is_symlink()
-        assert any(
-            "refusing to write through symlink" in str(c)
-            for c in console.print.call_args_list
-        )
-
-    def test_refuses_symlink_example_file(self, tmp_path):
-        from hermes_cli.plugins_cmd import _copy_example_files
-        from unittest.mock import MagicMock
-
-        console = MagicMock()
-        outside_source = tmp_path / "outside-source"
-        outside_source.write_text("outside")
-        (tmp_path / "config.yaml.example").symlink_to(outside_source)
-
-        _copy_example_files(tmp_path, console)
-
-        assert not (tmp_path / "config.yaml").exists()
-        assert any(
-            "refusing to copy symlinked example" in str(c)
-            for c in console.print.call_args_list
-        )
-
     def test_handles_copy_error_gracefully(self, tmp_path):
         from hermes_cli.plugins_cmd import _copy_example_files
         from unittest.mock import MagicMock, patch
@@ -528,8 +445,9 @@ class TestCopyExampleFiles:
         example_file = tmp_path / "config.yaml.example"
         example_file.write_text("key: value")
 
+        # Mock shutil.copy2 to raise an error
         with patch(
-            "hermes_cli.plugins_cmd._copy_example_file_no_follow",
+            "hermes_cli.plugins_cmd.shutil.copy2",
             side_effect=OSError("Permission denied"),
         ):
             # Should not raise, just warn

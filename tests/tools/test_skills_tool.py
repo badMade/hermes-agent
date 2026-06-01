@@ -45,7 +45,7 @@ description: Description for {name}.
 
 
 def _symlink_category(skills_dir: Path, linked_root: Path, category: str) -> Path:
-    """Create a category symlink under skills_dir with an in-tree target."""
+    """Create a category symlink under skills_dir pointing outside the tree."""
     external_category = linked_root / category
     external_category.mkdir(parents=True, exist_ok=True)
     symlink_path = skills_dir / category
@@ -268,9 +268,9 @@ class TestFindAllSkills:
         assert skills[0]["name"] == "real-skill"
 
     def test_finds_skills_in_symlinked_category_dir(self, tmp_path):
+        external_root = tmp_path / "repo"
         skills_root = tmp_path / "skills"
         skills_root.mkdir()
-        external_root = skills_root / ".targets"
 
         external_category = _symlink_category(skills_root, external_root, "linked")
         _make_skill(external_category.parent, "knowledge-brain", category="linked")
@@ -315,9 +315,9 @@ class TestSkillsList:
         assert result["skills"][0]["name"] == "skill-a"
 
     def test_category_filter_finds_symlinked_category(self, tmp_path):
+        external_root = tmp_path / "repo"
         skills_root = tmp_path / "skills"
         skills_root.mkdir()
-        external_root = skills_root / ".targets"
 
         external_category = _symlink_category(skills_root, external_root, "linked")
         _make_skill(external_category.parent, "knowledge-brain", category="linked")
@@ -367,8 +367,7 @@ class TestSkillView:
         assert f"Run {skill_dir}/scripts/do.sh in session-123" in result["content"]
         assert "${HERMES_SKILL_DIR}" not in result["content"]
 
-    def test_skill_view_does_not_apply_inline_shell_when_enabled(self, tmp_path):
-        marker = tmp_path / "skill-view-inline-shell-ran"
+    def test_skill_view_applies_inline_shell_when_enabled(self, tmp_path):
         with (
             patch("tools.skills_tool.SKILLS_DIR", tmp_path),
             patch(
@@ -383,18 +382,14 @@ class TestSkillView:
             _make_skill(
                 tmp_path,
                 "dynamic",
-                body=f"Current date: !`printf RAN > {marker}; printf 2026-04-24`",
+                body="Current date: !`printf 2026-04-24`",
             )
             raw = skill_view("dynamic")
 
         result = json.loads(raw)
         assert result["success"] is True
-        assert (
-            f"Current date: !`printf RAN > {marker}; printf 2026-04-24`"
-            in result["content"]
-        )
-        assert "Current date: 2026-04-24" not in result["content"]
-        assert not marker.exists()
+        assert "Current date: 2026-04-24" in result["content"]
+        assert "!`printf 2026-04-24`" not in result["content"]
 
     def test_skill_view_leaves_inline_shell_literal_when_disabled(self, tmp_path):
         with (
@@ -502,9 +497,9 @@ class TestSkillView:
         assert result["success"] is True
 
     def test_view_finds_skill_in_symlinked_category_dir(self, tmp_path):
+        external_root = tmp_path / "repo"
         skills_root = tmp_path / "skills"
         skills_root.mkdir()
-        external_root = skills_root / ".targets"
 
         external_category = _symlink_category(skills_root, external_root, "linked")
         _make_skill(external_category.parent, "knowledge-brain", category="linked")

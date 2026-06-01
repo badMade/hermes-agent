@@ -83,6 +83,7 @@ def _global_allow_private_urls() -> bool:
     Checks (in priority order):
     1. ``HERMES_ALLOW_PRIVATE_URLS`` env var  (``true``/``1``/``yes``)
     2. ``security.allow_private_urls`` in config.yaml
+    3. ``browser.allow_private_urls`` in config.yaml  (legacy / backward compat)
 
     Result is cached for the process lifetime.
     """
@@ -110,6 +111,13 @@ def _global_allow_private_urls() -> bool:
         sec = cfg.get("security", {})
         if isinstance(sec, dict) and is_truthy_value(
             sec.get("allow_private_urls"), default=False
+        ):
+            _cached_allow_private = True
+            return _cached_allow_private
+        # browser.allow_private_urls (legacy fallback)
+        browser = cfg.get("browser", {})
+        if isinstance(browser, dict) and is_truthy_value(
+            browser.get("allow_private_urls"), default=False
         ):
             _cached_allow_private = True
             return _cached_allow_private
@@ -203,7 +211,7 @@ def is_always_blocked_url(url: str) -> bool:
         # Hostname → resolve and check every answer.  DNS failure is NOT
         # always-blocked (caller's ordinary path handles that).
         try:
-            addr_info = _get_security_getaddrinfo()(
+            addr_info = socket.getaddrinfo(
                 hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
             )
         except socket.gaierror:
@@ -233,20 +241,6 @@ def is_always_blocked_url(url: str) -> bool:
         # always-blocked.  Caller decides what to do with a malformed URL.
         logger.debug("is_always_blocked_url error for %s: %s", url, exc)
         return False
-
-
-def _get_security_getaddrinfo():
-    """Return DNS resolver that exposes all records for SSRF validation.
-
-    ``network.force_ipv4`` may monkey-patch ``socket.getaddrinfo`` to hide
-    IPv6 answers from connection attempts. Security checks must use the
-    original resolver so private/internal AAAA records cannot be masked by
-    the connection-preference wrapper.
-    """
-    resolver = socket.getaddrinfo
-    if getattr(resolver, "_hermes_ipv4_patched", False) is True:
-        return getattr(resolver, "_hermes_original_getaddrinfo", resolver)
-    return resolver
 
 
 def _allows_private_ip_resolution(hostname: str, scheme: str) -> bool:
@@ -284,9 +278,7 @@ def is_safe_url(url: str) -> bool:
 
         # Try to resolve and check IP
         try:
-            addr_info = _get_security_getaddrinfo()(
-                hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
-            )
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
         except socket.gaierror:
             # DNS resolution failed — fail closed. If DNS can't resolve it,
             # the HTTP client will also fail, so blocking loses nothing.
