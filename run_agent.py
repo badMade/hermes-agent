@@ -9757,7 +9757,9 @@ class AIAgent:
         # reasoning fields are present (some models/providers embed thinking
         # directly in the content rather than returning separate API fields).
         if not reasoning_text:
-            content = assistant_message.content or ""
+            content = assistant_message.content
+            if not isinstance(content, str):
+                content = ""
             think_blocks = re.findall(r'<think>(.*?)</think>', content, flags=re.DOTALL)
             if think_blocks:
                 combined = "\n\n".join(b.strip() for b in think_blocks if b.strip())
@@ -9794,9 +9796,10 @@ class AIAgent:
         # scrub is required so a model/provider echo of ephemeral recalled memory
         # cannot become durable session history or Responses API replay state.
         if isinstance(_san_content, str) and _san_content:
-            _san_content = sanitize_context(
-                self._strip_think_blocks(_san_content)
-            ).strip()
+            _stripped_content = self._strip_think_blocks(_san_content)
+            if isinstance(_stripped_content, str):
+                _san_content = _stripped_content
+            _san_content = sanitize_context(_san_content).strip()
 
         msg = {
             "role": "assistant",
