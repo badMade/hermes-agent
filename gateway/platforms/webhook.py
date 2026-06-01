@@ -58,6 +58,7 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8644
 _INSECURE_NO_AUTH = "INSECURE_NO_AUTH"
 _DYNAMIC_ROUTES_FILENAME = "webhook_subscriptions.json"
+_ENV_PLACEHOLDER_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
 
 # Hostnames/IP literals that only serve connections originating on the same
 # machine. Anything else is treated as a public bind for safety-rail purposes.
@@ -591,7 +592,7 @@ class WebhookAdapter(BasePlatformAdapter):
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
         secret_text = secret.strip()
-        if secret_text.startswith("${") and secret_text.endswith("}"):
+        if _ENV_PLACEHOLDER_RE.fullmatch(secret_text):
             return False
 
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
