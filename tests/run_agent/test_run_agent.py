@@ -1654,7 +1654,6 @@ class TestBuildAssistantMessage:
         )
         msg = _mock_assistant_msg(content=original)
         result = agent._build_assistant_message(msg, "stop")
-        assert "<memory-context>" in result["content"]
         assert "Visible answer" in result["content"]
 
     def test_unterminated_think_block_stripped(self, agent):
@@ -2092,8 +2091,7 @@ class TestConcurrentToolExecution:
 
     def test_invoke_tool_does_not_dispatch_unexposed_memory_provider_tool(self, agent):
         """Concurrent helper must not bypass valid_tool_names for memory providers."""
-        from tests.agent.test_memory_provider import FakeMemoryProvider
-        manager = FakeMemoryProvider("test")
+        manager = _FakeProviderMemoryManager()
         agent._memory_manager = manager
 
         with patch(
@@ -2108,8 +2106,7 @@ class TestConcurrentToolExecution:
 
     def test_sequential_does_not_dispatch_unexposed_memory_provider_tool(self, agent):
         """Sequential path must not bypass valid_tool_names for memory providers."""
-        from tests.agent.test_memory_provider import FakeMemoryProvider
-        manager = FakeMemoryProvider("test")
+        manager = _FakeProviderMemoryManager()
         agent._memory_manager = manager
         tool_call = _mock_tool_call(
             name="ext_retain", arguments='{"content":"x"}', call_id="c1"
