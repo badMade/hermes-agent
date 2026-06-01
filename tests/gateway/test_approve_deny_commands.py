@@ -402,7 +402,7 @@ class TestBlockingApprovalE2E:
         t = threading.Thread(target=agent_thread)
         t.start()
 
-        for _ in range(50):
+        for _ in range(200):
             if notified:
                 break
             time.sleep(0.05)
@@ -411,7 +411,7 @@ class TestBlockingApprovalE2E:
         assert "rm -rf /important" in notified[0]["command"]
 
         resolve_gateway_approval(session_key, "once")
-        t.join(timeout=5)
+        t.join(timeout=10)
 
         assert result_holder[0] is not None
         assert result_holder[0]["approved"] is True

@@ -1155,8 +1155,34 @@ class QQAdapter(BasePlatformAdapter):
                         _att.get("filename", ""),
                     )
 
-        # Process all attachments uniformly (images, voice, files)
-        att_result = await self._process_attachments(attachments_raw)
+        # Process all attachments uniformly (images, voice, files).
+        # Authorization is checked first to prevent SSRF via unauthenticated
+        # users pointing the bot at attacker-controlled URLs.
+        source = self.build_source(
+            chat_id=user_openid,
+            user_id=user_openid,
+            chat_type="dm",
+        )
+        # ``gateway_runner`` is set by the GatewayRunner when it wires up the
+        # adapter; it is None in unit-test contexts that instantiate the adapter
+        # directly without a runner.  Treating a missing runner as "authorized"
+        # is safe: without a runner there is no allow-list configuration to
+        # enforce, and the caller is responsible for ensuring the adapter is not
+        # exposed to untrusted users in that configuration.
+        gateway_runner = getattr(self, "gateway_runner", None)
+        authorized = (
+            gateway_runner is None
+            or gateway_runner._is_user_authorized(source)
+        )
+        if authorized:
+            att_result = await self._process_attachments(attachments_raw)
+        else:
+            att_result = {
+                "image_urls": [],
+                "image_media_types": [],
+                "voice_transcripts": [],
+                "attachment_info": "",
+            }
         image_urls = att_result["image_urls"]
         image_media_types = att_result["image_media_types"]
         voice_transcripts = att_result["voice_transcripts"]
@@ -1195,11 +1221,7 @@ class QQAdapter(BasePlatformAdapter):
 
         self._chat_type_map[user_openid] = "c2c"
         event = MessageEvent(
-            source=self.build_source(
-                chat_id=user_openid,
-                user_id=user_openid,
-                chat_type="dm",
-            ),
+            source=source,
             text=text,
             message_type=self._detect_message_type(image_urls, image_media_types),
             raw_message=d,
