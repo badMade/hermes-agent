@@ -142,7 +142,7 @@ def _get_backend() -> str:
         ("exa", _has_env("EXA_API_KEY")),
         ("searxng", _has_env("SEARXNG_URL")),
         ("brave-free", _has_env("BRAVE_SEARCH_API_KEY")),
-        ("ddgs", _ddgs_package_importable()),
+        ("ddgs", _ddgs_package_available()),
     )
     for backend, available in backend_candidates:
         if available:
@@ -204,7 +204,7 @@ def _is_backend_available(backend: str) -> bool:
     if backend == "brave-free":
         return _has_env("BRAVE_SEARCH_API_KEY")
     if backend == "ddgs":
-        return _ddgs_package_importable()
+        return _ddgs_package_available()
     return False
 
 
@@ -221,6 +221,11 @@ def _ddgs_package_importable() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _ddgs_package_available() -> bool:
+    """Backward-compatible alias used by existing tests/callers."""
+    return _ddgs_package_importable()
 
 # ─── Firecrawl Client ────────────────────────────────────────────────────────
 
