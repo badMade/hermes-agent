@@ -193,4 +193,4 @@ def test_acp_resource_link_redacts_inlined_secret(tmp_path, monkeypatch):
     ], cwd=tmp_path)
 
     assert "sk-" + "a" * 48 not in content
-    assert "[REDACTED" in content
+    assert "sk-aaa...aaaa" in content
