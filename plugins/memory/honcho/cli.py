@@ -120,7 +120,7 @@ def cmd_enable(args) -> None:
         # Use bare profile name as AI peer, not the host key
         ai_peer = host.split(".", 1)[1] if "." in host else host
         block.setdefault("aiPeer", ai_peer)
-        block.setdefault("workspace", host)
+        block.setdefault("workspace", host.replace(".", "-"))
 
     _write_config(cfg)
     print(f"  {label}Honcho enabled.")
