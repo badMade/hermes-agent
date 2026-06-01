@@ -723,7 +723,6 @@ from tools.terminal_tool import set_sudo_password_callback, set_approval_callbac
 from tools.skills_tool import set_secret_capture_callback
 from hermes_cli.callbacks import prompt_for_secret
 from tools.browser_tool import _emergency_cleanup_all_sessions as _cleanup_all_browsers
-from tools.ansi_strip import strip_ansi
 
 # Guard to prevent cleanup from running multiple times on exit
 _cleanup_done = False
@@ -2009,7 +2008,7 @@ _TERMINAL_INPUT_MODE_RESET_SEQ = (
     "\x1b[?1002l"  # disable button-motion tracking
     "\x1b[?1000l"  # disable click tracking
     "\x1b[?1004l"  # disable focus events
-    "\x1b[?2004h"  # keep bracketed paste safety enabled while prompt_toolkit runs
+    "\x1b[?2004l"  # disable bracketed paste
     "\x1b[?1049l"  # leave alt screen (if stuck there)
     "\x1b[<u"  # pop kitty keyboard mode
     "\x1b[>4m"  # reset modifyOtherKeys
@@ -8239,15 +8238,17 @@ class HermesCLI:
                 if qcmd.get("type") == "exec":
                     import subprocess
                     import shlex
-
+                    from tools.environments.local import _sanitize_subprocess_env
                     exec_cmd = qcmd.get("command", "")
                     if exec_cmd:
                         try:
+                            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
                             result = subprocess.run(
                                 shlex.split(exec_cmd),
                                 capture_output=True,
                                 text=True,
                                 timeout=30,
+                                env=sanitized_env,
                             )
                             output = result.stdout.strip() or result.stderr.strip()
                             if output:
@@ -9655,7 +9656,6 @@ class HermesCLI:
                     "⚠️  MCP stdio server config changed — run /reload-mcp to apply executable changes."
                 )
                 return
-
         self._config_mcp_servers = new_mcp
         # Notify user and reload.  Run in a separate thread with a hard
         # timeout so a hung MCP server cannot block the process_loop
@@ -14365,7 +14365,7 @@ class HermesCLI:
                                     continue  # already delivered via tool result
                                 _synth = _format_process_notification(evt)
                                 if _synth:
-                                    _cprint(f"\n{_ACCENT}{strip_ansi(_synth)}{_RST}")
+                                    self._pending_input.put(_synth)
                         except Exception:
                             pass  # Non-fatal — don't break the main loop
 
