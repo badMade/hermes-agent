@@ -21,6 +21,8 @@ Usage:
 
 from typing import Dict, List, Optional
 import random
+import json
+from pathlib import Path
 from toolsets import validate_toolset
 
 
@@ -225,13 +227,44 @@ def get_distribution(name: str) -> Optional[Dict[str, any]]:
     Get a toolset distribution by name.
     
     Args:
-        name (str): Name of the distribution
+        name (str): Name of the distribution, or path to a JSON file.
         
     Returns:
         Dict: Distribution definition with description and toolsets
-        None: If distribution not found
+        None: If distribution not found or file not found
     """
-    return DISTRIBUTIONS.get(name)
+    # First check built-in distributions
+    dist = DISTRIBUTIONS.get(name)
+    if dist is not None:
+        return dist
+
+    try:
+        path = Path(name)
+        if path.suffix == '.json':
+            with open(path, 'r', encoding='utf-8') as f:
+                dist = json.load(f)
+
+            if (
+                not isinstance(dist, dict)
+                or "description" not in dist
+                or "toolsets" not in dist
+                or not isinstance(dist["toolsets"], dict)
+            ):
+                print(
+                    f"⚠️  Warning: Invalid distribution file '{name}': "
+                    "expected an object with 'description' and 'toolsets' mapping"
+                )
+                return None
+
+            return dist
+    except FileNotFoundError:
+        pass
+    except json.JSONDecodeError:
+        print(f"⚠️  Warning: Invalid JSON in distribution file '{name}'")
+    except Exception as e:
+        print(f"⚠️  Warning: Failed to load distribution file '{name}': {e}")
+
+    return None
 
 
 def list_distributions() -> Dict[str, Dict]:
