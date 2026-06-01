@@ -145,7 +145,8 @@ def _looks_like_direct_reference(token: str) -> bool:
     if lower.startswith(("git+", "git://", "file:", "ssh://")):
         return True
 
-    if re.match(r"^[^@\s:]+@[^:\s]+:.+", token):
+    # Matches SCP-style Git refs like git@github.com:org/private.git.
+    if re.match(r"^[\w.-]+@[\w.-]+:.+", token):
         return True
 
     parsed = urlparse(token)
