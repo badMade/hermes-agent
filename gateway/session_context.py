@@ -154,3 +154,8 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+
+def get_terminal_cwd(default: str = "") -> str:
+    """Return TERMINAL_CWD using the same fallback behavior as session env vars."""
+    return get_session_env("TERMINAL_CWD", default)
