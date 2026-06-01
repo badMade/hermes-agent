@@ -10,6 +10,11 @@ from agent.memory_manager import StreamingContextScrubber, sanitize_context
 
 
 class TestStreamingContextScrubberBasics:
+    def test_init_state(self):
+        s = StreamingContextScrubber()
+        assert s._in_span is False
+        assert s._buf == ""
+
     def test_empty_input_returns_empty(self):
         s = StreamingContextScrubber()
         assert s.feed("") == ""
@@ -188,10 +193,7 @@ class TestBuildMemoryContextBlockWarnsOnViolation:
         from agent.memory_manager import build_memory_context_block
 
         prewrapped = (
-            "<memory-context>\n"
-            "[System note: ...]\n\n"
-            "real fact\n"
-            "</memory-context>"
+            "<memory-context>\n[System note: ...]\n\nreal fact\n</memory-context>"
         )
         with caplog.at_level(logging.WARNING, logger="agent.memory_manager"):
             out = build_memory_context_block(prewrapped)

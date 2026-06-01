@@ -335,7 +335,8 @@ class TestStdinHelpers:
         proc.stdin.close.assert_not_called()
         guard.assert_called_once()
 
-    def test_close_stdin_allows_eof_driven_process_to_finish(self, registry, tmp_path):
+    def test_close_stdin_allows_eof_driven_process_to_finish(self, registry, tmp_path, monkeypatch):
+        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
         session = registry.spawn_local(
             'python3 -c "import sys; print(sys.stdin.read().strip())"',
             cwd=str(tmp_path),
