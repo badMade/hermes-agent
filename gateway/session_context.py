@@ -36,6 +36,7 @@ needs to replace the import + call site:
     platform = get_session_env("HERMES_SESSION_PLATFORM", "")
 """
 
+import os
 from contextvars import ContextVar
 from typing import Any
 
@@ -145,8 +146,6 @@ def get_session_env(name: str, default: str = "") -> str:
        don't use ``set_session_vars`` at all).
     3. *default*
     """
-    import os
-
     var = _VAR_MAP.get(name)
     if var is not None:
         value = var.get()
@@ -170,6 +169,4 @@ def get_terminal_cwd(default: str = "") -> str:
     checkpoint manager to keep file/terminal operations rooted in the
     user's project rather than the gateway/cron process cwd.
     """
-    import os
-
     return os.environ.get("TERMINAL_CWD", "").strip() or default
