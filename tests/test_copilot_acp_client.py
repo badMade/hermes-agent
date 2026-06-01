@@ -22,3 +22,12 @@ def test_extract_tool_calls_from_text_ignores_bare_openai_tool_json() -> None:
 
     assert tool_calls == []
     assert cleaned == text
+
+
+def test_extract_tool_calls_from_text_preserves_text_whitespace_verbatim() -> None:
+    text = '\n  {"id":"call_3","type":"function","function":{"name":"read_file","arguments":"{}"}}  \n'
+
+    tool_calls, cleaned = _extract_tool_calls_from_text(text)
+
+    assert tool_calls == []
+    assert cleaned == text

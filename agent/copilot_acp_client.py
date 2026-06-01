@@ -212,7 +212,7 @@ def _extract_tool_calls_from_text(text: str) -> tuple[list[SimpleNamespace], str
     # ACP currently provides only free-form assistant text. Treating text as a
     # trusted tool-call transport is unsafe because quoted/untrusted content can
     # be promoted into executable tool calls.
-    return [], text.strip()
+    return [], text
 
 
 
