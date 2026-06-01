@@ -365,11 +365,12 @@ def _is_local_path_reference(value: str) -> bool:
         return False
     if _is_windows_absolute_path(value):
         return True
-    return (
-        value.startswith(("/", "./", "../", "~/", ".\\", "..\\", "~\\"))
-        or "/" in value
-        or "\\" in value
-    )
+
+    parsed = urlparse(value)
+    if parsed.scheme:
+        return False
+
+    return True
 
 
 def _path_from_file_uri(uri: str) -> Path | str:
