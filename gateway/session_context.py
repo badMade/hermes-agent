@@ -154,3 +154,14 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+
+def get_terminal_cwd(default: str = "") -> str:
+    """Return the terminal working directory when available.
+
+    ``TERMINAL_CWD`` is exported by terminal-backed tool environments.  Callers
+    can provide *default* for contexts where no terminal is attached.
+    """
+    import os
+
+    return os.getenv("TERMINAL_CWD") or default

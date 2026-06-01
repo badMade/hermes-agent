@@ -234,6 +234,13 @@ def _normalize_multimodal_content(content: Any) -> Any:
                 raise ValueError(
                     "invalid_image_url:Image inputs must use http(s) URLs or data:image/... URLs."
                 )
+            else:
+                from tools.url_safety import is_safe_url
+
+                if not is_safe_url(url_value):
+                    raise ValueError(
+                        "invalid_image_url:Blocked private or metadata URL for image input."
+                    )
             image_part: Dict[str, Any] = {"type": "image_url", "image_url": {"url": url_value}}
             if detail is not None:
                 if not isinstance(detail, str) or not detail.strip():

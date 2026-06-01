@@ -1143,6 +1143,19 @@ class QQAdapter(BasePlatformAdapter):
                 else "None"
             ),
         )
+
+        source = self.build_source(
+            chat_id=user_openid,
+            user_id=user_openid,
+            chat_type="dm",
+        )
+        should_process_attachments = True
+        if self.gateway_runner is not None and hasattr(self.gateway_runner, "_is_user_authorized"):
+            try:
+                should_process_attachments = bool(self.gateway_runner._is_user_authorized(source))
+            except Exception:
+                should_process_attachments = True
+
         if attachments_raw and isinstance(attachments_raw, list):
             for _i, _att in enumerate(attachments_raw):
                 if isinstance(_att, dict):
@@ -1156,7 +1169,15 @@ class QQAdapter(BasePlatformAdapter):
                     )
 
         # Process all attachments uniformly (images, voice, files)
-        att_result = await self._process_attachments(attachments_raw)
+        if should_process_attachments:
+            att_result = await self._process_attachments(attachments_raw)
+        else:
+            att_result = {
+                "image_urls": [],
+                "image_media_types": [],
+                "voice_transcripts": [],
+                "attachment_info": "",
+            }
         image_urls = att_result["image_urls"]
         image_media_types = att_result["image_media_types"]
         voice_transcripts = att_result["voice_transcripts"]
@@ -1195,11 +1216,7 @@ class QQAdapter(BasePlatformAdapter):
 
         self._chat_type_map[user_openid] = "c2c"
         event = MessageEvent(
-            source=self.build_source(
-                chat_id=user_openid,
-                user_id=user_openid,
-                chat_type="dm",
-            ),
+            source=source,
             text=text,
             message_type=self._detect_message_type(image_urls, image_media_types),
             raw_message=d,
