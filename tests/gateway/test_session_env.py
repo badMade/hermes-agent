@@ -7,6 +7,7 @@ from gateway.config import Platform
 from gateway.run import GatewayRunner
 from gateway.session import SessionContext, SessionSource
 from gateway.session_context import (
+    get_terminal_cwd,
     get_session_env,
     set_session_vars,
     clear_session_vars,
@@ -130,6 +131,18 @@ def test_get_session_env_default_when_nothing_set(monkeypatch):
 
     assert get_session_env("HERMES_SESSION_PLATFORM") == ""
     assert get_session_env("HERMES_SESSION_PLATFORM", "fallback") == "fallback"
+
+
+def test_get_terminal_cwd_falls_back_to_os_environ(monkeypatch):
+    monkeypatch.setenv("TERMINAL_CWD", "/tmp/project")
+
+    assert get_terminal_cwd() == "/tmp/project"
+
+
+def test_get_terminal_cwd_returns_default_when_unset(monkeypatch):
+    monkeypatch.delenv("TERMINAL_CWD", raising=False)
+
+    assert get_terminal_cwd("fallback") == "fallback"
 
 
 def test_set_session_env_handles_missing_optional_fields():

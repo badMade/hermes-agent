@@ -223,7 +223,7 @@ def test_get_container_exec_info_crashes_on_permission_error(container_env):
 
 def test_nixos_activation_writes_trusted_container_metadata():
     """NixOS container mode writes host routing metadata outside HERMES_HOME."""
-    module_text = (Path(__file__).parents[2] / "nix" / "nixosModules.nix").read_text()
+    module_text = (Path(__file__).parents[2] / "nix" / "nixosModules.nix").read_text(encoding="utf-8")
 
     assert "install -d -o root -g root -m 0755 /etc/hermes-agent" in module_text
     assert "runtime_path=${containerBin}" in module_text
