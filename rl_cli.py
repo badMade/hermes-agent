@@ -426,6 +426,9 @@ def main(
                     traceback.print_exc()
     else:
         # Single task mode
+        # task is guaranteed non-None here: the guard above returns when
+        # `not task and not interactive`, and this branch is `not interactive`.
+        assert task is not None
         print(f"\n📝 Task: {task}")
         print("-" * 40)
         
