@@ -1163,6 +1163,12 @@ class QQAdapter(BasePlatformAdapter):
             user_id=user_openid,
             chat_type="dm",
         )
+        # ``gateway_runner`` is set by the GatewayRunner when it wires up the
+        # adapter; it is None in unit-test contexts that instantiate the adapter
+        # directly without a runner.  Treating a missing runner as "authorized"
+        # is safe: without a runner there is no allow-list configuration to
+        # enforce, and the caller is responsible for ensuring the adapter is not
+        # exposed to untrusted users in that configuration.
         gateway_runner = getattr(self, "gateway_runner", None)
         authorized = (
             gateway_runner is None
