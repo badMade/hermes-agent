@@ -154,3 +154,10 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+
+def get_terminal_cwd(default: str = "") -> str:
+    """Return the terminal working directory for the current session."""
+    import os
+
+    return os.getenv("TERMINAL_CWD", default)
