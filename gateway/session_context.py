@@ -154,3 +154,15 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+
+def get_terminal_cwd() -> str:
+    """Return the terminal's current working directory from TERMINAL_CWD env var.
+    
+    Returns an empty string if TERMINAL_CWD is not set.
+    
+    This is primarily used by run_agent.py for context file discovery in
+    gateway/cron mode. Falls back to os.environ when not in a session context.
+    """
+    import os
+    return os.getenv("TERMINAL_CWD", "")
