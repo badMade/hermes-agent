@@ -75,7 +75,7 @@ gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \"@jules\
 if [ ! -s /tmp/prs_to_review.txt ]; then
   echo "No new PRs to review."
   # gracefully return
-  return 0 2>/dev/null || true
+  return 0 2>/dev/null || exit 0
 fi
 
 while read PR_NUMBER; do
