@@ -213,13 +213,14 @@ def _blank_browser_after_block(effective_task_id: str) -> None:
     except Exception:
         logger.debug("Failed to blank browser after unsafe eval side effect", exc_info=True)
 # Standard PATH entries for environments with minimal PATH (e.g. systemd services).
-# Includes Android/Termux and macOS Homebrew locations needed for agent-browser,
-# npx, node, and Android's glibc runner (grun).
+# Includes Android/Termux locations needed for agent-browser, npx, node, and
+# Android's glibc runner (grun).
+# NOTE: Homebrew directories (/opt/homebrew/*) are intentionally excluded from
+# _SANE_PATH for security reasons - they're added dynamically via
+# _discover_homebrew_node_dirs() when explicitly needed.
 _SANE_PATH_DIRS = (
     "/data/data/com.termux/files/usr/bin",
     "/data/data/com.termux/files/usr/sbin",
-    "/opt/homebrew/bin",
-    "/opt/homebrew/sbin",
     "/usr/local/sbin",
     "/usr/local/bin",
     "/usr/sbin",
