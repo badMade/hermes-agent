@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import pytest
 import sys
 from pathlib import Path
 
@@ -707,7 +708,10 @@ def test_shared_skills_skip_symlinked_files(tmp_path: Path):
     )
     secret = tmp_path / "secret.txt"
     secret.write_text("do-not-copy", encoding="utf-8")
-    (skill_dir / "assets" / "copied_secret.txt").symlink_to(secret)
+    try:
+        (skill_dir / "assets" / "copied_secret.txt").symlink_to(secret)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks unavailable in test environment: {exc}")
 
     migrator = mod.Migrator(
         source_root=source, target_root=target, execute=True,

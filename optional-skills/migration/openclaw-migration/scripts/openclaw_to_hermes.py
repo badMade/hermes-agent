@@ -1848,12 +1848,16 @@ class Migrator:
         for skill_dir in skill_dirs:
             symlink_path = self._find_first_symlink(skill_dir)
             if symlink_path is not None:
+                if symlink_path == skill_dir:
+                    symlink_desc = "(skill directory is itself a symlink)"
+                else:
+                    symlink_desc = str(symlink_path.relative_to(skill_dir))
                 self.record(
                     kind_label,
                     skill_dir,
                     destination_root / skill_dir.name,
                     "skipped",
-                    f"Skipped skill containing symlink: {symlink_path.relative_to(skill_dir)}",
+                    f"Skipped skill containing symlink: {symlink_desc}",
                 )
                 continue
             destination = destination_root / skill_dir.name
@@ -1968,12 +1972,16 @@ class Migrator:
         for skill_dir in skill_dirs:
             symlink_path = self._find_first_symlink(skill_dir)
             if symlink_path is not None:
+                if symlink_path == skill_dir:
+                    symlink_desc = "(skill directory is itself a symlink)"
+                else:
+                    symlink_desc = str(symlink_path.relative_to(skill_dir))
                 self.record(
                     "skill",
                     skill_dir,
                     destination_root / skill_dir.name,
                     "skipped",
-                    f"Skipped skill containing symlink: {symlink_path.relative_to(skill_dir)}",
+                    f"Skipped skill containing symlink: {symlink_desc}",
                 )
                 continue
             destination = destination_root / skill_dir.name
