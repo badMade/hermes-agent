@@ -114,8 +114,11 @@ def _implicit_default_off_toolsets(platform: str) -> Set[str]:
     """
     configurable_keys = {ts_key for ts_key, _, _ in CONFIGURABLE_TOOLSETS}
     # Dedicated Home Assistant sessions should keep the homeassistant toolset
-    # enabled by default on that platform.
+    # enabled by default on that platform. Also keep it enabled when HASS_TOKEN
+    # is present, since the user has already opted in.
     platform_defaults = {"homeassistant"} if platform == "homeassistant" else set()
+    if get_env_value("HASS_TOKEN"):
+        platform_defaults.add("homeassistant")
     return {
         ts_key
         for ts_key in _DEFAULT_OFF_TOOLSETS
@@ -1184,9 +1187,11 @@ def _get_platform_tools(
         explicit_mcp_servers = explicit_passthrough & enabled_mcp_servers
         enabled_toolsets.update(explicit_passthrough - enabled_mcp_servers)
     if include_default_mcp_servers:
-        if explicit_mcp_servers or "no_mcp" in toolset_names:
+        if "no_mcp" in toolset_names:
             enabled_toolsets.update(explicit_mcp_servers)
-        elif not has_explicit_platform_toolsets:
+        else:
+            # Keep enabled MCP servers available even when built-in toolsets are
+            # explicitly listed; users can opt out per-platform with "no_mcp".
             enabled_toolsets.update(enabled_mcp_servers)
     else:
         enabled_toolsets.update(explicit_mcp_servers)
@@ -1200,6 +1205,9 @@ def _get_platform_tools(
     if disabled_toolsets:
         disabled_set = {str(ts) for ts in disabled_toolsets}
         enabled_toolsets -= disabled_set
+
+    if get_env_value("HASS_TOKEN") and _toolset_allowed_for_platform("homeassistant", platform):
+        enabled_toolsets.add("homeassistant")
 
     return enabled_toolsets
 

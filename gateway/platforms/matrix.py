@@ -1769,6 +1769,18 @@ class MatrixAdapter(BasePlatformAdapter):
         elif event_mimetype:
             media_type = event_mimetype
 
+        ctx = await self._resolve_message_context(
+            room_id,
+            sender,
+            event_id,
+            body,
+            source_content,
+            relates_to,
+        )
+        if ctx is None:
+            return
+        body, is_dm, chat_type, thread_id, display_name, source = ctx
+
         # Cache media locally when downstream tools need a real file path.
         cached_path = None
         should_cache_locally = msg_type in {
@@ -1856,18 +1868,6 @@ class MatrixAdapter(BasePlatformAdapter):
                             )
             except Exception as e:
                 logger.warning("[Matrix] Failed to cache media: %s", e)
-
-        ctx = await self._resolve_message_context(
-            room_id,
-            sender,
-            event_id,
-            body,
-            source_content,
-            relates_to,
-        )
-        if ctx is None:
-            return
-        body, is_dm, chat_type, thread_id, display_name, source = ctx
 
         if msgtype == "m.image" and _looks_like_matrix_image_filename(body):
             body = ""

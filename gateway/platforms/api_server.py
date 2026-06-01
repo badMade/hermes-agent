@@ -56,6 +56,7 @@ from gateway.proxy_scope_auth import (
     get_proxy_scope_key,
     verify_proxy_scope_signature,
 )
+from tools.url_safety import is_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +235,11 @@ def _normalize_multimodal_content(content: Any) -> Any:
                 raise ValueError(
                     "invalid_image_url:Image inputs must use http(s) URLs or data:image/... URLs."
                 )
+            else:
+                if not is_safe_url(url_value):
+                    raise ValueError(
+                        "invalid_image_url:Image URL points to a private or otherwise unsafe address."
+                    )
             image_part: Dict[str, Any] = {"type": "image_url", "image_url": {"url": url_value}}
             if detail is not None:
                 if not isinstance(detail, str) or not detail.strip():
