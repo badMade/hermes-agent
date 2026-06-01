@@ -9795,7 +9795,7 @@ class AIAgent:
         # cannot become durable session history or Responses API replay state.
         if isinstance(_san_content, str) and _san_content:
             _san_content = sanitize_context(
-                self._strip_think_blocks(_san_content)
+                AIAgent._strip_think_blocks(self, _san_content)
             ).strip()
 
         msg = {
