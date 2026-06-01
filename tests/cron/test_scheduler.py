@@ -547,8 +547,8 @@ class TestDeliverResultWrapping:
         assert "Cronjob Response" not in sent_content
         assert "The agent cannot see" not in sent_content
 
-    def test_delivery_extracts_media_tags_before_send(self):
-        """Cron delivery should pass MEDIA attachments separately to the send helper."""
+    def test_delivery_keeps_media_tags_as_plain_text(self):
+        """Cron delivery should not interpret MEDIA tags as attachment directives."""
         from gateway.config import Platform
 
         pconfig = MagicMock()
@@ -568,22 +568,16 @@ class TestDeliverResultWrapping:
 
         send_mock.assert_called_once()
         args, kwargs = send_mock.call_args
-        # Text content should have MEDIA: tag stripped
-        assert "MEDIA:" not in args[3]
-        assert "Title" in args[3]
-        # Media files should be forwarded separately
-        assert kwargs["media_files"] == [("/tmp/test-voice.ogg", False)]
+        assert "MEDIA:/tmp/test-voice.ogg" in args[3]
+        assert kwargs["media_files"] == []
 
-    def test_live_adapter_sends_media_as_attachments(self):
-        """When a live adapter is available, MEDIA files should be sent as native
-        platform attachments (e.g., Discord voice, Telegram audio) rather than
-        as literal 'MEDIA:/path' text."""
+    def test_live_adapter_keeps_media_tags_in_text(self):
+        """Live adapter cron delivery should keep MEDIA tags in text."""
         from gateway.config import Platform
         from concurrent.futures import Future
 
         adapter = AsyncMock()
         adapter.send.return_value = MagicMock(success=True)
-        adapter.send_voice.return_value = MagicMock(success=True)
 
         pconfig = MagicMock()
         pconfig.enabled = True
@@ -616,25 +610,20 @@ class TestDeliverResultWrapping:
                 loop=loop,
             )
 
-        # Text should be sent without the MEDIA tag
+        # Text should include the MEDIA tag as plain text
         adapter.send.assert_called_once()
         text_sent = adapter.send.call_args[0][1]
-        assert "MEDIA:" not in text_sent
+        assert "MEDIA:/tmp/cron-voice.mp3" in text_sent
         assert "Here is TTS" in text_sent
+        adapter.send_voice.assert_not_called()
 
-        # Audio file should be sent as a voice attachment
-        adapter.send_voice.assert_called_once()
-        voice_call = adapter.send_voice.call_args
-        assert voice_call[1]["audio_path"] == "/tmp/cron-voice.mp3"
-
-    def test_live_adapter_routes_image_to_send_image_file(self):
-        """Image MEDIA files should be routed to send_image_file, not send_voice."""
+    def test_live_adapter_does_not_route_image_media_tags_to_attachments(self):
+        """Image MEDIA tags should remain text in cron live-adapter delivery."""
         from gateway.config import Platform
         from concurrent.futures import Future
 
         adapter = AsyncMock()
         adapter.send.return_value = MagicMock(success=True)
-        adapter.send_image_file.return_value = MagicMock(success=True)
 
         pconfig = MagicMock()
         pconfig.enabled = True
@@ -666,17 +655,17 @@ class TestDeliverResultWrapping:
                 loop=loop,
             )
 
-        adapter.send_image_file.assert_called_once()
-        assert adapter.send_image_file.call_args[1]["image_path"] == "/tmp/chart.png"
+        adapter.send.assert_called_once()
+        assert "MEDIA:/tmp/chart.png" in adapter.send.call_args[0][1]
+        adapter.send_image_file.assert_not_called()
         adapter.send_voice.assert_not_called()
 
-    def test_live_adapter_media_only_no_text(self):
-        """When content is ONLY a MEDIA tag with no text, media should still be sent."""
+    def test_live_adapter_media_only_stays_text(self):
+        """MEDIA-only cron output should be sent as text, not as attachments."""
         from gateway.config import Platform
         from concurrent.futures import Future
 
         adapter = AsyncMock()
-        adapter.send_voice.return_value = MagicMock(success=True)
 
         pconfig = MagicMock()
         pconfig.enabled = True
@@ -708,14 +697,12 @@ class TestDeliverResultWrapping:
                 loop=loop,
             )
 
-        # Text send should NOT be called (no text after stripping MEDIA tag)
-        adapter.send.assert_not_called()
-        # Audio should still be delivered as a voice bubble
-        adapter.send_voice.assert_called_once()
+        adapter.send.assert_called_once()
+        assert "MEDIA:/tmp/voice.ogg" in adapter.send.call_args[0][1]
+        adapter.send_voice.assert_not_called()
 
-    def test_live_adapter_sends_cleaned_text_not_raw(self):
-        """The live adapter path must send cleaned text (MEDIA tags stripped),
-        not the raw delivery_content with embedded MEDIA: tags."""
+    def test_live_adapter_sends_raw_text_with_media_tags(self):
+        """Cron live-adapter path should not strip MEDIA tags from output text."""
         from gateway.config import Platform
         from concurrent.futures import Future
 
@@ -753,7 +740,7 @@ class TestDeliverResultWrapping:
             )
 
         text_sent = adapter.send.call_args[0][1]
-        assert "MEDIA:" not in text_sent
+        assert "MEDIA:/tmp/chart.png" in text_sent
         assert "Report" in text_sent
 
     def test_no_mirror_to_session_call(self):
