@@ -241,16 +241,45 @@ def managed_error(action: str = "modify configuration"):
 # Container-aware CLI (NixOS container mode)
 # =============================================================================
 
+_CONTAINER_MODE_SYSTEM_FILE = Path("/etc/hermes-agent/container-mode")
+_ALLOWED_CONTAINER_BACKENDS = {"docker", "podman"}
+
+
+def _container_mode_candidates() -> list[tuple[Path, bool]]:
+    """Return container metadata candidates and whether runtime_path is trusted."""
+    override = os.environ.get("HERMES_CONTAINER_MODE_FILE")
+    if override:
+        return [(Path(override), True)]
+    return [
+        (_CONTAINER_MODE_SYSTEM_FILE, True),
+        (get_hermes_home() / ".container-mode", False),
+    ]
+
+
+def _read_container_mode_file(container_mode_file: Path) -> dict:
+    """Parse a container mode metadata file as simple key=value pairs."""
+    info = {}
+    with open(container_mode_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                key, _, value = line.partition("=")
+                info[key.strip()] = value.strip()
+    return info
+
+
 def get_container_exec_info() -> Optional[dict]:
-    """Read container mode metadata from HERMES_HOME/.container-mode.
+    """Read trusted container routing metadata for the host CLI.
 
-    Returns a dict with keys: backend, container_name, exec_user, hermes_bin
-    or None if container mode is not active, we're already inside the
-    container, or HERMES_DEV=1 is set.
+    Returns a dict with keys: backend, container_name, exec_user, hermes_bin,
+    and optional runtime_path; or None if container mode is not active, we're
+    already inside the container, or HERMES_DEV=1 is set.
 
-    The .container-mode file is written by the NixOS activation script when
-    container.enable = true. It tells the host CLI to exec into the container
-    instead of running locally.
+    The NixOS activation script writes trusted metadata under
+    /etc/hermes-agent so the containerized agent cannot modify host routing.
+    A legacy HERMES_HOME/.container-mode fallback remains for older installs,
+    but backend values are restricted to Docker/Podman and runtime_path is
+    ignored unless it came from the trusted system metadata path.
     """
     if os.environ.get("HERMES_DEV") == "1":
         return None
@@ -259,31 +288,30 @@ def get_container_exec_info() -> Optional[dict]:
     if is_container():
         return None
 
-    container_mode_file = get_hermes_home() / ".container-mode"
-
-    try:
-        info = {}
-        with open(container_mode_file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if "=" in line and not line.startswith("#"):
-                    key, _, value = line.partition("=")
-                    info[key.strip()] = value.strip()
-    except FileNotFoundError:
+    for container_mode_file, allow_runtime_path in _container_mode_candidates():
+        try:
+            info = _read_container_mode_file(container_mode_file)
+            break
+        except FileNotFoundError:
+            continue
+    else:
         return None
     # All other exceptions (PermissionError, malformed data, etc.) propagate
 
     backend = info.get("backend", "docker")
-    container_name = info.get("container_name", "hermes-agent")
-    exec_user = info.get("exec_user", "hermes")
-    hermes_bin = info.get("hermes_bin", "/data/current-package/bin/hermes")
+    if backend not in _ALLOWED_CONTAINER_BACKENDS:
+        backend = "docker"
 
-    return {
+    result = {
         "backend": backend,
-        "container_name": container_name,
-        "exec_user": exec_user,
-        "hermes_bin": hermes_bin,
+        "container_name": info.get("container_name", "hermes-agent"),
+        "exec_user": info.get("exec_user", "hermes"),
+        "hermes_bin": info.get("hermes_bin", "/data/current-package/bin/hermes"),
     }
+    runtime_path = info.get("runtime_path")
+    if allow_runtime_path and runtime_path:
+        result["runtime_path"] = runtime_path
+    return result
 
 
 # =============================================================================
