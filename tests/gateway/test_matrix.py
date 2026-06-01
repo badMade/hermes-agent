@@ -2017,6 +2017,8 @@ class TestMatrixImageOnlyMediaNormalization:
 
     @pytest.mark.asyncio
     async def test_group_media_without_mention_is_not_downloaded(self):
+        self.adapter._require_mention = True
+        self.adapter._free_rooms = set()
         self.adapter._is_dm_room = AsyncMock(return_value=False)
         self.adapter._client.download_media = AsyncMock(return_value=b"attacker bytes")
         self.adapter.handle_message = AsyncMock()

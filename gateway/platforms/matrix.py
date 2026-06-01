@@ -1793,8 +1793,11 @@ class MatrixAdapter(BasePlatformAdapter):
         # event through so the normal unauthorized-DM pairing flow can run.
         auth_fn = self._get_gateway_authorizer()
         if auth_fn is not None and not auth_fn(source):
+            display_body = body
+            if msgtype == "m.image" and _looks_like_matrix_image_filename(display_body):
+                display_body = ""
             msg_event = MessageEvent(
-                text=body,
+                text=display_body,
                 message_type=msg_type,
                 source=source,
                 raw_message=source_content,
