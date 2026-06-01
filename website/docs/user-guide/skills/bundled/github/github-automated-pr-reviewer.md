@@ -69,7 +69,7 @@ REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 echo "Scanning $REPO for '@jules' comments..."
 
 # Search for open PRs
-gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \\"@jules\\" -label:reviewed" \\
+gh api -X GET search/issues -f q="repo:$REPO is:pr is:open in:comments \"@jules\" -label:reviewed" \
   --jq '.items[].number' > /tmp/prs_to_review.txt
 
 if [ ! -s /tmp/prs_to_review.txt ]; then
