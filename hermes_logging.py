@@ -405,10 +405,17 @@ def _read_logging_config():
 
 def _ensure_private_dir(path: Path) -> None:
     """Create *path* and apply secure directory permissions when possible."""
-    path.mkdir(parents=True, exist_ok=True)
     managed = _is_managed_mode()
+    mode_str = os.environ.get("HERMES_HOME_MODE", "").strip()
     try:
-        os.chmod(path, 0o770 if managed else 0o700)
+        default_mode = 0o770 if managed else 0o700
+        mode = int(mode_str, 8) if mode_str else default_mode
+    except ValueError:
+        mode = 0o770 if managed else 0o700
+
+    try:
+        path.mkdir(mode=mode, parents=True, exist_ok=True)
+        os.chmod(path, mode)
     except OSError:
         pass
 
