@@ -98,13 +98,13 @@ def set_session_vars(
     Returns a list of reset tokens.
     """
     tokens = [
-        _PLATFORM.set(str(platform)),
-        _CHAT_ID.set(str(chat_id)),
-        _CHAT_NAME.set(str(chat_name)),
-        _THREAD_ID.set(str(thread_id)),
-        _USER_ID.set(str(user_id)),
-        _USER_NAME.set(str(user_name)),
-        _SESSION_KEY.set(str(session_key)),
+        _PLATFORM.set(str(platform or "")),
+        _CHAT_ID.set(str(chat_id or "")),
+        _CHAT_NAME.set(str(chat_name or "")),
+        _THREAD_ID.set(str(thread_id or "")),
+        _USER_ID.set(str(user_id or "")),
+        _USER_NAME.set(str(user_name or "")),
+        _SESSION_KEY.set(str(session_key or ""))
     ]
     if terminal_cwd is not None:
         tokens.append(_TERMINAL_CWD.set(str(terminal_cwd)))
