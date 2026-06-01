@@ -2572,6 +2572,11 @@ class MatrixAdapter(BasePlatformAdapter):
         from reaching Matrix clients. Handles fenced code blocks, inline
         code, headers, bold, italic, strikethrough, links, blockquotes,
         lists, and horizontal rules — everything the Matrix HTML spec allows.
+
+        Note: Python-Markdown support was intentionally removed to prevent
+        sanitization bypass vulnerabilities (raw inline HTML and unsafe
+        link schemes can slip through when the ``matrix`` extra installs
+        ``Markdown>=3.6``).
         """
         return self._markdown_to_html_fallback(text)
 
