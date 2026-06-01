@@ -200,4 +200,4 @@ class TestProfileWorkspaceIsolation:
         monkeypatch.setattr(honcho_cli, "_ensure_peer_exists", lambda host_key=None: True)
 
         honcho_cli.cmd_enable(SimpleNamespace())
-        assert cfg["hosts"]["hermes.gateway"]["workspace"] == "hermes.gateway"
+        assert cfg["hosts"]["hermes.gateway"]["workspace"] == "hermes-gateway"
