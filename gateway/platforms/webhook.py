@@ -51,6 +51,7 @@ from gateway.platforms.base import (
     MessageType,
     SendResult,
 )
+from hermes_cli.auth import has_usable_secret
 
 logger = logging.getLogger(__name__)
 
@@ -590,6 +591,12 @@ class WebhookAdapter(BasePlatformAdapter):
         self, request: "web.Request", body: bytes, secret: str
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
+        if not has_usable_secret(secret, min_length=1):
+            logger.warning(
+                "[webhook] Rejecting request: configured secret is a placeholder"
+            )
+            return False
+
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
         gh_sig = request.headers.get("X-Hub-Signature-256", "")
         if gh_sig:
