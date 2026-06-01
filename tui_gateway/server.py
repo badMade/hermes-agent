@@ -6564,10 +6564,11 @@ def _(rid, params: dict) -> dict:
         except ValueError as exc:
             return _err(rid, 5003, f"command parse error: {exc}")
         if not argv:
-            return _err(rid, 4004, "empty command")
-        sanitized_env = _sanitize_subprocess_env(os.environ.copy())
+        import shlex
+        if not cmd or not cmd.strip():
+            raise ValueError("Command string cannot be empty")
         r = subprocess.run(
-            argv, shell=False, capture_output=True, text=True, timeout=30, cwd=os.getcwd(), env=sanitized_env
+            shlex.split(cmd), shell=False, capture_output=True, text=True, timeout=30, cwd=os.getcwd()
         )
         return _ok(
             rid,
