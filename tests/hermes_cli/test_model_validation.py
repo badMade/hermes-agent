@@ -1,5 +1,7 @@
 """Tests for provider-aware `/model` validation in hermes_cli.models."""
 
+import sys
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from hermes_cli.models import (
@@ -211,6 +213,35 @@ class TestProviderModelIds:
             return_value=["step-3.5-flash", "step-3-agent-lite"],
         ):
             assert provider_model_ids("stepfun") == ["step-3.5-flash", "step-3-agent-lite"]
+
+    def test_profile_fetch_uses_resolved_base_url_with_api_key(self, monkeypatch):
+        fetch_models = MagicMock(return_value=["private-model"])
+        profile = SimpleNamespace(
+            auth_type="api_key",
+            base_url="https://api.deepseek.com/v1",
+            fallback_models=(),
+            fetch_models=fetch_models,
+        )
+
+        auth = ModuleType("hermes_cli.auth")
+
+        def resolve_api_key_provider_credentials(provider_id):
+            return {
+                "provider": provider_id,
+                "api_key": "private-key",
+                "base_url": "https://private.example.test/openai/v1",
+            }
+
+        auth.resolve_api_key_provider_credentials = resolve_api_key_provider_credentials
+        monkeypatch.setitem(sys.modules, "hermes_cli.auth", auth)
+
+        with patch("providers.get_provider_profile", return_value=profile):
+            assert provider_model_ids("deepseek") == ["private-model"]
+
+        fetch_models.assert_called_once_with(
+            api_key="private-key",
+            base_url="https://private.example.test/openai/v1",
+        )
 
     def test_copilot_prefers_live_catalog(self):
         with patch("hermes_cli.auth.resolve_api_key_provider_credentials", return_value={"api_key": "gh-token"}), \

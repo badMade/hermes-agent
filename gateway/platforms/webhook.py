@@ -58,6 +58,7 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8644
 _INSECURE_NO_AUTH = "INSECURE_NO_AUTH"
 _DYNAMIC_ROUTES_FILENAME = "webhook_subscriptions.json"
+_UNRESOLVED_SECRET_PLACEHOLDER_RE = re.compile(r"\$\{[^}]+\}")
 
 # Hostnames/IP literals that only serve connections originating on the same
 # machine. Anything else is treated as a public bind for safety-rail purposes.
@@ -590,6 +591,11 @@ class WebhookAdapter(BasePlatformAdapter):
         self, request: "web.Request", body: bytes, secret: str
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
+        # Unresolved placeholders are predictable and must never be accepted
+        # as authentication secrets.
+        if _UNRESOLVED_SECRET_PLACEHOLDER_RE.search(secret.strip()):
+            return False
+
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
         gh_sig = request.headers.get("X-Hub-Signature-256", "")
         if gh_sig:
