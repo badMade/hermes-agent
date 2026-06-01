@@ -156,5 +156,5 @@ def get_session_env(name: str, default: str = "") -> str:
 
 
 def get_terminal_cwd(default: str = "") -> str:
-    """Return terminal working directory from environment with a default."""
+    """Backward-compatible TERMINAL_CWD accessor bridged from config."""
     return os.getenv("TERMINAL_CWD", default)
