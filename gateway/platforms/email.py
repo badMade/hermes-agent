@@ -276,10 +276,9 @@ class EmailAdapter(BasePlatformAdapter):
     def _trim_seen_uids(self) -> None:
         """Keep only the most recent UIDs to prevent unbounded memory growth.
 
-        IMAP UIDs are monotonically increasing integers. When the set grows
-        beyond the cap, we keep only the highest half — old UIDs are safe to
-        drop because new messages always have higher UIDs and IMAP's UNSEEN
-        flag prevents re-delivery regardless.
+        IMAP UIDs are monotonically increasing integers. During steady-state
+        polling, keeping only the highest half bounds memory while still
+        deduplicating recently-seen UIDs.
         """
         if len(self._seen_uids) <= self._seen_uids_max:
             return
@@ -306,8 +305,8 @@ class EmailAdapter(BasePlatformAdapter):
             if status == "OK" and data and data[0]:
                 for uid in data[0].split():
                     self._seen_uids.add(uid)
-            # Keep only the most recent UIDs to prevent unbounded growth
-            self._trim_seen_uids()
+            # Do not trim here: we must remember *all* pre-existing UIDs so
+            # startup never processes stale unread messages as new.
             imap.logout()
             logger.info("[Email] IMAP connection test passed. %d existing messages skipped.", len(self._seen_uids))
         except Exception as e:

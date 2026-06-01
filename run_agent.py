@@ -9794,9 +9794,10 @@ class AIAgent:
         # scrub is required so a model/provider echo of ephemeral recalled memory
         # cannot become durable session history or Responses API replay state.
         if isinstance(_san_content, str) and _san_content:
-            _san_content = sanitize_context(
-                self._strip_think_blocks(_san_content)
-            ).strip()
+            _stripped_content = self._strip_think_blocks(_san_content)
+            if not isinstance(_stripped_content, str):
+                _stripped_content = _san_content
+            _san_content = sanitize_context(_stripped_content).strip()
 
         msg = {
             "role": "assistant",

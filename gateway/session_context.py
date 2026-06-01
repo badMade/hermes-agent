@@ -56,6 +56,7 @@ _SESSION_USER_ID: ContextVar = ContextVar("HERMES_SESSION_USER_ID", default=_UNS
 _SESSION_USER_NAME: ContextVar = ContextVar("HERMES_SESSION_USER_NAME", default=_UNSET)
 _SESSION_KEY: ContextVar = ContextVar("HERMES_SESSION_KEY", default=_UNSET)
 _SESSION_ID: ContextVar = ContextVar("HERMES_SESSION_ID", default=_UNSET)
+_TERMINAL_CWD: ContextVar = ContextVar("TERMINAL_CWD", default=_UNSET)
 
 # Cron auto-delivery vars — set per-job in run_job() so concurrent jobs
 # don't clobber each other's delivery targets.
@@ -154,3 +155,13 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+
+def get_terminal_cwd(default: str = "") -> str:
+    """Read TERMINAL_CWD from task-local context, then os.environ, then default."""
+    import os
+
+    value = _TERMINAL_CWD.get()
+    if value is not _UNSET:
+        return value
+    return os.getenv("TERMINAL_CWD", default)
