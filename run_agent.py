@@ -4357,12 +4357,21 @@ class AIAgent:
 
     @staticmethod
     def _memory_tool_write_succeeded(function_result: str) -> bool:
-        """Return True only when the builtin memory tool accepted a write."""
+        """Return True only when the builtin memory tool accepted a new write.
+
+        Returns False for both hard failures (success=false) and no-op responses
+        such as duplicate-entry rejections (success=true, message contains
+        "already exists"), which must not be mirrored to external providers.
+        """
         try:
             result = json.loads(function_result)
         except (TypeError, json.JSONDecodeError):
             return False
-        return isinstance(result, dict) and result.get("success") is True
+        if not (isinstance(result, dict) and result.get("success") is True):
+            return False
+        # Exclude no-op responses where the entry was already present
+        message = result.get("message", "")
+        return "already exists" not in message.lower()
 
     def _build_memory_write_metadata(
         self,

@@ -1050,6 +1050,39 @@ class TestOnMemoryWriteBridge:
         assert agent._memory_store.memory_entries == []
         assert external.memory_writes == []
 
+    def test_sequential_memory_bridge_skips_duplicate_builtin_write(
+        self, monkeypatch, tmp_path
+    ):
+        """No-op duplicate writes (success=true, 'already exists') must not be
+        mirrored to external providers a second time."""
+        agent, external = _make_agent_with_external_memory(monkeypatch, tmp_path)
+        content = "The project uses pytest for regression tests."
+        messages: list = []
+
+        def _add(args):
+            return SimpleNamespace(
+                tool_calls=[_memory_tool_call({"action": "add", "target": "memory", "content": args})]
+            )
+
+        # First write — accepted, should be mirrored
+        agent._execute_tool_calls_sequential(_add(content), messages, "task-1")
+        first_result = json.loads(messages[0]["content"])
+        assert first_result["success"] is True
+        assert agent._memory_store.memory_entries == [content]
+        assert external.memory_writes == [("add", "memory", content)]
+
+        # Second write with identical content — no-op duplicate, must NOT be mirrored again
+        messages.clear()
+        agent._execute_tool_calls_sequential(_add(content), messages, "task-1")
+        second_result = json.loads(messages[0]["content"])
+        # The builtin store reports success=true but indicates it was a no-op
+        assert second_result["success"] is True
+        assert "already exists" in second_result.get("message", "").lower()
+        # Builtin store unchanged — still exactly one entry
+        assert agent._memory_store.memory_entries == [content]
+        # External provider must NOT have received a second mirror call
+        assert external.memory_writes == [("add", "memory", content)]
+
     def test_memory_manager_tool_injection_deduplicates(self):
         """Memory manager tools already in self.tools (from plugin registry)
         must not be appended again.  Duplicate function names cause 400 errors
