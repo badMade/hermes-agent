@@ -1160,12 +1160,23 @@ class QQAdapter(BasePlatformAdapter):
                         _att.get("filename", ""),
                     )
 
-        is_authorized = True
+        is_authorized = False
         if self.gateway_runner and hasattr(self.gateway_runner, "_is_user_authorized"):
             try:
                 is_authorized = bool(self.gateway_runner._is_user_authorized(source))
-            except Exception:
-                is_authorized = True
+            except Exception as exc:
+                logger.exception(
+                    "[%s] Failed to evaluate QQ auth (%s: %s); denying attachment processing",
+                    self._log_tag,
+                    type(exc).__name__,
+                    exc,
+                )
+                is_authorized = False
+        elif self.gateway_runner:
+            logger.warning(
+                "[%s] gateway_runner missing _is_user_authorized; denying attachment processing",
+                self._log_tag,
+            )
 
         image_urls = []
         image_media_types = []
