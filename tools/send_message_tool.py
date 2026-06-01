@@ -1496,13 +1496,20 @@ async def _send_matrix(token, extra, chat_id, message):
         payload = {"msgtype": "m.text", "body": message}
         try:
             from gateway.platforms.matrix import MatrixAdapter
-
-            html = MatrixAdapter._markdown_to_html_fallback(message)
-            if html and html != message:
-                payload["format"] = "org.matrix.custom.html"
-                payload["formatted_body"] = html
-        except Exception:
-            pass
+        except ImportError as exc:
+            logger.debug("Matrix HTML formatting unavailable; sending plain-text body: %s", exc)
+        else:
+            try:
+                html = MatrixAdapter._markdown_to_html_fallback(message)
+                if html and html != message:
+                    payload["format"] = "org.matrix.custom.html"
+                    payload["formatted_body"] = html
+            except Exception as exc:
+                logger.debug(
+                    "Matrix HTML conversion failed; sending plain-text body: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             async with session.put(url, headers=headers, json=payload) as resp:
