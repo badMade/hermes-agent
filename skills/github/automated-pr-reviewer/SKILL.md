@@ -44,7 +44,7 @@ When invoked, the agent should run the following bash script to find and process
 if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
   echo "GitHub CLI (gh) is not installed or not authenticated."
   # gracefully return
-  return 1 2>/dev/null || true
+  return 1 2>/dev/null || exit 1
 fi
 
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
