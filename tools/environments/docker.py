@@ -629,25 +629,26 @@ class DockerEnvironment(BaseEnvironment):
     def cleanup(self):
         """Stop and remove the container. Bind-mount dirs persist if persistent=True."""
         if self._container_id:
-            from tools.environments.local import _sanitize_subprocess_env
             try:
                 # Stop in background so cleanup doesn't block
-                stop_cmd = (
-                    f"(timeout 60 {self._docker_exe} stop {self._container_id} || "
-                    f"{self._docker_exe} rm -f {self._container_id}) >/dev/null 2>&1 &"
-                )
-                subprocess.Popen(stop_cmd, shell=True, env=_sanitize_subprocess_env(os.environ.copy()))
+                stop_cmd = [
+                    "sh", "-c",
+                    '(timeout 60 "$1" stop "$2" || "$1" rm -f "$2") >/dev/null 2>&1 &',
+                    "sh", self._docker_exe, self._container_id
+                ]
+                subprocess.Popen(stop_cmd, start_new_session=True)
             except Exception as e:
                 logger.warning("Failed to stop container %s: %s", self._container_id, e)
 
             if not self._persistent:
                 # Also schedule removal (stop only leaves it as stopped)
                 try:
-                    subprocess.Popen(
-                        f"sleep 3 && {self._docker_exe} rm -f {self._container_id} >/dev/null 2>&1 &",
-                        shell=True,
-                        env=_sanitize_subprocess_env(os.environ.copy())
-                    )
+                    rm_cmd = [
+                        "sh", "-c",
+                        'sleep 3 && "$1" rm -f "$2" >/dev/null 2>&1 &',
+                        "sh", self._docker_exe, self._container_id
+                    ]
+                    subprocess.Popen(rm_cmd, start_new_session=True)
                 except Exception:
                     pass
             self._container_id = None
