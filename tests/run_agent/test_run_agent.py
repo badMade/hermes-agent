@@ -1846,6 +1846,16 @@ class TestExecuteToolCalls:
         assert "Rate limit reached" not in output
 
 
+class _FakeProviderMemoryManager:
+    def __init__(self):
+        self.calls = []
+        self.providers = []
+
+    def handle_tool_call(self, name, args):
+        self.calls.append((name, args))
+        return "success"
+
+
 class TestConcurrentToolExecution:
     """Tests for _execute_tool_calls_concurrent and dispatch logic."""
 
@@ -2082,7 +2092,8 @@ class TestConcurrentToolExecution:
 
     def test_invoke_tool_does_not_dispatch_unexposed_memory_provider_tool(self, agent):
         """Concurrent helper must not bypass valid_tool_names for memory providers."""
-        manager = _FakeProviderMemoryManager()
+        from tests.agent.test_memory_provider import FakeMemoryProvider
+        manager = FakeMemoryProvider("test")
         agent._memory_manager = manager
 
         with patch(
@@ -2097,7 +2108,8 @@ class TestConcurrentToolExecution:
 
     def test_sequential_does_not_dispatch_unexposed_memory_provider_tool(self, agent):
         """Sequential path must not bypass valid_tool_names for memory providers."""
-        manager = _FakeProviderMemoryManager()
+        from tests.agent.test_memory_provider import FakeMemoryProvider
+        manager = FakeMemoryProvider("test")
         agent._memory_manager = manager
         tool_call = _mock_tool_call(
             name="ext_retain", arguments='{"content":"x"}', call_id="c1"
