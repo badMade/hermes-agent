@@ -538,9 +538,15 @@ class _IdempotencyCache:
 _idem_cache = _IdempotencyCache()
 
 
-def _make_request_fingerprint(body: Dict[str, Any], keys: List[str]) -> str:
+def _make_request_fingerprint(
+    body: Dict[str, Any],
+    keys: List[str],
+    extra: Optional[Dict[str, Any]] = None,
+) -> str:
     from hashlib import sha256
     subset = {k: body.get(k) for k in keys}
+    if extra:
+        subset["__extra__"] = extra
     return sha256(repr(subset).encode("utf-8")).hexdigest()
 
 
@@ -563,7 +569,7 @@ def _derive_chat_session_id(
 
 
 def _new_chat_session_id() -> str:
-    """Return a fresh API session ID for compatibility with older callers."""
+    """Return a fresh, random API session identifier in the api-<hex16> format."""
     return f"api-{uuid.uuid4().hex[:16]}"
 
 
@@ -712,6 +718,15 @@ class APIServerAdapter(BasePlatformAdapter):
         """
         if not self._api_key:
             return None  # No key configured — allow all (local-only use)
+        try:
+            from hermes_cli.auth import has_usable_secret
+            if not has_usable_secret(self._api_key, min_length=4):
+                return web.json_response(
+                    {"error": {"message": "Invalid API key", "type": "invalid_request_error", "code": "invalid_api_key"}},
+                    status=401,
+                )
+        except ImportError:
+            pass
 
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -1026,10 +1041,10 @@ class APIServerAdapter(BasePlatformAdapter):
 
         stream = body.get("stream", False)
 
-        proxy_scope = body.get("hermes_proxy_scope")
         origin_platform = None
         enabled_toolsets_override = None
-        if proxy_scope is not None:
+        if "hermes_proxy_scope" in body:
+            proxy_scope = body["hermes_proxy_scope"]
             if not isinstance(proxy_scope, dict):
                 return web.json_response(_openai_error("Invalid hermes_proxy_scope"), status=400)
             if not verify_proxy_scope_signature(
@@ -1142,16 +1157,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 logger.warning("Failed to load session history for %s: %s", session_id, e)
                 history = []
         else:
-            # Derive a stable session ID from the conversation fingerprint so
-            # that consecutive messages from the same Open WebUI (or similar)
-            # conversation map to the same Hermes session.  The first user
-            # message + system prompt are constant across all turns.
-            first_user = ""
-            for cm in conversation_messages:
-                if cm.get("role") == "user":
-                    first_user = cm.get("content", "")
-                    break
-            session_id = _derive_chat_session_id(system_prompt, first_user)
+            session_id = _new_chat_session_id()
             # history already set from request body above
 
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:29]}"
@@ -1264,7 +1270,11 @@ class APIServerAdapter(BasePlatformAdapter):
 
         idempotency_key = request.headers.get("Idempotency-Key")
         if idempotency_key:
-            fp = _make_request_fingerprint(body, keys=["model", "messages", "tools", "tool_choice", "stream"])
+            fp = _make_request_fingerprint(
+                body,
+                keys=["model", "messages", "tools", "tool_choice", "stream"],
+                extra={"x_hermes_session_id": session_id},
+            )
             try:
                 result, usage = await _idem_cache.get_or_set(idempotency_key, fp, _compute_completion)
             except Exception as e:

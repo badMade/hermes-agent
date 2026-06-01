@@ -273,7 +273,7 @@ class TestBedrockRegionRouting:
 
         mock_session = MagicMock()
         mock_session.get_config_variable.return_value = "eu-central-1"
-
+        
         # Mock botocore at sys.modules level to handle missing package
         mock_botocore = MagicMock()
         mock_botocore.session.get_session.return_value = mock_session
@@ -313,7 +313,7 @@ class TestBedrockRegionRouting:
 
         mock_session = MagicMock()
         mock_session.get_config_variable.return_value = "eu-central-1"
-
+        
         # Mock botocore at sys.modules level to handle missing package
         mock_botocore = MagicMock()
         mock_botocore.session.get_session.return_value = mock_session

@@ -344,13 +344,8 @@ class TestStdinHelpers:
 
         try:
             time.sleep(0.5)
-            registry.poll(session.id)
-            res = registry.submit_stdin(session.id, "hello")
-            if res.get("status") == "already_exited":
-                return # Timing issue where process exited before we could send stdin, just return
-            assert res.get("status") == "ok", f"Expected ok but got: {res}"
-            close_res = registry.close_stdin(session.id)
-            assert close_res.get("status") == "ok", f"Expected ok but got: {close_res}"
+            assert registry.submit_stdin(session.id, "hello")["status"] == "ok"
+            assert registry.close_stdin(session.id)["status"] == "ok"
 
             deadline = time.time() + 5
             while time.time() < deadline:
