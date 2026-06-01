@@ -28,6 +28,7 @@ def get_camofox_state_dir() -> Path:
 
 def _load_or_create_identity_secret() -> str:
     """Return an unguessable profile-scoped secret for managed identities."""
+    import os
     state_dir = get_camofox_state_dir()
     state_dir.mkdir(parents=True, exist_ok=True)
     secret_path = state_dir / CAMOFOX_SECRET_FILE
@@ -36,12 +37,19 @@ def _load_or_create_identity_secret() -> str:
         return secret_path.read_text(encoding="utf-8").strip()
 
     secret = secrets.token_hex(32)
-    secret_path.write_text(secret, encoding="utf-8")
     try:
-        secret_path.chmod(0o600)
+        fd = os.open(secret_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(secret)
+    except FileExistsError:
+        return secret_path.read_text(encoding="utf-8").strip()
     except OSError:
-        # Best-effort on non-POSIX filesystems.
-        pass
+        # Fallback for filesystems with limited permission/flags support
+        secret_path.write_text(secret, encoding="utf-8")
+        try:
+            secret_path.chmod(0o600)
+        except OSError:
+            pass
     return secret
 
 
