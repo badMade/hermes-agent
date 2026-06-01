@@ -21,6 +21,7 @@ ui-tui/packages/hermes-ink/dist/
 # Environment files
 .env
 .env.*
+!.env.example
 
 # Local runtime/state artifacts
 logs/
