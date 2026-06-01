@@ -537,7 +537,6 @@ class TestSessionConfiguration:
 
         def fake_resolve_runtime_provider(requested=None, **kwargs):
             runtime_calls.append(requested)
-            print(f"fake_resolve_runtime_provider called with {requested}")
             provider = requested or "openrouter"
             return {
                 "provider": provider,
