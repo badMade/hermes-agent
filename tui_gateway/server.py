@@ -143,18 +143,16 @@ _DETAIL_MODES = frozenset({"hidden", "collapsed", "expanded"})
 # everything else stays on the main thread so ordering stays sane for the
 # fast path.  write_json is already _stdout_lock-guarded, so concurrent
 # response writes are safe.
-_LONG_HANDLERS = frozenset(
-    {
-        "browser.manage",
-        "cli.exec",
-        "session.branch",
-        "session.compress",
-        "session.resume",
-        "shell.exec",
-        "skills.manage",
-        "slash.exec",
-    }
-)
+_LONG_HANDLERS = frozenset({
+    "browser.manage",
+    "cli.exec",
+    "session.branch",
+    "session.compress",
+    "session.resume",
+    "shell.exec",
+    "skills.manage",
+    "slash.exec",
+})
 
 try:
     _rpc_pool_workers = max(
@@ -178,6 +176,13 @@ sys.stdout = sys.stderr
 # contextvar or session. Stream resolved through a lambda so runtime monkey-
 # patches of `_real_stdout` (used extensively in tests) still land correctly.
 _stdio_transport = StdioTransport(lambda: _real_stdout, _stdout_lock)
+
+
+def _trusted_python_src_root() -> str:
+    """Return the trusted Hermes root for internal ``python -m`` subprocesses."""
+    return os.environ.get("HERMES_PYTHON_SRC_ROOT") or str(
+        Path(__file__).resolve().parent.parent
+    )
 
 
 class _SlashWorker:
@@ -206,7 +211,7 @@ class _SlashWorker:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
-            cwd=os.getcwd(),
+            cwd=_trusted_python_src_root(),
             env=os.environ.copy(),
         )
         threading.Thread(target=self._drain_stdout, daemon=True).start()
@@ -1631,13 +1636,17 @@ def _agent_cbs(sid: str) -> dict:
         "tool_complete_callback": lambda tc_id, name, args, result: _on_tool_complete(
             sid, tc_id, name, args, result
         ),
-        "tool_progress_callback": lambda event_type, name=None, preview=None, args=None, **kwargs: _on_tool_progress(
-            sid, event_type, name, preview, args, **kwargs
+        "tool_progress_callback": lambda event_type, name=None, preview=None, args=None, **kwargs: (
+            _on_tool_progress(sid, event_type, name, preview, args, **kwargs)
         ),
-        "tool_gen_callback": lambda name: _tool_progress_enabled(sid)
-        and _emit("tool.generating", sid, {"name": name}),
+        "tool_gen_callback": lambda name: (
+            _tool_progress_enabled(sid)
+            and _emit("tool.generating", sid, {"name": name})
+        ),
         "thinking_callback": lambda text: _emit("thinking.delta", sid, {"text": text}),
-        "reasoning_callback": lambda text: _emit("reasoning.delta", sid, {"text": text}),
+        "reasoning_callback": lambda text: _emit(
+            "reasoning.delta", sid, {"text": text}
+        ),
         "status_callback": lambda kind, text=None: _status_update(
             sid, str(kind), None if text is None else str(text)
         ),
@@ -1681,9 +1690,9 @@ def _render_personality_prompt(value) -> str:
     if isinstance(value, dict):
         parts = [value.get("system_prompt", "")]
         if value.get("tone"):
-            parts.append(f'Tone: {value["tone"]}')
+            parts.append(f"Tone: {value['tone']}")
         if value.get("style"):
-            parts.append(f'Style: {value["style"]}')
+            parts.append(f"Style: {value['style']}")
         return "\n".join(p for p in parts if p)
     return str(value)
 
@@ -1817,7 +1826,9 @@ def _background_agent_kwargs(agent, task_id: str) -> dict:
             agent, "provider_require_parameters", False
         ),
         "provider_data_collection": getattr(agent, "provider_data_collection", None),
-        "openrouter_min_coding_score": getattr(agent, "openrouter_min_coding_score", None),
+        "openrouter_min_coding_score": getattr(
+            agent, "openrouter_min_coding_score", None
+        ),
         "session_id": task_id,
         "reasoning_config": getattr(agent, "reasoning_config", None)
         or _load_reasoning_config(),
@@ -2073,9 +2084,11 @@ def _history_to_messages(history: list[dict]) -> list[dict]:
             tc_info = tool_call_args.get(tc_id) if tc_id else None
             name = (tc_info[0] if tc_info else None) or m.get("tool_name") or "tool"
             args = (tc_info[1] if tc_info else None) or {}
-            messages.append(
-                {"role": "tool", "name": name, "context": _tool_ctx(name, args)}
-            )
+            messages.append({
+                "role": "tool",
+                "name": name,
+                "context": _tool_ctx(name, args),
+            })
             continue
         if not content_text.strip():
             continue
@@ -2444,15 +2457,13 @@ def _(rid, params: dict) -> dict:
     title = (meta.get("title") or "").strip()
     if title:
         lines.append(f"Title: {title}")
-    lines.extend(
-        [
-            f"Model: {model} ({provider})",
-            f"Created: {created.strftime('%Y-%m-%d %H:%M')}",
-            f"Last Activity: {updated.strftime('%Y-%m-%d %H:%M')}",
-            f"Tokens: {int(usage.get('total') or 0):,}",
-            f"Agent Running: {'Yes' if session.get('running') else 'No'}",
-        ]
-    )
+    lines.extend([
+        f"Model: {model} ({provider})",
+        f"Created: {created.strftime('%Y-%m-%d %H:%M')}",
+        f"Last Activity: {updated.strftime('%Y-%m-%d %H:%M')}",
+        f"Tokens: {int(usage.get('total') or 0):,}",
+        f"Agent Running: {'Yes' if session.get('running') else 'No'}",
+    ])
     return _ok(rid, {"output": "\n".join(lines)})
 
 
@@ -2915,16 +2926,14 @@ def _(rid, params: dict) -> dict:
                 except Exception:
                     raw = {}
                 subagents = raw.get("subagents") or []
-                entries.append(
-                    {
-                        "path": str(p),
-                        "session_id": raw.get("session_id") or d.name,
-                        "finished_at": raw.get("finished_at") or stat.st_mtime,
-                        "started_at": raw.get("started_at"),
-                        "label": raw.get("label") or "",
-                        "count": len(subagents) if isinstance(subagents, list) else 0,
-                    }
-                )
+                entries.append({
+                    "path": str(p),
+                    "session_id": raw.get("session_id") or d.name,
+                    "finished_at": raw.get("finished_at") or stat.st_mtime,
+                    "started_at": raw.get("started_at"),
+                    "label": raw.get("label") or "",
+                    "count": len(subagents) if isinstance(subagents, list) else 0,
+                })
             except OSError:
                 continue
 
@@ -3186,14 +3195,19 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 # worker-backed commands (/title etc.) target the live session.
                 # Fix for #20001.
                 _sync_session_key_after_compress(
-                    sid, session, clear_pending_title=False, restart_slash_worker=True,
+                    sid,
+                    session,
+                    clear_pending_title=False,
+                    restart_slash_worker=True,
                 )
 
                 raw = result.get("final_response", "")
                 status = (
                     "interrupted"
                     if result.get("interrupted")
-                    else "error" if result.get("error") else "complete"
+                    else "error"
+                    if result.get("error")
+                    else "complete"
                 )
                 # When the backend produced no visible response AND reported a
                 # real error (e.g. invalid model slug → provider 4xx), surface
@@ -3203,14 +3217,29 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 # Leaves the None-with-no-error path untouched: an empty
                 # successful turn still renders as empty, and the existing
                 # "(empty)" sentinel handling stays in its own lane.
-                if (not raw) and result.get("error") and (
-                    result.get("failed") or result.get("partial")
+                if (
+                    (not raw)
+                    and result.get("error")
+                    and (result.get("failed") or result.get("partial"))
                 ):
                     raw = f"Error: {result.get('error')}"
                 lr = result.get("last_reasoning")
                 if isinstance(lr, str) and lr.strip():
                     last_reasoning = lr.strip()
             else:
+                # If auto-compression fired inside run_conversation(), agent.session_id
+                # may have rotated. Sync session_key before downstream title/goal/finalize
+                # handling uses it. Preserve pending_title (user intent) so it can be
+                # applied to the continuation. Restart slash worker so subsequent
+                # worker-backed commands (/title etc.) target the live session.
+                # Fix for #20001.
+                _sync_session_key_after_compress(
+                    sid,
+                    session,
+                    clear_pending_title=False,
+                    restart_slash_worker=True,
+                )
+
                 raw = str(result)
                 status = "complete"
 
@@ -3285,7 +3314,8 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                         session["pending_title"] = None
                         logger.info(
                             "Dropping pending title for session %s: %s",
-                            _session_key, exc,
+                            _session_key,
+                            exc,
                         )
                     except Exception:
                         # Transient DB failure — keep pending_title for retry.
@@ -4235,16 +4265,14 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5015, str(e))
 
 
-_TUI_HIDDEN: frozenset[str] = frozenset(
-    {
-        "sethome",
-        "set-home",
-        "update",
-        "commands",
-        "approve",
-        "deny",
-    }
-)
+_TUI_HIDDEN: frozenset[str] = frozenset({
+    "sethome",
+    "set-home",
+    "update",
+    "commands",
+    "approve",
+    "deny",
+})
 
 _TUI_EXTRA: list[tuple[str, str, str]] = [
     ("/compact", "Toggle compact display mode", "TUI"),
@@ -4255,16 +4283,14 @@ _TUI_EXTRA: list[tuple[str, str, str]] = [
 # Commands that queue messages onto _pending_input in the CLI.
 # In the TUI the slash worker subprocess has no reader for that queue,
 # so slash.exec rejects them → TUI falls through to command.dispatch.
-_PENDING_INPUT_COMMANDS: frozenset[str] = frozenset(
-    {
-        "retry",
-        "queue",
-        "q",
-        "steer",
-        "plan",
-        "goal",
-    }
-)
+_PENDING_INPUT_COMMANDS: frozenset[str] = frozenset({
+    "retry",
+    "queue",
+    "q",
+    "steer",
+    "plan",
+    "goal",
+})
 
 _WORKER_BLOCKED_COMMANDS: frozenset[str] = frozenset({"snapshot", "snap"})
 
@@ -4455,15 +4481,13 @@ def _(rid, params: dict) -> dict:
     if name in qcmds:
         qc = qcmds[name]
         if qc.get("type") == "exec":
-            from tools.environments.local import _sanitize_subprocess_env
-            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
+            import shlex
+
             r = subprocess.run(
-                qc.get("command", ""),
-                shell=True,
+                shlex.split(qc.get("command", "")),
                 capture_output=True,
                 text=True,
                 timeout=30,
-                env=sanitized_env,
             )
             output = (
                 (r.stdout or "")
@@ -4705,25 +4729,23 @@ def _(rid, params: dict) -> dict:
 
 _FUZZY_CACHE_TTL_S = 5.0
 _FUZZY_CACHE_MAX_FILES = 20000
-_FUZZY_FALLBACK_EXCLUDES = frozenset(
-    {
-        ".git",
-        ".hg",
-        ".svn",
-        ".next",
-        ".cache",
-        ".venv",
-        "venv",
-        "node_modules",
-        "__pycache__",
-        "dist",
-        "build",
-        "target",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-    }
-)
+_FUZZY_FALLBACK_EXCLUDES = frozenset({
+    ".git",
+    ".hg",
+    ".svn",
+    ".next",
+    ".cache",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    "dist",
+    "build",
+    "target",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+})
 _fuzzy_cache_lock = threading.Lock()
 _fuzzy_cache: dict[str, tuple[float, list[str]]] = {}
 
@@ -4926,13 +4948,11 @@ def _(rid, params: dict) -> dict:
             ranked.sort(key=lambda r: (r[0], len(r[1]), r[1]))
             tag = prefix_tag or "file"
             for _, rel, basename in ranked[:30]:
-                items.append(
-                    {
-                        "text": f"@{tag}:{rel}",
-                        "display": basename,
-                        "meta": os.path.dirname(rel),
-                    }
-                )
+                items.append({
+                    "text": f"@{tag}:{rel}",
+                    "display": basename,
+                    "meta": os.path.dirname(rel),
+                })
 
             return _ok(rid, {"items": items})
 
@@ -4977,13 +4997,11 @@ def _(rid, params: dict) -> dict:
             else:
                 text = rel + suffix
 
-            items.append(
-                {
-                    "text": text,
-                    "display": entry + suffix,
-                    "meta": "dir" if is_dir else "",
-                }
-            )
+            items.append({
+                "text": text,
+                "display": entry + suffix,
+                "meta": "dir" if is_dir else "",
+            })
             if len(items) >= 30:
                 break
     except Exception as e:
@@ -5049,7 +5067,9 @@ def _details_completions(text: str) -> list[dict] | None:
                 (
                     "section override"
                     if candidate in sections
-                    else "cycle global mode" if candidate == "cycle" else "global mode"
+                    else "cycle global mode"
+                    if candidate == "cycle"
+                    else "global mode"
                 ),
             )
             for candidate in candidates
@@ -5219,21 +5239,19 @@ def _(rid, params: dict) -> dict:
                     warning = f"paste {key_env} to activate"
                 else:
                     warning = f"run `hermes model` to configure ({auth_type})"
-                ordered.append(
-                    {
-                        "slug": entry.slug,
-                        "name": _PROVIDER_LABELS.get(entry.slug, entry.label),
-                        "is_current": entry.slug == current_provider,
-                        "is_user_defined": False,
-                        "models": [],
-                        "total_models": 0,
-                        "source": "built-in",
-                        "authenticated": False,
-                        "auth_type": auth_type,
-                        "key_env": key_env,
-                        "warning": warning,
-                    }
-                )
+                ordered.append({
+                    "slug": entry.slug,
+                    "name": _PROVIDER_LABELS.get(entry.slug, entry.label),
+                    "is_current": entry.slug == current_provider,
+                    "is_user_defined": False,
+                    "models": [],
+                    "total_models": 0,
+                    "source": "built-in",
+                    "authenticated": False,
+                    "auth_type": auth_type,
+                    "key_env": key_env,
+                    "warning": warning,
+                })
 
         # Append user-defined/custom providers not in canonical list
         ordered.extend(authed_extra)
@@ -6234,15 +6252,13 @@ def _(rid, params: dict) -> dict:
             info = get_toolset_info(name)
             if not info:
                 continue
-            items.append(
-                {
-                    "name": name,
-                    "description": info["description"],
-                    "tool_count": info["tool_count"],
-                    "enabled": name in enabled if enabled else True,
-                    "tools": info["resolved_tools"],
-                }
-            )
+            items.append({
+                "name": name,
+                "description": info["description"],
+                "tool_count": info["tool_count"],
+                "enabled": name in enabled if enabled else True,
+                "tools": info["resolved_tools"],
+            })
         return _ok(rid, {"toolsets": items})
     except Exception as e:
         return _err(rid, 5031, str(e))
@@ -6267,12 +6283,10 @@ def _(rid, params: dict) -> dict:
             desc = str(tool["function"].get("description", "") or "").split("\n")[0]
             if ". " in desc:
                 desc = desc[: desc.index(". ") + 1]
-            sections.setdefault(get_toolset_for_tool(name) or "unknown", []).append(
-                {
-                    "name": name,
-                    "description": desc,
-                }
-            )
+            sections.setdefault(get_toolset_for_tool(name) or "unknown", []).append({
+                "name": name,
+                "description": desc,
+            })
 
         return _ok(
             rid,
@@ -6374,14 +6388,12 @@ def _(rid, params: dict) -> dict:
             info = get_toolset_info(name)
             if not info:
                 continue
-            items.append(
-                {
-                    "name": name,
-                    "description": info["description"],
-                    "tool_count": info["tool_count"],
-                    "enabled": name in enabled if enabled else True,
-                }
-            )
+            items.append({
+                "name": name,
+                "description": info["description"],
+                "tool_count": info["tool_count"],
+                "enabled": name in enabled if enabled else True,
+            })
         return _ok(rid, {"toolsets": items})
     except Exception as e:
         return _err(rid, 5032, str(e))
@@ -6541,10 +6553,14 @@ def _(rid, params: dict) -> dict:
     except ImportError:
         pass
     try:
-        from tools.environments.local import _sanitize_subprocess_env
-        sanitized_env = _sanitize_subprocess_env(os.environ.copy())
+        import shlex
+
         r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=os.getcwd(), env=sanitized_env
+            shlex.split(cmd),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=os.getcwd(),
         )
         return _ok(
             rid,

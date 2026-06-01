@@ -10,6 +10,7 @@ of the backgrounded service (indefinitely for a uvicorn server).
 The fix switches ``_drain()`` to select()-based non-blocking reads and
 stops draining shortly after bash exits even if the pipe hasn't EOF'd.
 """
+
 import json
 import subprocess
 import time
@@ -20,7 +21,7 @@ from tools.environments.local import LocalEnvironment
 
 
 def _pkill(pattern: str) -> None:
-    subprocess.run(f"pkill -9 -f {pattern!r} 2>/dev/null", shell=True)
+    subprocess.run(["pkill", "-9", "-f", pattern], stderr=subprocess.DEVNULL)
 
 
 @pytest.fixture
@@ -57,7 +58,7 @@ class TestBackgroundChildDoesNotHang:
         """The exact pattern from the issue: setsid ... & disown."""
         cmd = (
             'setsid python3 -c "import time; time.sleep(60)" '
-            '> /dev/null 2>&1 < /dev/null & disown; echo started'
+            "> /dev/null 2>&1 < /dev/null & disown; echo started"
         )
         try:
             t0 = time.monotonic()
@@ -121,7 +122,7 @@ class TestBackgroundChildDoesNotHang:
         # read boundaries, and most boundaries will land in the middle of the
         # 3-byte UTF-8 encoding of U+65E5.
         cmd = (
-            'python3 -c \'import sys; '
+            "python3 -c 'import sys; "
             'sys.stdout.buffer.write(chr(0x65e5).encode("utf-8") * 10000); '
             'sys.stdout.buffer.write(b"\\n")\''
         )
@@ -130,7 +131,7 @@ class TestBackgroundChildDoesNotHang:
         # All 10000 characters must survive the round-trip
         assert result["output"].count("\u65e5") == 10000, (
             f"lost multibyte chars across read boundaries: got "
-            f"{result['output'].count(chr(0x65e5))} / 10000"
+            f"{result['output'].count(chr(0x65E5))} / 10000"
         )
         # And the "[binary output detected ...]" fallback must NOT fire
         assert "binary output detected" not in result["output"]
@@ -142,7 +143,7 @@ class TestBackgroundChildDoesNotHang:
         """
         # Write a deliberate invalid UTF-8 lead byte sandwiched between valid ASCII
         cmd = (
-            'python3 -c \'import sys; '
+            "python3 -c 'import sys; "
             'sys.stdout.buffer.write(b"before "); '
             'sys.stdout.buffer.write(b"\\xff\\xfe"); '
             'sys.stdout.buffer.write(b" after\\n")\''
