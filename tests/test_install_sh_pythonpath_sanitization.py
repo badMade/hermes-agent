@@ -10,14 +10,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALL_SH_CANDIDATES = (REPO_ROOT / "scripts" / "install.sh", REPO_ROOT / "install.sh")
-INSTALL_SH = next((path for path in INSTALL_SH_CANDIDATES if path.exists()), INSTALL_SH_CANDIDATES[0])
 
 
-def test_install_script_unsets_pythonpath_and_pythonhome_early() -> None:
-    assert INSTALL_SH.exists(), (
+def _resolve_install_sh() -> Path:
+    for path in INSTALL_SH_CANDIDATES:
+        if path.exists():
+            return path
+    raise AssertionError(
         f"install.sh not found at any expected location: "
         f"{', '.join(str(path) for path in INSTALL_SH_CANDIDATES)}"
     )
+
+
+INSTALL_SH = _resolve_install_sh()
+
+
+def test_install_script_unsets_pythonpath_and_pythonhome_early() -> None:
     text = INSTALL_SH.read_text()
 
     # During install, inherited Python env must be sanitized before pip/venv use.
@@ -26,10 +34,6 @@ def test_install_script_unsets_pythonpath_and_pythonhome_early() -> None:
 
 
 def test_hermes_launcher_wrapper_clears_python_env_before_exec() -> None:
-    assert INSTALL_SH.exists(), (
-        f"install.sh not found at any expected location: "
-        f"{', '.join(str(path) for path in INSTALL_SH_CANDIDATES)}"
-    )
     text = INSTALL_SH.read_text()
 
     # Wrapper should clear env and forward args untouched to the venv entrypoint.
