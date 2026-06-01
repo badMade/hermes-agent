@@ -590,6 +590,10 @@ class WebhookAdapter(BasePlatformAdapter):
         self, request: "web.Request", body: bytes, secret: str
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
+        if secret.startswith("${") and secret.endswith("}"):
+            logger.warning("[webhook] WEBHOOK_SECRET looks unresolved; rejecting signature")
+            return False
+
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
         gh_sig = request.headers.get("X-Hub-Signature-256", "")
         if gh_sig:
