@@ -2573,9 +2573,9 @@ class MatrixAdapter(BasePlatformAdapter):
         italic, strikethrough, links, blockquotes, lists, and horizontal
         rules — everything the Matrix HTML spec allows.
         """
-        # Always use the hardened fallback converter. The Python-Markdown path
-        # can emit raw inline HTML and unsafe link schemes in formatted_body.
-        return self._markdown_to_html_fallback(text)
+    """
+    Converts Markdown text to HTML using the hardened fallback converter.
+    """
 
     # ------------------------------------------------------------------
     # Regex-based Markdown -> HTML (no extra dependencies)
