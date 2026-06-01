@@ -1162,8 +1162,16 @@ class ProcessRegistry:
         if not payload:
             return None
         approval = check_all_command_guards(self._stdin_guard_command(session, payload), "local")
-        if approval.get("approved"):
+        if not approval:
             return None
+        approved = approval.get("approved")
+        if approved is True:
+            return None
+        if approved is None:
+            return {
+                "approved": False,
+                "message": "BLOCKED: malformed stdin approval response",
+            }
         return approval
 
     def write_stdin(self, session_id: str, data: str) -> dict:

@@ -5458,6 +5458,8 @@ class GatewayRunner:
         ):
             return True
 
+        team_id = (getattr(source, "guild_id", None) or "").strip()
+
         # Check pairing store (always checked, regardless of allowlists)
         platform_name = source.platform.value if source.platform else ""
         auth_user_id = user_id
