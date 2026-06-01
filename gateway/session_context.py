@@ -36,8 +36,9 @@ needs to replace the import + call site:
     platform = get_session_env("HERMES_SESSION_PLATFORM", "")
 """
 
+import os
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, Optional
 
 # Sentinel to distinguish "never set in this context" from "explicitly set to empty".
 # When a contextvar holds _UNSET, we fall back to os.environ (CLI/cron compat).
@@ -63,6 +64,12 @@ _CRON_AUTO_DELIVER_PLATFORM: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_P
 _CRON_AUTO_DELIVER_CHAT_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_CHAT_ID", default=_UNSET)
 _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_THREAD_ID", default=_UNSET)
 
+# Per-task terminal working directory.  The legacy env var is ``TERMINAL_CWD``
+# (no ``HERMES_`` prefix); cron/scheduler.py and the CLI still set that.  This
+# contextvar takes precedence when set so concurrent gateway tasks don't
+# clobber each other's workdir.
+_TERMINAL_CWD: ContextVar = ContextVar("HERMES_TERMINAL_CWD", default=_UNSET)
+
 _VAR_MAP = {
     "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
     "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
@@ -75,6 +82,7 @@ _VAR_MAP = {
     "HERMES_CRON_AUTO_DELIVER_PLATFORM": _CRON_AUTO_DELIVER_PLATFORM,
     "HERMES_CRON_AUTO_DELIVER_CHAT_ID": _CRON_AUTO_DELIVER_CHAT_ID,
     "HERMES_CRON_AUTO_DELIVER_THREAD_ID": _CRON_AUTO_DELIVER_THREAD_ID,
+    "HERMES_TERMINAL_CWD": _TERMINAL_CWD,
 }
 
 
@@ -86,6 +94,7 @@ def set_session_vars(
     user_id: str = "",
     user_name: str = "",
     session_key: str = "",
+    terminal_cwd: str = "",
 ) -> list:
     """Set all session context variables and return reset tokens.
 
@@ -103,6 +112,7 @@ def set_session_vars(
         _SESSION_USER_ID.set(user_id),
         _SESSION_USER_NAME.set(user_name),
         _SESSION_KEY.set(session_key),
+        _TERMINAL_CWD.set(terminal_cwd),
     ]
     return tokens
 
@@ -126,6 +136,7 @@ def clear_session_vars(tokens: list) -> None:
         _SESSION_USER_ID,
         _SESSION_USER_NAME,
         _SESSION_KEY,
+        _TERMINAL_CWD,
     ):
         var.set("")
 
@@ -145,8 +156,6 @@ def get_session_env(name: str, default: str = "") -> str:
        don't use ``set_session_vars`` at all).
     3. *default*
     """
-    import os
-
     var = _VAR_MAP.get(name)
     if var is not None:
         value = var.get()
@@ -154,3 +163,29 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+
+def get_terminal_cwd(default: Optional[str] = None) -> str:
+    """Backward-compatible accessor for the terminal working directory.
+
+    Prefers the task-local context value when set, otherwise falls back to
+    the legacy ``TERMINAL_CWD`` environment variable (still set by
+    ``cron/scheduler.py``, the CLI, and ``gateway/run.py``), then to the
+    caller-supplied default (or the process cwd if no default is given).
+
+    Resolution order:
+    1. ``_TERMINAL_CWD`` contextvar — when set to a non-empty path via
+       ``set_session_vars``.  An empty string is treated as "unset" so the
+       generic ``set_session_vars(platform="", chat_id="", ...)`` call from
+       ``cron/scheduler.py`` (which leaves ``terminal_cwd`` at its ``""``
+       default) does not mask the legacy env var the cron then sets.
+    2. ``os.environ["TERMINAL_CWD"]`` — the legacy convention shared with
+       the rest of the codebase.
+    3. *default* (falling back to ``os.getcwd()`` when ``None``).
+    """
+    value = _TERMINAL_CWD.get()
+    if value is not _UNSET and value:
+        return value
+    if default is None:
+        default = os.getcwd()
+    return os.environ.get("TERMINAL_CWD", default)
