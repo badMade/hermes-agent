@@ -1155,12 +1155,31 @@ class QQAdapter(BasePlatformAdapter):
                         _att.get("filename", ""),
                     )
 
-        # Process all attachments uniformly (images, voice, files)
-        att_result = await self._process_attachments(attachments_raw)
-        image_urls = att_result["image_urls"]
-        image_media_types = att_result["image_media_types"]
-        voice_transcripts = att_result["voice_transcripts"]
-        attachment_info = att_result["attachment_info"]
+        # Process all attachments uniformly (images, voice, files), but skip
+        # downloading untrusted URLs when gateway auth already rejected the user.
+        process_attachments = True
+        runner = getattr(self, "gateway_runner", None)
+        if runner is None:
+            runner = getattr(getattr(self, "_message_handler", None), "__self__", None)
+        auth_fn = getattr(runner, "_is_user_authorized", None)
+        if callable(auth_fn):
+            source = self.build_source(
+                chat_id=user_openid,
+                user_id=user_openid,
+                chat_type="dm",
+            )
+            process_attachments = bool(auth_fn(source))
+
+        image_urls: List[str] = []
+        image_media_types: List[str] = []
+        voice_transcripts: List[str] = []
+        attachment_info = ""
+        if process_attachments:
+            att_result = await self._process_attachments(attachments_raw)
+            image_urls = att_result["image_urls"]
+            image_media_types = att_result["image_media_types"]
+            voice_transcripts = att_result["voice_transcripts"]
+            attachment_info = att_result["attachment_info"]
 
         # Append voice transcripts to the text body
         if voice_transcripts:
