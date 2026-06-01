@@ -52,7 +52,6 @@ import os
 import sys
 import urllib.error
 import urllib.request
-import uuid
 from typing import Any
 
 API_URL = "https://api.linear.app/graphql"
@@ -123,6 +122,32 @@ def cmd_list_teams(_args: argparse.Namespace) -> None:
     emit(gql(q).get("teams", {}).get("nodes", []))
 
 
+def _resolve_label_id(name: str) -> str | None:
+    """Map a label name to UUID."""
+    q = "query { issueLabels(first: 100) { nodes { id name } } }"
+    labels = gql(q).get("issueLabels", {}).get("nodes", [])
+    nl = name.lower()
+    for lbl in labels:
+        if lbl.get("name", "").lower() == nl:
+            return str(lbl["id"]) if "id" in lbl else None
+    return None
+
+
+def _resolve_assignee_id(name: str) -> str | None:
+    """Map a user name, displayName, or email to UUID."""
+    q = "query { users(first: 100) { nodes { id name email displayName } } }"
+    users = gql(q).get("users", {}).get("nodes", [])
+    nl = name.lower()
+    for u in users:
+        if (
+            u.get("name", "").lower() == nl
+            or u.get("displayName", "").lower() == nl
+            or u.get("email", "").lower() == nl
+        ):
+            return str(u["id"]) if "id" in u else None
+    return None
+
+
 def _resolve_team_id(key_or_name: str) -> str | None:
     """Map a team key (ENG) or name to UUID."""
     q = "query { teams(first: 100) { nodes { id key name } } }"
@@ -132,59 +157,6 @@ def _resolve_team_id(key_or_name: str) -> str | None:
         if t["key"].lower() == kl or t["name"].lower() == kl:
             return str(t["id"])
     return None
-
-
-def _resolve_user_id(name: str) -> str | None:
-    """Map a user name to UUID."""
-    if _is_uuid(name):
-        return name
-    q = "query { users(first: 100) { nodes { id name displayName email } } }"
-    users = gql(q).get("users", {}).get("nodes", [])
-    nl = name.lower()
-    for u in users:
-        if (
-            u.get("name", "").lower() == nl
-            or u.get("displayName", "").lower() == nl
-            or u.get("email", "").lower() == nl
-        ):
-            return str(u["id"])
-    return None
-
-
-
-def _get_user_id_or_exit(name: str) -> str:
-    uid = _resolve_user_id(name)
-    if not uid:
-        sys.stderr.write(f"Assignee not found: {name}\n")
-        sys.exit(1)
-    return uid
-
-def _get_label_id_or_exit(name: str) -> str:
-    lid = _resolve_label_id(name)
-    if not lid:
-        sys.stderr.write(f"Label not found: {name}\n")
-        sys.exit(1)
-    return lid
-
-def _resolve_label_id(name: str) -> str | None:
-    """Map a label name to UUID."""
-    if _is_uuid(name):
-        return name
-    q = "query { issueLabels(first: 100) { nodes { id name } } }"
-    labels = gql(q).get("issueLabels", {}).get("nodes", [])
-    nl = name.lower()
-    for l in labels:
-        if l["name"].lower() == nl:
-            return str(l["id"])
-    return None
-
-
-def _is_uuid(value: str) -> bool:
-    try:
-        uuid.UUID(value)
-        return True
-    except ValueError:
-        return False
 
 
 def cmd_list_projects(args: argparse.Namespace) -> None:
@@ -290,11 +262,19 @@ def cmd_create_issue(args: argparse.Namespace) -> None:
     if args.parent:
         inp["parentId"] = args.parent
 
-    if args.assignee:
-        inp["assigneeId"] = _get_user_id_or_exit(args.assignee)
-
     if args.label:
-        inp["labelIds"] = [_get_label_id_or_exit(args.label)]
+        lid = _resolve_label_id(args.label)
+        if not lid:
+            sys.stderr.write(f"Label not found: {args.label}\n")
+            sys.exit(1)
+        inp["labelIds"] = [lid]
+
+    if args.assignee:
+        aid = _resolve_assignee_id(args.assignee)
+        if not aid:
+            sys.stderr.write(f"Assignee not found: {args.assignee}\n")
+            sys.exit(1)
+        inp["assigneeId"] = aid
 
     q = """mutation($input: IssueCreateInput!) {
       issueCreate(input: $input) {
@@ -312,10 +292,18 @@ def cmd_update_issue(args: argparse.Namespace) -> None:
         inp["description"] = args.description
     if args.priority is not None:
         inp["priority"] = args.priority
-    if getattr(args, "assignee", None):
-        inp["assigneeId"] = _get_user_id_or_exit(args.assignee)
     if getattr(args, "label", None):
-        inp["labelIds"] = [_get_label_id_or_exit(args.label)]
+        lid = _resolve_label_id(args.label)
+        if not lid:
+            sys.stderr.write(f"Label not found: {args.label}\n")
+            sys.exit(1)
+        inp["labelIds"] = [lid]
+    if getattr(args, "assignee", None):
+        aid = _resolve_assignee_id(args.assignee)
+        if not aid:
+            sys.stderr.write(f"Assignee not found: {args.assignee}\n")
+            sys.exit(1)
+        inp["assigneeId"] = aid
     if not inp:
         sys.stderr.write("No update fields provided.\n")
         sys.exit(1)
