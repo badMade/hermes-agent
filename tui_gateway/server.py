@@ -4463,14 +4463,22 @@ def _(rid, params: dict) -> dict:
             except ValueError as exc:
                 return _err(rid, 4018, f"quick command parse error: {exc}")
             if not argv:
-                return _err(rid, 4018, f"quick command '{name}' has no command defined")
-            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
-            r = subprocess.run(
-                argv,
-                shell=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
+        if qc.get("type") == "exec":
+            import shlex
+            try:
+                cmd_list = shlex.split(qc.get("command", ""))
+                if not cmd_list:
+                    raise ValueError("Empty command")
+                r = subprocess.run(
+                    cmd_list,
+                    shell=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            except (ValueError, subprocess.SubprocessError) as e:
+                # Handle error appropriately for your gateway
+                r = None
                 env=sanitized_env,
             )
             output = (
