@@ -84,7 +84,10 @@ def test_tool_add_resource_rejects_local_paths(tmp_path):
 
     for local_url in (str(sample), sample.as_uri(), str(tmp_path / "missing.md")):
         result = json.loads(provider._tool_add_resource({"url": local_url}))
-        assert result["error"] == "Local file and directory paths are not allowed"
+        assert result["error"] == (
+            "Local filesystem paths are not allowed for viking_add_resource; "
+            "provide a remote URL instead."
+        )
 
     provider._client.upload_temp_file.assert_not_called()
     provider._client.post.assert_not_called()
