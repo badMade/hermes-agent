@@ -9798,9 +9798,8 @@ class AIAgent:
         if isinstance(_san_content, str) and _san_content:
             _stripped_content = self._strip_think_blocks(_san_content)
             if isinstance(_stripped_content, str):
-                _san_content = sanitize_context(_stripped_content).strip()
-            else:
-                _san_content = sanitize_context(_san_content).strip()
+                _san_content = _stripped_content
+            _san_content = sanitize_context(_san_content).strip()
 
         msg = {
             "role": "assistant",
