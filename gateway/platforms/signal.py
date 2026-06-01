@@ -247,22 +247,16 @@ class SignalAdapter(BasePlatformAdapter):
         self._recipient_number_by_uuid: Dict[str, str] = {}
         self._recipient_cache_lock = asyncio.Lock()
 
-<<<<<<< HEAD
         # Set by GatewayRunner after instantiation so reaction hooks can
         # consult the runner's authorization decision before emitting reactions.
         self.gateway_runner: Optional["GatewayRunner"] = None
 
-        logger.info("Signal adapter initialized: url=%s account=%s groups=%s",
-                     self.http_url, redact_phone(self.account),
-                     "enabled" if self.group_allow_from else "disabled")
-=======
         logger.info(
             "Signal adapter initialized: url=%s account=%s groups=%s",
             self.http_url,
             redact_phone(self.account),
             "enabled" if self.group_allow_from else "disabled",
         )
->>>>>>> origin/main
 
     # ------------------------------------------------------------------
     # Lifecycle
