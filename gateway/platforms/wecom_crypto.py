@@ -13,7 +13,6 @@ import secrets
 import socket
 import struct
 from typing import Optional
-import defusedxml.ElementTree as ET
 import xml.etree.ElementTree as NativeET
 
 from cryptography.hazmat.backends import default_backend
