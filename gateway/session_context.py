@@ -154,3 +154,22 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+
+def get_terminal_cwd(default: str = "") -> str:
+    """Return the active terminal working directory.
+
+    Resolution order:
+    1. ``TERMINAL_CWD`` env var (set per-cron-job by cron.scheduler.run_job
+       and per-session by gateway terminal tooling — process-global is fine
+       here because terminal cwd is intentionally shared across the
+       process's tool surface).
+    2. *default*
+
+    The terminal cwd is read by run_agent's context-file discovery and
+    checkpoint manager to keep file/terminal operations rooted in the
+    user's project rather than the gateway/cron process cwd.
+    """
+    import os
+
+    return os.environ.get("TERMINAL_CWD", "").strip() or default

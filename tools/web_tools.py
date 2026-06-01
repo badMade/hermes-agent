@@ -133,8 +133,13 @@ def _get_backend() -> str:
     # Fallback for manual / legacy config — pick the highest-priority
     # available backend. Firecrawl also counts as available when the managed
     # tool gateway is configured for Nous subscribers.
-    # Free-tier backends (searxng / brave-free / ddgs) trail the paid ones so
+    # Free-tier backends (searxng / brave-free) trail the paid ones so
     # existing paid setups are unaffected.
+    #
+    # ddgs is intentionally NOT in auto-detect: it ships in dev installs
+    # via the test extras, so its mere presence would silently downgrade
+    # users who never asked for DuckDuckGo. It's only picked when explicitly
+    # configured (web.backend: ddgs).
     backend_candidates = (
         ("firecrawl", _has_env("FIRECRAWL_API_KEY") or _has_env("FIRECRAWL_API_URL") or _is_tool_gateway_ready()),
         ("parallel", _has_env("PARALLEL_API_KEY")),
@@ -142,7 +147,6 @@ def _get_backend() -> str:
         ("exa", _has_env("EXA_API_KEY")),
         ("searxng", _has_env("SEARXNG_URL")),
         ("brave-free", _has_env("BRAVE_SEARCH_API_KEY")),
-        ("ddgs", _ddgs_package_importable()),
     )
     for backend, available in backend_candidates:
         if available:
@@ -204,11 +208,11 @@ def _is_backend_available(backend: str) -> bool:
     if backend == "brave-free":
         return _has_env("BRAVE_SEARCH_API_KEY")
     if backend == "ddgs":
-        return _ddgs_package_importable()
+        return _ddgs_package_available()
     return False
 
 
-def _ddgs_package_importable() -> bool:
+def _ddgs_package_available() -> bool:
     """Return True when the ``ddgs`` Python package can be imported.
 
     ddgs is the only backend whose availability is driven by a package
@@ -221,6 +225,12 @@ def _ddgs_package_importable() -> bool:
         return True
     except ImportError:
         return False
+
+
+# Backward-compat alias for older tests / external callers that imported
+# the previous name. New code should call ``_ddgs_package_available``.
+def _ddgs_package_importable() -> bool:
+    return _ddgs_package_available()
 
 # ─── Firecrawl Client ────────────────────────────────────────────────────────
 

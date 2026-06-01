@@ -83,6 +83,22 @@ def _is_loopback_host(host: str) -> bool:
     return host.strip().lower() in _LOOPBACK_HOSTS
 
 
+_PLACEHOLDER_SECRET_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
+
+
+def _looks_unresolved_secret(secret: str) -> bool:
+    """True when `secret` is an unresolved ``${VAR}`` env-template literal.
+
+    Operators sometimes hand-edit configs and forget that ``${WEBHOOK_SECRET}``
+    is a placeholder — when the env var is unset, the literal string flows
+    through to the validator and HMAC computes against it. Anyone who guesses
+    the literal placeholder can then forge a signature, defeating auth.
+    """
+    if not secret:
+        return False
+    return bool(_PLACEHOLDER_SECRET_RE.fullmatch(secret.strip()))
+
+
 def check_webhook_requirements() -> bool:
     """Check if webhook adapter dependencies are available."""
     return AIOHTTP_AVAILABLE
@@ -590,6 +606,13 @@ class WebhookAdapter(BasePlatformAdapter):
         self, request: "web.Request", body: bytes, secret: str
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
+        # Reject unresolved ${VAR} env-template placeholders — these would
+        # otherwise be HMAC'd verbatim, accepting any caller who guesses the
+        # literal ``${WEBHOOK_SECRET}`` string as the secret.
+        if _looks_unresolved_secret(secret):
+            logger.warning("[webhook] Unresolved placeholder secret configured; rejecting")
+            return False
+
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
         gh_sig = request.headers.get("X-Hub-Signature-256", "")
         if gh_sig:

@@ -2321,8 +2321,7 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
             })
 
     if (
-        not _is_local_backend()
-        and not auto_local_this_nav
+        not auto_local_this_nav
         and not _allow_private_urls()
         and not _is_safe_url(url)
     ):
