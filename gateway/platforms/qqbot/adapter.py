@@ -1130,6 +1130,21 @@ class QQAdapter(BasePlatformAdapter):
         if not self._is_dm_allowed(user_openid):
             return
 
+        source = self.build_source(
+            chat_id=user_openid,
+            user_id=user_openid,
+            chat_type="dm",
+        )
+        allow_attachments = True
+        gateway_runner = getattr(self, "gateway_runner", None)
+        if (
+            gateway_runner is not None
+            and hasattr(gateway_runner, "_is_user_authorized")
+            and not gateway_runner._is_user_authorized(source)
+        ):
+            logger.debug("[%s] C2C message blocked by ACL: user=%s", self._log_tag, user_openid)
+            allow_attachments = False
+
         text = content
         attachments_raw = d.get("attachments")
         logger.info(
@@ -1156,7 +1171,15 @@ class QQAdapter(BasePlatformAdapter):
                     )
 
         # Process all attachments uniformly (images, voice, files)
-        att_result = await self._process_attachments(attachments_raw)
+        if allow_attachments:
+            att_result = await self._process_attachments(attachments_raw)
+        else:
+            att_result = {
+                "image_urls": [],
+                "image_media_types": [],
+                "voice_transcripts": [],
+                "attachment_info": "",
+            }
         image_urls = att_result["image_urls"]
         image_media_types = att_result["image_media_types"]
         voice_transcripts = att_result["voice_transcripts"]
@@ -1195,11 +1218,7 @@ class QQAdapter(BasePlatformAdapter):
 
         self._chat_type_map[user_openid] = "c2c"
         event = MessageEvent(
-            source=self.build_source(
-                chat_id=user_openid,
-                user_id=user_openid,
-                chat_type="dm",
-            ),
+            source=source,
             text=text,
             message_type=self._detect_message_type(image_urls, image_media_types),
             raw_message=d,
