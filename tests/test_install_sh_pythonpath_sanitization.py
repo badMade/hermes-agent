@@ -9,7 +9,14 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-INSTALL_SH = REPO_ROOT / "scripts" / "install.sh"
+INSTALL_SH = next(
+    (
+        path
+        for path in (REPO_ROOT / "scripts" / "install.sh", REPO_ROOT / "install.sh")
+        if path.exists()
+    ),
+    REPO_ROOT / "scripts" / "install.sh",
+)
 
 
 def test_install_script_unsets_pythonpath_and_pythonhome_early() -> None:
