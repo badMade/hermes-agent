@@ -192,9 +192,6 @@ class TestParseReasoningEffort:
 class TestIsTermux:
     """Tests for is_termux() environment detection."""
 
-class TestIsTermux:
-    """Tests for is_termux() environment detection."""
-
     def test_prefix_not_in_environ(self, monkeypatch):
         """Returns False if PREFIX is not in os.environ."""
         monkeypatch.delenv("PREFIX", raising=False)
