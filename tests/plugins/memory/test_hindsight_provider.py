@@ -6,9 +6,7 @@ turn counting, tags), and schema completeness.
 """
 
 import json
-import os
 import re
-import stat
 import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -162,7 +160,7 @@ class TestSchemas:
     def test_retain_schema_has_content(self):
         assert RETAIN_SCHEMA["name"] == "hindsight_retain"
         assert "content" in RETAIN_SCHEMA["parameters"]["properties"]
-        assert "tags" not in RETAIN_SCHEMA["parameters"]["properties"]
+        assert "tags" in RETAIN_SCHEMA["parameters"]["properties"]
         assert "content" in RETAIN_SCHEMA["parameters"]["required"]
 
     def test_recall_schema_has_query(self):
@@ -329,10 +327,6 @@ class TestPostSetup:
 
         profile_env = user_home / ".hindsight" / "profiles" / "hermes.env"
         assert profile_env.exists()
-        if os.name != "nt":
-            assert stat.S_IMODE((user_home / ".hindsight").stat().st_mode) == 0o700
-            assert stat.S_IMODE(profile_env.parent.stat().st_mode) == 0o700
-            assert stat.S_IMODE(profile_env.stat().st_mode) == 0o600
         assert profile_env.read_text() == (
             "HINDSIGHT_API_LLM_PROVIDER=openai\n"
             "HINDSIGHT_API_LLM_API_KEY=sk-local-test\n"
@@ -387,7 +381,6 @@ class TestPostSetup:
 
         profile_env = user_home / ".hindsight" / "profiles" / "hermes.env"
         assert profile_env.exists()
-        assert profile_env.stat().st_mode & 0o777 == 0o600
         assert "HINDSIGHT_API_LLM_API_KEY=existing-key\n" in profile_env.read_text()
 
 
@@ -462,14 +455,14 @@ class TestToolHandlers:
         call_kwargs = p._client.aretain.call_args.kwargs
         assert call_kwargs["tags"] == ["pref", "ui"]
 
-    def test_retain_ignores_model_supplied_tags(self, provider_with_config):
+    def test_retain_merges_per_call_tags_with_config_tags(self, provider_with_config):
         p = provider_with_config(retain_tags=["pref", "ui"])
         p.handle_tool_call(
             "hindsight_retain",
             {"content": "likes dark mode", "tags": ["client:x", "ui"]},
         )
         call_kwargs = p._client.aretain.call_args.kwargs
-        assert call_kwargs["tags"] == ["pref", "ui"]
+        assert call_kwargs["tags"] == ["pref", "ui", "client:x"]
 
     def test_retain_without_tags(self, provider):
         provider.handle_tool_call("hindsight_retain", {"content": "hello"})

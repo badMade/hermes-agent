@@ -73,6 +73,7 @@ from gateway.platforms.base import (
 from gateway.platforms.helpers import strip_markdown
 
 logger = logging.getLogger(__name__)
+_QQ_MEDIA_DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024
 
 
 class QQCloseError(Exception):
@@ -239,6 +240,7 @@ class QQAdapter(BasePlatformAdapter):
         # box; callers can override with set_interaction_callback(None) or
         # register a custom handler.
         self._interaction_callback = self._default_interaction_dispatch
+        self._interaction_authorizer: Optional[Callable[[Any], bool]] = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -883,6 +885,10 @@ class QQAdapter(BasePlatformAdapter):
         """
         self._interaction_callback = callback
 
+    def set_interaction_authorizer(self, authorizer: Optional[Callable[[Any], bool]]) -> None:
+        """Register an optional authorization callback for button interactions."""
+        self._interaction_authorizer = authorizer
+
     async def _on_interaction(self, d: Any) -> None:
         """Handle an ``INTERACTION_CREATE`` event.
 
@@ -1004,6 +1010,14 @@ class QQAdapter(BasePlatformAdapter):
         button_data = event.button_data
         if not button_data:
             return
+        if not self._is_interaction_authorized(event):
+            logger.warning(
+                "[%s] Dropping unauthorized interaction %s from %s",
+                self._log_tag,
+                event.id,
+                event.operator_openid or "(unknown)",
+            )
+            return
 
         approval = parse_approval_button_data(button_data)
         if approval is not None:
@@ -1042,6 +1056,41 @@ class QQAdapter(BasePlatformAdapter):
             "[%s] Unrecognised button_data %r from interaction %s",
             self._log_tag, button_data, event.id,
         )
+
+    def _is_interaction_authorized(self, event: InteractionEvent) -> bool:
+        """Check whether an interaction click should be processed."""
+        chat_type = "group" if event.scene in {"group", "guild"} else "dm"
+        chat_id = event.group_openid or event.channel_id or event.guild_id or event.user_openid
+        user_id = event.operator_openid
+        source = self.build_source(chat_id=chat_id, user_id=user_id, chat_type=chat_type)
+
+        if callable(self._interaction_authorizer):
+            try:
+                return bool(self._interaction_authorizer(source))
+            except Exception as exc:
+                logger.warning(
+                    "[%s] Interaction authorizer failed; denying click: %s",
+                    self._log_tag,
+                    exc,
+                )
+                return False
+
+        allowed_users_raw = os.getenv("QQ_ALLOWED_USERS", "").strip()
+        if allowed_users_raw:
+            allowed_users = [
+                entry.strip().lower()
+                for entry in allowed_users_raw.split(",")
+                if entry.strip()
+            ]
+            operator = (user_id or "").strip().lower()
+            if "*" not in allowed_users and operator not in allowed_users:
+                return False
+
+        if event.scene in {"group", "guild"}:
+            return self._is_group_allowed(chat_id, user_id)
+        if event.scene == "c2c":
+            return self._is_dm_allowed(user_id)
+        return False
 
     @staticmethod
     def _write_update_response(answer: str, operator: str = "") -> None:
@@ -1622,17 +1671,14 @@ class QQAdapter(BasePlatformAdapter):
             return None
 
         try:
-            resp = await self._http_client.get(
+            data = await self._download_limited_bytes(
                 url,
-                timeout=30.0,
                 headers=self._qq_media_headers(url),
+                context="attachment",
             )
-            resp.raise_for_status()
-            data = resp.content
-        except Exception as exc:
-            logger.debug(
-                "[%s] Download failed for %s: %s", self._log_tag, url[:80], exc
-            )
+        except Exception:
+            data = None
+        if data is None:
             return None
 
         if content_type.startswith("image/"):
@@ -1689,42 +1735,63 @@ class QQAdapter(BasePlatformAdapter):
     async def _download_limited_bytes(
         self,
         url: str,
+        *,
         headers: Optional[Dict[str, str]] = None,
         context: str = "attachment",
-        max_bytes: int = 25 * 1024 * 1024,
+        max_bytes: int = _QQ_MEDIA_DOWNLOAD_MAX_BYTES,
     ) -> Optional[bytes]:
-        """Download URL content, returning None if the response exceeds max_bytes."""
+        """Download bytes with an explicit maximum size cap."""
         if not self._http_client:
             return None
         request_headers = headers or {}
-        async with self._http_client.stream(
-            "GET", url, headers=request_headers, timeout=30.0, follow_redirects=True
-        ) as resp:
-            resp.raise_for_status()
-            cl = resp.headers.get("content-length")
-            if cl is not None:
-                try:
-                    if int(cl) > max_bytes:
+        try:
+            async with self._http_client.stream(
+                "GET",
+                url,
+                headers=request_headers,
+                timeout=30.0,
+                follow_redirects=True,
+            ) as resp:
+                resp.raise_for_status()
+                content_length = resp.headers.get("content-length")
+                if content_length:
+                    try:
+                        if int(content_length) > max_bytes:
+                            logger.warning(
+                                "[%s] %s too large from %s (content-length=%s > %s)",
+                                self._log_tag,
+                                context,
+                                url[:120],
+                                content_length,
+                                max_bytes,
+                            )
+                            return None
+                    except ValueError:
+                        pass
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in resp.aiter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
                         logger.warning(
-                            "[%s] %s download rejected: Content-Length %s > %d",
-                            self._log_tag, context, cl, max_bytes,
+                            "[%s] %s stream exceeded limit from %s (%d > %d)",
+                            self._log_tag,
+                            context,
+                            url[:120],
+                            total,
+                            max_bytes,
                         )
                         return None
-                except ValueError:
-                    pass
-            chunks: list[bytes] = []
-            total = 0
-            async for chunk in resp.aiter_bytes():
-                total += len(chunk)
-                if total > max_bytes:
-                    logger.warning(
-                        "[%s] %s download aborted: exceeded %d bytes",
-                        self._log_tag, context, max_bytes,
-                    )
-                    return None
-                chunks.append(chunk)
-            return b"".join(chunks)
-
+                    chunks.append(chunk)
+                return b"".join(chunks)
+        except Exception as exc:
+            logger.debug(
+                "[%s] Download failed for %s: %s",
+                self._log_tag,
+                url[:120],
+                exc,
+            )
+            return None
     async def _stt_voice_attachment(
             self,
             url: str,
@@ -1779,19 +1846,18 @@ class QQAdapter(BasePlatformAdapter):
                 is_pre_wav,
                 bool(download_headers),
             )
-            resp = await self._http_client.get(
+            audio_data = await self._download_limited_bytes(
                 download_url,
-                timeout=30.0,
                 headers=download_headers,
-                follow_redirects=True,
+                context="voice attachment",
             )
-            resp.raise_for_status()
-            audio_data = resp.content
+            if audio_data is None:
+                return None
             logger.debug(
                 "[%s] STT: downloaded %d bytes, content_type=%s",
                 self._log_tag,
                 len(audio_data),
-                resp.headers.get("content-type", "unknown"),
+                content_type or "unknown",
             )
 
             if len(audio_data) < 10:

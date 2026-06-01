@@ -1700,6 +1700,107 @@ class TestDefaultInteractionDispatch:
         assert resolve_calls == [("s", "deny", False)]
 
     @pytest.mark.asyncio
+    async def test_approval_click_requires_gateway_authorization(self):
+        adapter = self._make_adapter()
+        adapter.set_interaction_authorizer(lambda source: False)
+        resolve_calls = []
+
+        def fake_resolve(session_key, choice, resolve_all=False):
+            resolve_calls.append((session_key, choice, resolve_all))
+            return 1
+
+        import tools.approval
+        orig = tools.approval.resolve_gateway_approval
+        tools.approval.resolve_gateway_approval = fake_resolve
+        try:
+            from gateway.platforms.qqbot.keyboards import parse_interaction_event
+            event = parse_interaction_event({
+                "id": "i",
+                "chat_type": 1,
+                "group_openid": "group-1",
+                "group_member_openid": "attacker",
+                "data": {"resolved": {"button_data": "approve:sess-abc:allow-once"}},
+            })
+            await adapter._default_interaction_dispatch(event)
+        finally:
+            tools.approval.resolve_gateway_approval = orig
+
+        assert resolve_calls == []
+
+
+    @pytest.mark.asyncio
+    async def test_approval_click_respects_qq_allowed_users_without_gateway_authorizer(
+            self, monkeypatch,
+    ):
+        adapter = self._make_adapter()
+        monkeypatch.setenv("QQ_ALLOWED_USERS", "owner")
+        resolve_calls = []
+
+        def fake_resolve(session_key, choice, resolve_all=False):
+            resolve_calls.append((session_key, choice, resolve_all))
+            return 1
+
+        import tools.approval
+        orig = tools.approval.resolve_gateway_approval
+        tools.approval.resolve_gateway_approval = fake_resolve
+        try:
+            from gateway.platforms.qqbot.keyboards import parse_interaction_event
+            event = parse_interaction_event({
+                "id": "i", "chat_type": 1,
+                "group_openid": "group-1", "group_member_openid": "attacker",
+                "data": {"resolved": {"button_data": "approve:s:allow-always"}},
+            })
+            await adapter._default_interaction_dispatch(event)
+        finally:
+            tools.approval.resolve_gateway_approval = orig
+
+        assert resolve_calls == []
+
+    @pytest.mark.asyncio
+    async def test_update_prompt_click_requires_gateway_authorization(
+            self, tmp_path, monkeypatch,
+    ):
+        adapter = self._make_adapter()
+        adapter.set_interaction_authorizer(lambda source: False)
+        hermes_home = tmp_path / "hermes_home"
+        hermes_home.mkdir()
+        monkeypatch.setattr(
+            "hermes_constants.get_hermes_home",
+            lambda: hermes_home,
+        )
+
+        from gateway.platforms.qqbot.keyboards import parse_interaction_event
+        event = parse_interaction_event({
+            "id": "i", "chat_type": 1,
+            "group_openid": "group-1", "group_member_openid": "attacker",
+            "data": {"resolved": {"button_data": "update_prompt:y"}},
+        })
+        await adapter._default_interaction_dispatch(event)
+
+        assert not (hermes_home / ".update_response").exists()
+
+    @pytest.mark.asyncio
+    async def test_interaction_authorizer_receives_message_like_source(self):
+        adapter = self._make_adapter()
+        seen = []
+        adapter.set_interaction_authorizer(lambda source: seen.append(source) or False)
+
+        from gateway.platforms.qqbot.keyboards import parse_interaction_event
+        event = parse_interaction_event({
+            "id": "i", "chat_type": 1,
+            "group_openid": "group-1", "group_member_openid": "user-1",
+            "data": {"resolved": {"button_data": "approve:s:deny"}},
+        })
+
+        await adapter._default_interaction_dispatch(event)
+
+        assert len(seen) == 1
+        assert seen[0].platform.value == "qqbot"
+        assert seen[0].chat_id == "group-1"
+        assert seen[0].chat_type == "group"
+        assert seen[0].user_id == "user-1"
+
+    @pytest.mark.asyncio
     async def test_update_prompt_click_writes_response_file(self, tmp_path, monkeypatch):
         """update_prompt:y click writes 'y' to ~/.hermes/.update_response."""
         adapter = self._make_adapter()
