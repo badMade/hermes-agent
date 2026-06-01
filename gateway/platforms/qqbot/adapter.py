@@ -1142,6 +1142,12 @@ class QQAdapter(BasePlatformAdapter):
         allow_attachment_processing = True
         if callable(is_authorized):
             allow_attachment_processing = bool(is_authorized(source))
+        if not allow_attachment_processing and attachments_raw:
+            logger.info(
+                "[%s] Skipping attachment processing for unauthorized C2C user %s",
+                self._log_tag,
+                user_openid,
+            )
         logger.info(
             "[%s] C2C message: id=%s content=%r attachments=%s",
             self._log_tag,
