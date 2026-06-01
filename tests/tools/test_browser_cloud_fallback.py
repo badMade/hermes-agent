@@ -120,7 +120,7 @@ class TestCloudProviderFailClosed:
 
     @pytest.mark.parametrize(
         "session_metadata",
-        [None, {}, {"session_name": "cloud-sess", "cdp_url": None}],
+        [None, {}, {"session_name": "cloud-sess", "cdp_url": None}, {"cdp_url": "   "}],
     )
     def test_cloud_returns_invalid_session_fails_closed(self, monkeypatch, session_metadata):
         """Invalid cloud metadata must not silently select local --session mode."""

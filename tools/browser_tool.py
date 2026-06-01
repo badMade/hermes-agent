@@ -1793,7 +1793,8 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
                     f"Cloud browser provider {provider_name} returned invalid "
                     f"session metadata: {session_info!r}"
                 )
-            if not session_info.get("cdp_url"):
+            raw_cdp_url = str(session_info.get("cdp_url") or "").strip()
+            if not raw_cdp_url:
                 raise RuntimeError(
                     f"Cloud browser provider {provider_name} returned session "
                     "metadata without a CDP URL; refusing to fall back to local "
@@ -1803,7 +1804,13 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
             # Some cloud providers (including Browser-Use v3) return an HTTP
             # CDP discovery URL instead of a raw websocket endpoint.
             session_info = dict(session_info)
-            session_info["cdp_url"] = _resolve_cdp_override(str(session_info["cdp_url"]))
+            session_info["cdp_url"] = _resolve_cdp_override(raw_cdp_url)
+            if not session_info["cdp_url"]:
+                raise RuntimeError(
+                    f"Cloud browser provider {provider_name} returned session "
+                    "metadata without a CDP URL; refusing to fall back to local "
+                    "Chromium"
+                )
 
     with _cleanup_lock:
         # Double-check: another thread may have created a session while we
