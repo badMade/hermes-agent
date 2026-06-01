@@ -4472,12 +4472,9 @@ def _(rid, params: dict) -> dict:
     qcmds = _load_cfg().get("quick_commands", {})
     if name in qcmds:
         qc = qcmds[name]
-        if qc.get("type") == "exec":
-            import shlex
-            from tools.environments.local import _sanitize_subprocess_env
-            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
             r = subprocess.run(
-                shlex.split(qc.get("command", "")),
+                qc.get("command", ""),
+                shell=True,
                 capture_output=True,
                 text=True,
                 timeout=30,
