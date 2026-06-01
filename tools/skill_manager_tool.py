@@ -146,7 +146,8 @@ def _is_local_skill(skill_path: Path) -> bool:
 def _external_skill_mutation_error(name: str) -> str:
     return (
         f"Skill '{name}' is in an external directory and cannot be modified. "
-        f"Copy it to {display_hermes_home()}/skills/ first if you want to edit it."
+        f"To edit it, ask the user to copy it to {SKILLS_DIR}/ first, "
+        f"or use the 'create' action to create a new local skill with the updated content."
     )
 
 
