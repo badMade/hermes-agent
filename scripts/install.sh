@@ -1145,11 +1145,15 @@ EOF
     # /root/.bash_profile doesn't either.  So verify with `command -v` and
     # fall back to writing a PATH guard into /root/.bashrc when needed.
     if [ "$ROOT_FHS_LAYOUT" = true ]; then
+        ROOT_HOME="$(getent passwd root 2>/dev/null | cut -d: -f6)"
+        [ -n "$ROOT_HOME" ] || ROOT_HOME="/root"
+        if [ ! -d "$ROOT_HOME" ]; then
+            ROOT_HOME="/root"
+        fi
         export PATH="$command_link_dir:$PATH"
-        # Probe a fresh non-login interactive bash the way the user will use it.
-        # `bash -i -c` sources ~/.bashrc but NOT ~/.bash_profile or /etc/profile,
-        # which is the exact scenario where RHEL root loses /usr/local/bin.
-        if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v hermes' \
+        # Probe a minimal shell environment without sourcing user startup files.
+        if env -i PATH="/usr/local/bin:/usr/bin:/bin" HOME="$ROOT_HOME" TERM="${TERM:-dumb}" \
+                bash -c 'command -v hermes' \
                 >/dev/null 2>&1; then
             log_info "/usr/local/bin is already on PATH for all shells"
             log_success "hermes command ready"
@@ -1159,8 +1163,17 @@ EOF
         log_info "hermes not on PATH in non-login shells (common on RHEL-family)"
         PATH_LINE='export PATH="/usr/local/bin:$PATH"'
         PATH_COMMENT='# Hermes Agent — ensure /usr/local/bin is on PATH (RHEL non-login shells)'
-        for SHELL_CONFIG in "$HOME/.bashrc" "$HOME/.bash_profile"; do
+        for SHELL_CONFIG in "$ROOT_HOME/.bashrc" "$ROOT_HOME/.bash_profile"; do
             [ -f "$SHELL_CONFIG" ] || continue
+            [ ! -L "$SHELL_CONFIG" ] || continue
+            if ! stat_out="$(stat -Lc '%u %a' "$SHELL_CONFIG" 2>/dev/null)"; then
+                continue
+            fi
+            shell_uid="${stat_out% *}"
+            shell_mode="${stat_out#* }"
+            # Must be root-owned and not group/world writable.
+            [ "$shell_uid" = "0" ] || continue
+            [ $((8#$shell_mode & 022)) -eq 0 ] || continue
             if ! grep -v '^[[:space:]]*#' "$SHELL_CONFIG" 2>/dev/null \
                     | grep -qE 'PATH=.*(/usr/local/bin|\$command_link_dir)'; then
                 echo "" >> "$SHELL_CONFIG"

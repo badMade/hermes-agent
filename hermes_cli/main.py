@@ -7217,19 +7217,22 @@ def _ensure_fhs_path_guard() -> None:
     if not fhs_link.is_symlink() and not fhs_link.exists():
         return
 
-    # Probe a fresh non-login interactive bash the way the user will use it.
-    # ``bash -i -c`` sources ~/.bashrc but NOT ~/.bash_profile or /etc/profile,
-    # which is the exact scenario where RHEL root loses /usr/local/bin.
-    home = os.environ.get("HOME") or "/root"
+    # Resolve root's real home from passwd instead of trusting HOME.
+    try:
+        import pwd
+
+        home = pwd.getpwuid(0).pw_dir or "/root"
+    except Exception:
+        home = "/root"
     try:
         probe = subprocess.run(
             [
                 "env",
                 "-i",
                 f"HOME={home}",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
                 f"TERM={os.environ.get('TERM', 'dumb')}",
                 "bash",
-                "-i",
                 "-c",
                 "command -v hermes",
             ],
@@ -7249,7 +7252,14 @@ def _ensure_fhs_path_guard() -> None:
     wrote_any = False
     for candidate in (".bashrc", ".bash_profile"):
         cfg = Path(home) / candidate
-        if not cfg.is_file():
+        if not cfg.is_file() or cfg.is_symlink():
+            continue
+        try:
+            st = cfg.stat()
+        except OSError:
+            continue
+        # Root-only: refuse files not owned by root or writable by group/world.
+        if st.st_uid != 0 or (st.st_mode & 0o022):
             continue
         try:
             existing = cfg.read_text(errors="replace")
