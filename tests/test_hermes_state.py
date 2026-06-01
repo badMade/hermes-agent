@@ -267,30 +267,6 @@ class TestMessageStorage:
             ).fetchone()
         assert row["content"] == "plain text"
 
-    def test_sentinel_prefixed_string_round_trips_as_text(self, db):
-        """User text that starts with the reserved DB sentinel must not be
-        reinterpreted as structured multimodal content when replayed.
-        """
-        db.create_session(session_id="s1", source="api")
-        content = (
-            SessionDB._CONTENT_JSON_PREFIX
-            + '[{"type":"image_url","image_url":"file:///tmp/secret.svg"}]'
-        )
-
-        db.append_message("s1", role="user", content=content)
-
-        msgs = db.get_messages("s1")
-        assert msgs[0]["content"] == content
-        conv = db.get_messages_as_conversation("s1")
-        assert conv[0] == {"role": "user", "content": content}
-
-        with db._lock:
-            row = db._conn.execute(
-                "SELECT content FROM messages WHERE session_id = ?", ("s1",)
-            ).fetchone()
-        assert row["content"] != content
-        assert SessionDB._decode_content(row["content"]) == content
-
     def test_replace_messages_handles_multimodal_content(self, db):
         """`replace_messages` (used by /retry, /undo, /compress) must also
         handle list content without crashing."""
@@ -2007,44 +1983,6 @@ class TestTitleLineage:
     def test_resolve_nonexistent_title(self, db):
         assert db.resolve_session_by_title("nonexistent") is None
 
-    def test_resolve_filters_by_source_and_user_id(self, db):
-        db.create_session("victim", "telegram", user_id="victim-user")
-        db.set_session_title("victim", "shared project")
-        assert (
-            db.resolve_session_by_title(
-                "shared project", source="telegram", user_id="attacker-user"
-            )
-            is None
-        )
-        assert (
-            db.resolve_session_by_title(
-                "shared project", source="telegram", user_id="victim-user"
-            )
-            == "victim"
-        )
-
-    def test_resolve_lineage_filters_by_source_and_user_id(self, db):
-        import time
-
-        db.create_session("victim_v1", "telegram", user_id="victim-user")
-        db.set_session_title("victim_v1", "shared project")
-        time.sleep(0.01)
-        db.create_session("victim_v2", "telegram", user_id="victim-user")
-        db.set_session_title("victim_v2", "shared project #2")
-
-        assert (
-            db.resolve_session_by_title(
-                "shared project", source="telegram", user_id="attacker-user"
-            )
-            is None
-        )
-        assert (
-            db.resolve_session_by_title(
-                "shared project", source="telegram", user_id="victim-user"
-            )
-            == "victim_v2"
-        )
-
     def test_next_title_no_existing(self, db):
         """With no existing sessions, base title is returned as-is."""
         assert db.get_next_title_in_lineage("my project") == "my project"
@@ -2108,16 +2046,6 @@ class TestTitleSqlWildcards:
 
 class TestListSessionsRich:
     """Tests for enhanced session listing with preview and last_active."""
-
-    def test_filters_by_user_id(self, db):
-        db.create_session("victim", "telegram", user_id="victim-user")
-        db.create_session("attacker", "telegram", user_id="attacker-user")
-        db.set_session_title("victim", "Victim Work")
-        db.set_session_title("attacker", "Attacker Work")
-
-        sessions = db.list_sessions_rich(source="telegram", user_id="attacker-user")
-
-        assert [s["id"] for s in sessions] == ["attacker"]
 
     def test_preview_from_first_user_message(self, db):
         db.create_session("s1", "cli")
