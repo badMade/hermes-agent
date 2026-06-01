@@ -405,8 +405,6 @@ class TestSearchFilesFallbackHiddenPaths:
         env.cwd = "/"
 
         def execute(command, **kwargs):
-            import shlex
-
             if isinstance(command, str):
                 # We need to simulate shell pipe since `file_operations._search_files` issues
                 # `find ... | sort ... | tail ... | head ...`
