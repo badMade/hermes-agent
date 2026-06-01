@@ -133,7 +133,8 @@ def clear_session_vars(tokens: List) -> None:
         _SESSION_KEY,
     ):
         var.set("")
-    _TERMINAL_CWD.set("")
+    if _TERMINAL_CWD.get() is not _UNSET:
+        _TERMINAL_CWD.set("")
 
 
 def get_session_env(name: str, default: str = "") -> str:
