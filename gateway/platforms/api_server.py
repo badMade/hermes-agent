@@ -63,13 +63,16 @@ MAX_NORMALIZED_TEXT_LENGTH = 65_536  # 64 KB cap for normalized content parts
 MAX_CONTENT_LIST_SIZE = 1_000  # Max items when content is an array
 
 
-def _constant_time_equal(left: str, right: str) -> bool:
+def _constant_time_equal(left: Optional[str], right: Optional[str]) -> bool:
     """Compare text secrets without rejecting non-ASCII values.
 
     ``hmac.compare_digest`` raises ``TypeError`` when either side contains
     non-ASCII characters; encode both as UTF-8 first so unicode API keys
-    are compared safely in constant time.
+    are compared safely in constant time. A ``None`` on either side returns
+    ``False`` so callers that pass an unconfigured key don't crash.
     """
+    if left is None or right is None:
+        return False
     return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
