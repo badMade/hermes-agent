@@ -1011,7 +1011,7 @@ def _load_enabled_toolsets() -> list[str] | None:
         )
         if fallback_notice is not None:
             print(fallback_notice, file=sys.stderr, flush=True)
-        return enabled or None
+        return enabled
     except Exception:
         if fallback_notice is not None:
             print(
@@ -1803,8 +1803,11 @@ def _background_agent_kwargs(agent, task_id: str) -> dict:
         "acp_args": getattr(agent, "acp_args", None) or None,
         "model": getattr(agent, "model", None) or _resolve_model(),
         "max_iterations": _cfg_max_turns(cfg, 25),
-        "enabled_toolsets": getattr(agent, "enabled_toolsets", None)
-        or _load_enabled_toolsets(),
+        "enabled_toolsets": (
+            agent.enabled_toolsets
+            if getattr(agent, "enabled_toolsets", None) is not None
+            else _load_enabled_toolsets()
+        ),
         "quiet_mode": True,
         "verbose_logging": False,
         "ephemeral_system_prompt": getattr(agent, "ephemeral_system_prompt", None)
@@ -6223,11 +6226,12 @@ def _(rid, params: dict) -> dict:
         from toolsets import get_all_toolsets, get_toolset_info
 
         session = _sessions.get(params.get("session_id", ""))
-        enabled = (
-            set(getattr(session["agent"], "enabled_toolsets", []) or [])
+        enabled_toolsets = (
+            getattr(session["agent"], "enabled_toolsets", None)
             if session
-            else set(_load_enabled_toolsets() or [])
+            else _load_enabled_toolsets()
         )
+        enabled = set(enabled_toolsets or [])
 
         items = []
         for name in sorted(get_all_toolsets().keys()):
@@ -6239,7 +6243,7 @@ def _(rid, params: dict) -> dict:
                     "name": name,
                     "description": info["description"],
                     "tool_count": info["tool_count"],
-                    "enabled": name in enabled if enabled else True,
+                    "enabled": True if enabled_toolsets is None else name in enabled,
                     "tools": info["resolved_tools"],
                 }
             )
@@ -6363,11 +6367,12 @@ def _(rid, params: dict) -> dict:
         from toolsets import get_all_toolsets, get_toolset_info
 
         session = _sessions.get(params.get("session_id", ""))
-        enabled = (
-            set(getattr(session["agent"], "enabled_toolsets", []) or [])
+        enabled_toolsets = (
+            getattr(session["agent"], "enabled_toolsets", None)
             if session
-            else set(_load_enabled_toolsets() or [])
+            else _load_enabled_toolsets()
         )
+        enabled = set(enabled_toolsets or [])
 
         items = []
         for name in sorted(get_all_toolsets().keys()):
@@ -6379,7 +6384,7 @@ def _(rid, params: dict) -> dict:
                     "name": name,
                     "description": info["description"],
                     "tool_count": info["tool_count"],
-                    "enabled": name in enabled if enabled else True,
+                    "enabled": True if enabled_toolsets is None else name in enabled,
                 }
             )
         return _ok(rid, {"toolsets": items})
