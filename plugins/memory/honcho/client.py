@@ -324,16 +324,14 @@ class HonchoClientConfig:
     @classmethod
     def from_env(
         cls,
-        workspace_id: str = "hermes",
+        workspace_id: str | None = None,
         host: str | None = None,
     ) -> HonchoClientConfig:
         """Create config from environment variables (fallback)."""
         resolved_host = host or resolve_active_host()
-        # Keep explicit caller override, but avoid sharing the default
-        # workspace across non-default Hermes profiles.
-        resolved_workspace = (
-            resolved_host if workspace_id == "hermes" and resolved_host != "hermes" else workspace_id
-        )
+        # Keep explicit caller override; only auto-derive workspace from host
+        # when no workspace was provided.
+        resolved_workspace = resolved_host if workspace_id is None else workspace_id
         api_key = os.environ.get("HONCHO_API_KEY")
         base_url = os.environ.get("HONCHO_BASE_URL", "").strip() or None
         timeout = _resolve_optional_float(os.environ.get("HONCHO_TIMEOUT"))

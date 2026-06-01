@@ -458,6 +458,12 @@ class TestProfileScopedConfig:
         assert config.host == "hermes"
         assert config.workspace_id == "hermes"
 
+    def test_from_env_explicit_workspace_override_is_preserved(self):
+        with patch.dict(os.environ, {"HONCHO_API_KEY": "key"}):
+            config = HonchoClientConfig.from_env(host="hermes.coder", workspace_id="hermes")
+        assert config.host == "hermes.coder"
+        assert config.workspace_id == "hermes"
+
     def test_from_global_config_reads_profile_host_block(self, tmp_path):
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
