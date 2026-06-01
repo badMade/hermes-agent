@@ -36,6 +36,7 @@ needs to replace the import + call site:
     platform = get_session_env("HERMES_SESSION_PLATFORM", "")
 """
 
+import os
 from contextvars import ContextVar
 from typing import Any
 
@@ -62,6 +63,7 @@ _SESSION_ID: ContextVar = ContextVar("HERMES_SESSION_ID", default=_UNSET)
 _CRON_AUTO_DELIVER_PLATFORM: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_PLATFORM", default=_UNSET)
 _CRON_AUTO_DELIVER_CHAT_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_CHAT_ID", default=_UNSET)
 _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_THREAD_ID", default=_UNSET)
+_TERMINAL_CWD: ContextVar = ContextVar("TERMINAL_CWD", default=_UNSET)
 
 _VAR_MAP = {
     "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
@@ -75,6 +77,7 @@ _VAR_MAP = {
     "HERMES_CRON_AUTO_DELIVER_PLATFORM": _CRON_AUTO_DELIVER_PLATFORM,
     "HERMES_CRON_AUTO_DELIVER_CHAT_ID": _CRON_AUTO_DELIVER_CHAT_ID,
     "HERMES_CRON_AUTO_DELIVER_THREAD_ID": _CRON_AUTO_DELIVER_THREAD_ID,
+    "TERMINAL_CWD": _TERMINAL_CWD,
 }
 
 
@@ -145,8 +148,6 @@ def get_session_env(name: str, default: str = "") -> str:
        don't use ``set_session_vars`` at all).
     3. *default*
     """
-    import os
-
     var = _VAR_MAP.get(name)
     if var is not None:
         value = var.get()
@@ -154,3 +155,21 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+
+def set_terminal_cwd(cwd: str):
+    """Set the session-scoped terminal cwd and return a reset token."""
+    return _TERMINAL_CWD.set(cwd)
+
+
+def reset_terminal_cwd(token) -> None:
+    """Restore the previous session-scoped terminal cwd value."""
+    _TERMINAL_CWD.reset(token)
+
+
+def get_terminal_cwd(default: str | None = None) -> str | None:
+    """Return the session-scoped terminal cwd, falling back to ``os.environ``."""
+    value = _TERMINAL_CWD.get()
+    if value is not _UNSET:
+        return value
+    return os.getenv("TERMINAL_CWD", default)
