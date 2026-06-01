@@ -95,6 +95,59 @@ def test_resolve_runtime_provider_anthropic_explicit_override_skips_pool(monkeyp
     assert resolved.get("credential_pool") is None
 
 
+def test_resolve_runtime_provider_copilot_pool_respects_env_base_url(monkeypatch):
+    class _Entry:
+        access_token = "pool-token"
+        source = "gh_cli"
+        base_url = "https://api.githubcopilot.com"
+
+    class _Pool:
+        def has_credentials(self):
+            return True
+
+        def select(self):
+            return _Entry()
+
+    monkeypatch.setenv("COPILOT_API_BASE_URL", "https://enterprise-proxy.example/copilot/")
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "copilot")
+    monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
+    monkeypatch.setattr(rp, "_copilot_runtime_api_mode", lambda *a, **k: "chat_completions")
+
+    resolved = rp.resolve_runtime_provider(requested="copilot")
+
+    assert resolved["provider"] == "copilot"
+    assert resolved["api_key"] == "pool-token"
+    assert resolved["source"] == "gh_cli"
+    assert resolved["base_url"] == "https://enterprise-proxy.example/copilot"
+
+
+def test_resolve_runtime_provider_copilot_pool_respects_config_base_url(monkeypatch):
+    class _Entry:
+        access_token = "pool-token"
+        source = "gh_cli"
+        base_url = "https://api.githubcopilot.com"
+
+    class _Pool:
+        def has_credentials(self):
+            return True
+
+        def select(self):
+            return _Entry()
+
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "copilot")
+    monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
+    monkeypatch.setattr(rp, "_copilot_runtime_api_mode", lambda *a, **k: "chat_completions")
+    monkeypatch.setattr(
+        rp,
+        "_get_model_config",
+        lambda: {"provider": "copilot", "base_url": "https://config-proxy.example/copilot/"},
+    )
+
+    resolved = rp.resolve_runtime_provider(requested="copilot")
+
+    assert resolved["base_url"] == "https://config-proxy.example/copilot"
+
+
 def test_resolve_runtime_provider_falls_back_when_pool_empty(monkeypatch):
     class _Pool:
         def has_credentials(self):

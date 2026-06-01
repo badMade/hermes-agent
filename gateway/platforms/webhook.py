@@ -590,6 +590,15 @@ class WebhookAdapter(BasePlatformAdapter):
         self, request: "web.Request", body: bytes, secret: str
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
+        stripped_secret = secret.strip()
+        if (
+            not stripped_secret
+            or (stripped_secret.startswith("${") and stripped_secret.endswith("}"))
+            or (stripped_secret.startswith("{{") and stripped_secret.endswith("}}"))
+        ):
+            logger.warning("[webhook] Secret is empty or unresolved placeholder")
+            return False
+
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
         gh_sig = request.headers.get("X-Hub-Signature-256", "")
         if gh_sig:
