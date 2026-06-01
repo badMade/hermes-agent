@@ -154,3 +154,13 @@ def get_session_env(name: str, default: str = "") -> str:
             return value
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
+
+def get_terminal_cwd(default=None):
+    """Retrieve the terminal CWD from context or environment.
+
+    This is required by tools and run_agent to ensure backward compatibility
+    with environment-based CWD setting.
+    """
+    import os
+    # Fallback to TERMINAL_CWD or default
+    return os.getenv("TERMINAL_CWD", default)
