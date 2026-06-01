@@ -26,6 +26,7 @@ from gateway.platforms.helpers import MessageDeduplicator
 from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,
+    SessionSource,
     MessageType,
     SendResult,
 )
@@ -774,6 +775,24 @@ class MattermostAdapter(BasePlatformAdapter):
         if message_text.startswith("/"):
             msg_type = MessageType.COMMAND
 
+        source = self.build_source(
+            chat_id=channel_id,
+            chat_type=chat_type,
+            user_id=sender_id,
+            user_name=sender_name,
+            thread_id=thread_id,
+        )
+
+        # Pre-auth short-circuit to avoid attachment download/cache and
+        # background-session work for unauthorized users.
+        if not self._is_source_authorized(source):
+            logger.debug(
+                "Mattermost: dropping unauthorized message early (user=%s, channel=%s)",
+                sender_id,
+                channel_id,
+            )
+            return
+
         # Download file attachments immediately (URLs require auth headers
         # that downstream tools won't have).
         media_urls: List[str] = []
@@ -822,14 +841,6 @@ class MattermostAdapter(BasePlatformAdapter):
             elif media_types:
                 msg_type = MessageType.DOCUMENT
 
-        source = self.build_source(
-            chat_id=channel_id,
-            chat_type=chat_type,
-            user_id=sender_id,
-            user_name=sender_name,
-            thread_id=thread_id,
-        )
-
         # Per-channel ephemeral prompt
         from gateway.platforms.base import resolve_channel_prompt
         _channel_prompt = resolve_channel_prompt(
@@ -849,4 +860,14 @@ class MattermostAdapter(BasePlatformAdapter):
 
         await self.handle_message(msg_event)
 
-
+    def _is_source_authorized(self, source: SessionSource) -> bool:
+        """Best-effort early auth check using the bound gateway handler."""
+        handler = getattr(self, "_message_handler", None)
+        bound_owner = getattr(handler, "__self__", None)
+        auth_fn = getattr(bound_owner, "_is_user_authorized", None)
+        if callable(auth_fn):
+            try:
+                return bool(auth_fn(source))
+            except Exception:
+                logger.debug("Mattermost: early auth check failed", exc_info=True)
+        return True
