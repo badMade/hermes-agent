@@ -2123,17 +2123,20 @@ class MatrixAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     def _text_batch_key(self, event: MessageEvent) -> str:
-        """Session-scoped key for text message batching."""
+        """Session-scoped key for text message batching.
+        
+        Security: Always isolate by user to prevent batching messages from
+        different senders under a single identity, even in threads where the
+        session itself may be shared.
+        """
         from gateway.session import build_session_key
 
+        # Force thread_sessions_per_user=True to ensure user_id is always
+        # included in the batch key, preventing cross-user message aggregation.
         return build_session_key(
             event.source,
-            group_sessions_per_user=self.config.extra.get(
-                "group_sessions_per_user", True
-            ),
-            thread_sessions_per_user=self.config.extra.get(
-                "thread_sessions_per_user", False
-            ),
+            group_sessions_per_user=True,
+            thread_sessions_per_user=True,  # Always isolate batching by user
         )
 
     def _enqueue_text_event(self, event: MessageEvent) -> None:
