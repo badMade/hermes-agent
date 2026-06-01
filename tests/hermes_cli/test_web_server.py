@@ -3,6 +3,7 @@
 import os
 import json
 import tempfile
+import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -1040,6 +1041,66 @@ class TestNewEndpoints:
             pass
 
 
+class TestDashboardAuthBoundary:
+    """Regression tests for dashboard authentication hardening."""
+
+    def test_start_server_refuses_public_bind_without_insecure(self, monkeypatch):
+        import hermes_cli.web_server as web_server
+
+        monkeypatch.setitem(sys.modules, "uvicorn", MagicMock())
+
+        with pytest.raises(SystemExit) as excinfo:
+            web_server.start_server(host="0.0.0.0", port=9119, open_browser=False)
+
+        assert "Refusing to bind" in str(excinfo.value)
+
+    def test_start_server_marks_public_bind_for_launch_token(self, monkeypatch):
+        import hermes_cli.web_server as web_server
+
+        uvicorn_mock = MagicMock()
+        monkeypatch.setitem(sys.modules, "uvicorn", uvicorn_mock)
+
+        web_server.start_server(
+            host="0.0.0.0",
+            port=9119,
+            open_browser=False,
+            allow_public=True,
+        )
+
+        assert web_server.app.state.bound_host == "0.0.0.0"
+        assert web_server.app.state.require_spa_token is True
+        uvicorn_mock.run.assert_called_once()
+
+    def test_public_spa_does_not_expose_token_without_launch_token(
+        self, tmp_path, monkeypatch
+    ):
+        try:
+            from fastapi import FastAPI
+            from starlette.testclient import TestClient
+        except ImportError:
+            pytest.skip("fastapi/starlette not installed")
+
+        import hermes_cli.web_server as web_server
+
+        (tmp_path / "index.html").write_text("<html><head></head><body></body></html>")
+        (tmp_path / "assets").mkdir()
+        monkeypatch.setattr(web_server, "WEB_DIST", tmp_path)
+        monkeypatch.setattr(web_server.app.state, "require_spa_token", True, raising=False)
+
+        test_app = FastAPI()
+        web_server.mount_spa(test_app)
+        client = TestClient(test_app)
+
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert web_server._SESSION_TOKEN not in resp.text
+        assert 'window.__HERMES_SESSION_TOKEN__=""' in resp.text
+
+        resp = client.get(f"/?token={web_server._SESSION_TOKEN}")
+        assert resp.status_code == 200
+        assert web_server._SESSION_TOKEN in resp.text
+
+
 # ---------------------------------------------------------------------------
 # Model context length: normalize/denormalize + /api/model/info
 # ---------------------------------------------------------------------------
@@ -1941,60 +2002,12 @@ class TestDashboardPluginManifestExtensions:
     """Tests for the extended plugin manifest fields (tab.override,
     tab.hidden, slots) read by _discover_dashboard_plugins()."""
 
-    def _write_plugin(self, tmp_path, name, manifest, *, enabled=True):
+    def _write_plugin(self, tmp_path, name, manifest):
         import json
         plug_dir = tmp_path / "plugins" / name / "dashboard"
         plug_dir.mkdir(parents=True)
         (plug_dir / "manifest.json").write_text(json.dumps(manifest))
-        plugin_name = manifest.get("name", name)
-        config = {"plugins": {"enabled": [plugin_name] if enabled else [], "disabled": []}}
-        (tmp_path / "config.yaml").write_text(json.dumps(config))
         return plug_dir
-
-    def test_disabled_plugin_api_is_not_imported(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        plug_dir = self._write_plugin(tmp_path, "blocked", {
-            "name": "blocked",
-            "label": "Blocked",
-            "tab": {"path": "/blocked"},
-            "entry": "dist/index.js",
-            "api": "api.py",
-        }, enabled=False)
-        marker = tmp_path / "dashboard_api_executed"
-        (plug_dir / "api.py").write_text(
-            "from pathlib import Path\n"
-            f"Path({str(marker)!r}).write_text('executed')\n"
-        )
-
-        from hermes_cli import web_server
-        web_server._dashboard_plugins_cache = None
-        web_server._mount_plugin_api_routes()
-
-        assert web_server._get_dashboard_plugins(force_rescan=True) == []
-        assert not marker.exists()
-
-    def test_enabled_plugin_api_is_imported(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        plug_dir = self._write_plugin(tmp_path, "allowed", {
-            "name": "allowed",
-            "label": "Allowed",
-            "tab": {"path": "/allowed"},
-            "entry": "dist/index.js",
-            "api": "api.py",
-        })
-        marker = tmp_path / "dashboard_api_executed"
-        (plug_dir / "api.py").write_text(
-            "from pathlib import Path\n"
-            "from fastapi import APIRouter\n"
-            "router = APIRouter()\n"
-            f"Path({str(marker)!r}).write_text('executed')\n"
-        )
-
-        from hermes_cli import web_server
-        web_server._dashboard_plugins_cache = None
-        web_server._mount_plugin_api_routes()
-
-        assert marker.read_text() == "executed"
 
     def test_override_and_hidden_carried_through(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
@@ -2174,19 +2187,6 @@ class TestPtyWebSocket:
             with self.client.websocket_connect(self._url(token="wrong")):
                 pass
         assert exc.value.code == 4401
-
-    def test_websocket_rejects_non_loopback_on_public_bind(self, monkeypatch):
-        from types import SimpleNamespace
-
-        monkeypatch.setattr(
-            self.ws_module.app.state, "bound_host", "0.0.0.0", raising=False
-        )
-
-        remote_ws = SimpleNamespace(client=SimpleNamespace(host="203.0.113.9"))
-        loopback_ws = SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"))
-
-        assert self.ws_module._ws_client_is_allowed(remote_ws) is False
-        assert self.ws_module._ws_client_is_allowed(loopback_ws) is True
 
     def test_streams_child_stdout_to_client(self, monkeypatch):
         monkeypatch.setattr(

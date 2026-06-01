@@ -38,7 +38,6 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
-
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 
@@ -344,7 +343,6 @@ def _zip_directory(dir_path: Path) -> Path:
                 arcname = str(file_path.relative_to(dir_path)).replace("\\", "/")
                 zipf.write(file_path, arcname=arcname)
     return zip_path
-
 
 
 def _is_windows_absolute_path(value: str) -> bool:
@@ -923,7 +921,6 @@ class OpenVikingMemoryProvider(MemoryProvider):
         finally:
             if cleanup_path:
                 cleanup_path.unlink(missing_ok=True)
-
 
         return json.dumps({
             "status": "added",
