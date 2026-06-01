@@ -5331,7 +5331,7 @@ class AIAgent:
     @staticmethod
     def _format_steer_marker(steer_text: str) -> str:
         """Format a /steer payload with explicit in-band provenance."""
-        return f"\n\n[USER STEER (injected mid-run, not tool output): {steer_text}]"
+        return f"\n\n[USER STEER (injected mid-run, not tool output) | User guidance: {steer_text}]"
 
     def _apply_pending_steer_to_tool_results(self, messages: list, num_tool_msgs: int) -> None:
         """Append any pending /steer text to the last tool result in this turn.
