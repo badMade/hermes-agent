@@ -53,6 +53,11 @@ class TestParseNpmPackage:
 
     def test_direct_url_skipped(self):
         assert _parse_npm_package("https://user:token@example.com/private.tgz") == (None, None)
+    def test_local_path_skipped(self):
+        assert _parse_npm_package("../private-pkg") == (None, None)
+
+    def test_scp_style_git_ref_skipped(self):
+        assert _parse_npm_package("git@github.com:org/private.git") == (None, None)
 
 
 class TestParsePypiPackage:
@@ -70,6 +75,10 @@ class TestParsePypiPackage:
 
     def test_direct_reference_skipped(self):
         assert _parse_pypi_package("git+https://oauth2:token@gitlab.example/org/private-mcp") == (None, None)
+
+
+    def test_local_reference_skipped(self):
+        assert _parse_pypi_package("~/private-mcp") == (None, None)
 
 
 class TestParsePackageFromArgs:

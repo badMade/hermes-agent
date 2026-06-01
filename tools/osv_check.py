@@ -138,8 +138,14 @@ def _looks_like_direct_reference(token: str) -> bool:
     if not token:
         return False
 
+    if token.startswith(("./", "../", "/", "~/")):
+        return True
+
     lower = token.lower()
     if lower.startswith(("git+", "git://", "file:", "ssh://")):
+        return True
+
+    if re.match(r"^[^@\s:]+@[^:\s]+:.+", token):
         return True
 
     parsed = urlparse(token)
