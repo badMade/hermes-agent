@@ -482,7 +482,6 @@ class ShellFileOperations(FileOperations):
 
         # Cache for command availability checks
         self._command_cache: Dict[str, bool] = {}
-        self._environment_home: Optional[str] = None
     
     def _exec(self, command: str, cwd: str = None, timeout: int = None,
               stdin_data: str = None) -> ExecuteResult:
@@ -596,8 +595,9 @@ class ShellFileOperations(FileOperations):
         # Handle ~ and ~user
         if path.startswith('~'):
             # Get home directory via the terminal environment
-            home = self._get_environment_home()
-            if home:
+            result = self._exec("echo $HOME")
+            if result.exit_code == 0 and result.stdout.strip():
+                home = result.stdout.strip()
                 if path == '~':
                     return home
                 elif path.startswith('~/'):
@@ -819,7 +819,7 @@ class ShellFileOperations(FileOperations):
     def delete_file(self, path: str) -> WriteResult:
         """Delete a file via rm."""
         path = self._expand_path(path)
-        if self._is_write_denied(path):
+        if _is_write_denied(path):
             return WriteResult(error=f"Delete denied: {path} is a protected path")
         result = self._exec(f"rm -f {self._escape_shell_arg(path)}")
         if result.exit_code != 0:
@@ -831,7 +831,7 @@ class ShellFileOperations(FileOperations):
         src = self._expand_path(src)
         dst = self._expand_path(dst)
         for p in (src, dst):
-            if self._is_write_denied(p):
+            if _is_write_denied(p):
                 return WriteResult(error=f"Move denied: {p} is a protected path")
         result = self._exec(
             f"mv {self._escape_shell_arg(src)} {self._escape_shell_arg(dst)}"
@@ -870,7 +870,7 @@ class ShellFileOperations(FileOperations):
         path = self._expand_path(path)
 
         # Block writes to sensitive paths
-        if self._is_write_denied(path):
+        if _is_write_denied(path):
             return WriteResult(error=f"Write denied: '{path}' is a protected system/credential file.")
 
         # Capture pre-write content for lint-delta computation.  Only do this
@@ -949,7 +949,7 @@ class ShellFileOperations(FileOperations):
         path = self._expand_path(path)
 
         # Block writes to sensitive paths
-        if self._is_write_denied(path):
+        if _is_write_denied(path):
             return PatchResult(error=f"Write denied: '{path}' is a protected system/credential file.")
 
         # Read current content
@@ -1286,29 +1286,26 @@ class ShellFileOperations(FileOperations):
                       "https://github.com/BurntSushi/ripgrep#installation"
             )
 
-        # Exclude hidden descendants while still allowing an explicitly hidden
-        # search root. Filtering in find keeps backend stdout bounded by the
-        # shell pagination below.
-        escaped_root = self._escape_shell_arg(path)
-        if has_hidden_path_ancestor:
-            hidden_filter_expr = (
-                f" \\( -type d -name '.*' ! -path {escaped_root} -prune \\) -o"
-                " -type f ! -name '.*'"
-            )
-        else:
-            hidden_filter_expr = " -not -path '*/.*' -type f"
+        # Exclude hidden directories (matching ripgrep's default behavior).
+        hidden_exclude = "-not -path '*/.*'" if not has_hidden_path_ancestor else ""
+        hidden_filter_expr = f" {hidden_exclude}" if hidden_exclude else ""
 
-        pagination_expr = f" | tail -n +{offset + 1} | head -n {limit}"
+        # Use shell pagination for standard roots. For hidden roots, gather full
+        # output so we can re-apply hidden-descendant filtering while allowing
+        # explicit hidden-root searches.
+        pagination_expr = ""
+        if not has_hidden_path_ancestor:
+            pagination_expr = f" | tail -n +{offset + 1} | head -n {limit}"
 
-        cmd = f"find {escaped_root}{hidden_filter_expr} -name {self._escape_shell_arg(search_pattern)} " \
+        cmd = f"find {self._escape_shell_arg(path)}{hidden_filter_expr} -type f -name {self._escape_shell_arg(search_pattern)} " \
               f"-printf '%T@ %p\\n' 2>/dev/null | sort -rn{pagination_expr}"
 
         result = self._exec(cmd, timeout=60)
 
         if not result.stdout.strip():
             # Try without -printf (BSD find compatibility -- macOS)
-            cmd_simple = f"find {escaped_root}{hidden_filter_expr} -name {self._escape_shell_arg(search_pattern)} " \
-                        f"-print 2>/dev/null | sort -rn{pagination_expr}"
+            cmd_simple = f"find {self._escape_shell_arg(path)}{hidden_filter_expr} -type f -name {self._escape_shell_arg(search_pattern)} " \
+                        f"2>/dev/null | sort -rn{pagination_expr}"
             result = self._exec(cmd_simple, timeout=60)
 
         files = []
@@ -1321,7 +1318,22 @@ class ShellFileOperations(FileOperations):
             else:
                 files.append(line)
 
-        # pagination and hidden-descendant filtering are already applied in shell
+        # For explicit hidden roots, find's path-based filtering excludes every
+        # file under the hidden path. Apply descendant filtering after command
+        # execution so only the explicit root ancestry is bypassed.
+        if has_hidden_path_ancestor:
+            normalized_root = search_root.resolve()
+            filtered_files = []
+            for file_path in files:
+                try:
+                    rel_parts = Path(file_path).resolve().relative_to(normalized_root).parts
+                except ValueError:
+                    rel_parts = Path(file_path).parts
+                if any(part not in {".", ".."} and part.startswith(".") for part in rel_parts):
+                    continue
+                filtered_files.append(file_path)
+            files = filtered_files[offset:offset + limit]
+        # pagination for standard roots is already applied in shell
 
         return SearchResult(
             files=files,
