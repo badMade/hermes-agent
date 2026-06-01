@@ -15,7 +15,6 @@ import sys
 import urllib.request
 import urllib.parse
 import defusedxml.ElementTree as ET
-import xml.etree.ElementTree as NativeET
 
 NS = {"a": "http://www.w3.org/2005/Atom"}
 
