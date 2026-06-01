@@ -5460,6 +5460,7 @@ class GatewayRunner:
 
         # Check pairing store (always checked, regardless of allowlists)
         platform_name = source.platform.value if source.platform else ""
+        team_id = str(getattr(source, "guild_id", "") or "")
         auth_user_id = user_id
         if source.platform == Platform.WECOM_CALLBACK and source.chat_id:
             auth_user_id = source.chat_id
