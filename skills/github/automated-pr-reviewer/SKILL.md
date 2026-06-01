@@ -64,8 +64,8 @@ while read PR_NUMBER; do
   echo "Found request for PR #$PR_NUMBER. Starting review..."
 
   # Checkout PR locally to do the review
-  git fetch origin pull/$PR_NUMBER/head:pr-$PR_NUMBER
-  git checkout pr-$PR_NUMBER
+  git fetch origin pull/$PR_NUMBER/head:pr-$PR_NUMBER || continue
+  git checkout pr-$PR_NUMBER || continue
 
   # Note for Agent: At this point, the agent should use the `github-code-review`
   # skill's methodology to review `git diff main...HEAD`.
