@@ -192,17 +192,29 @@ class TestParseReasoningEffort:
 class TestIsTermux:
     """Tests for is_termux() environment detection."""
 
+class TestIsTermux:
+    """Tests for is_termux() environment detection."""
+
     def test_prefix_not_in_environ(self, monkeypatch):
         """Returns False if PREFIX is not in os.environ."""
         monkeypatch.delenv("PREFIX", raising=False)
+        monkeypatch.delenv("TERMUX_VERSION", raising=False)
         assert hermes_constants.is_termux() is False
 
     def test_prefix_does_not_contain_termux(self, monkeypatch):
         """Returns False if PREFIX is set but does not contain com.termux."""
+        monkeypatch.delenv("TERMUX_VERSION", raising=False)
         monkeypatch.setenv("PREFIX", "/usr/local/bin")
         assert hermes_constants.is_termux() is False
 
     def test_prefix_contains_termux(self, monkeypatch):
         """Returns True if PREFIX contains com.termux."""
+        monkeypatch.delenv("TERMUX_VERSION", raising=False)
         monkeypatch.setenv("PREFIX", "/data/data/com.termux/files/usr")
+        assert hermes_constants.is_termux() is True
+
+    def test_termux_version_in_environ(self, monkeypatch):
+        """Returns True if TERMUX_VERSION is set in os.environ."""
+        monkeypatch.delenv("PREFIX", raising=False)
+        monkeypatch.setenv("TERMUX_VERSION", "0.118.0")
         assert hermes_constants.is_termux() is True
