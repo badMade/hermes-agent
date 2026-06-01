@@ -36,6 +36,7 @@ needs to replace the import + call site:
     platform = get_session_env("HERMES_SESSION_PLATFORM", "")
 """
 
+import os
 from contextvars import ContextVar
 from typing import Any
 
@@ -145,8 +146,6 @@ def get_session_env(name: str, default: str = "") -> str:
        don't use ``set_session_vars`` at all).
     3. *default*
     """
-    import os
-
     var = _VAR_MAP.get(name)
     if var is not None:
         value = var.get()
@@ -158,6 +157,4 @@ def get_session_env(name: str, default: str = "") -> str:
 
 def get_terminal_cwd(default: str = "") -> str:
     """Read the terminal working directory from the environment."""
-    import os
-
     return os.getenv("TERMINAL_CWD", default)
