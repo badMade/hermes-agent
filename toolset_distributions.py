@@ -242,21 +242,7 @@ def get_distribution(name: str) -> Optional[Dict[str, any]]:
         path = Path(name)
         if path.suffix == '.json':
             with open(path, 'r', encoding='utf-8') as f:
-                dist = json.load(f)
-
-            if (
-                not isinstance(dist, dict)
-                or "description" not in dist
-                or "toolsets" not in dist
-                or not isinstance(dist["toolsets"], dict)
-            ):
-                print(
-                    f"⚠️  Warning: Invalid distribution file '{name}': "
-                    "expected an object with 'description' and 'toolsets' mapping"
-                )
-                return None
-
-            return dist
+                return json.load(f)
     except FileNotFoundError:
         pass
     except json.JSONDecodeError:

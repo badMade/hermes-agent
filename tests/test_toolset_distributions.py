@@ -23,10 +23,9 @@ class TestGetDistribution:
         assert get_distribution("nonexistent") is None
 
 
-    def test_file_not_found_error(self, tmp_path):
-        # The file is intentionally not created, so it should handle FileNotFoundError and return None
-        file_path = tmp_path / "nonexistent_distribution_file.json"
-        assert get_distribution(str(file_path)) is None
+    def test_file_not_found_error(self):
+        # The file does not exist, so it should handle FileNotFoundError and return None
+        assert get_distribution("nonexistent_distribution_file.json") is None
 
     def test_loads_from_valid_json_file(self, tmp_path):
         import json
