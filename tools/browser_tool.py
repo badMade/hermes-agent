@@ -2500,31 +2500,48 @@ def _enforce_post_action_cloud_safety(effective_task_id: str) -> Optional[dict]:
     ``about:blank`` and return a failure payload so the caller never reads or
     returns metadata content.
 
+    The probe fails *closed*: if the live URL cannot be verified (the eval
+    probe raises, times out, or returns no result), we cannot rule out that the
+    session navigated onto a metadata endpoint, so we reset to ``about:blank``
+    and refuse the action rather than risk reading/returning its content. This
+    is safe here because the guard only runs for non-local (cloud) backends,
+    which are CDP-based and support ``eval`` -- a probe failure means a
+    transient hang/timeout, not an unsupported command, so the caller can
+    simply retry.
+
     Returns a failure dict when the session was reset, or ``None`` when the
-    page is safe (or the backend is local, where the metadata floor is handled
-    elsewhere and private URLs may be explicitly allowed).
+    page was verified safe (or the backend is local, where the metadata floor
+    is handled elsewhere and private URLs may be explicitly allowed).
     """
     if _is_local_backend():
         return None
+
+    def _reset_and_block(reason: str) -> dict:
+        try:
+            _run_browser_command(effective_task_id, "open", ["about:blank"], timeout=10)
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.debug("about:blank reset failed: %s", exc)
+        return {"success": False, "error": reason}
+
     try:
         url_result = _run_browser_command(
             effective_task_id, "eval", ["window.location.href"], timeout=10
         )
-    except Exception as exc:  # pragma: no cover — defensive
-        logger.debug("post-action URL probe failed: %s", exc)
-        return None
-    final_url = ""
-    if isinstance(url_result, dict) and url_result.get("success"):
-        final_url = (url_result.get("data") or {}).get("result") or ""
+    except Exception as exc:
+        logger.warning(
+            "post-action URL probe failed: %s; resetting cloud session for safety", exc
+        )
+        return _reset_and_block("Blocked: could not verify page URL after navigation")
+
+    if not isinstance(url_result, dict) or not url_result.get("success"):
+        logger.warning(
+            "post-action URL probe returned no result; resetting cloud session for safety"
+        )
+        return _reset_and_block("Blocked: could not verify page URL after navigation")
+
+    final_url = (url_result.get("data") or {}).get("result") or ""
     if final_url and _is_always_blocked_url(final_url):
-        try:
-            _run_browser_command(effective_task_id, "open", ["about:blank"], timeout=10)
-        except Exception as exc:  # pragma: no cover — defensive
-            logger.debug("about:blank reset after metadata navigation failed: %s", exc)
-        return {
-            "success": False,
-            "error": "Blocked: navigation landed on a cloud metadata endpoint",
-        }
+        return _reset_and_block("Blocked: navigation landed on a cloud metadata endpoint")
     return None
 
 

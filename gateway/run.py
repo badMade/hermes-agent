@@ -6714,7 +6714,7 @@ class GatewayRunner:
                     self._busy_ack_ts.pop(_quick_key, None)
 
     @staticmethod
-    def _allowed_context_reference_kinds(enabled_toolsets: set[str]) -> set[str]:
+    def _allowed_context_reference_kinds(enabled_toolsets: set[str] | None) -> set[str]:
         """Map enabled gateway toolsets to safe inline @ reference types.
 
         A reference kind is only expandable when the toolset that would back
@@ -6723,6 +6723,8 @@ class GatewayRunner:
         leaking content into sessions whose toolset never granted access.
         """
         allowed: set[str] = set()
+        if not enabled_toolsets:
+            return allowed
         if "file" in enabled_toolsets:
             allowed.update({"file", "folder"})
         if "terminal" in enabled_toolsets:
