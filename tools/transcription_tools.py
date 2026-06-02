@@ -38,9 +38,14 @@ from urllib.parse import urljoin
 
 from utils import is_truthy_value
 from tools.managed_tool_gateway import resolve_managed_tool_gateway
-from tools.tool_backend_helpers import managed_nous_tools_enabled, resolve_openai_audio_api_key
+from tools.tool_backend_helpers import (
+    managed_nous_tools_enabled,
+    resolve_openai_audio_api_key,
+)
+from tools.environments.local import _sanitize_subprocess_env
 
 logger = logging.getLogger(__name__)
+
 
 def get_env_value(name, default=None):
     """Read env values through the live config module.
@@ -55,6 +60,7 @@ def get_env_value(name, default=None):
         return os.getenv(name, default)
     value = _get_env_value(name)
     return default if value is None else value
+
 
 # ---------------------------------------------------------------------------
 # Optional imports — graceful degradation
@@ -92,13 +98,28 @@ GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 OPENAI_BASE_URL = os.getenv("STT_OPENAI_BASE_URL", "https://api.openai.com/v1")
 XAI_STT_BASE_URL = os.getenv("XAI_STT_BASE_URL", "https://api.x.ai/v1")
 
-SUPPORTED_FORMATS = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm", ".ogg", ".aac", ".flac"}
+SUPPORTED_FORMATS = {
+    ".mp3",
+    ".mp4",
+    ".mpeg",
+    ".mpga",
+    ".m4a",
+    ".wav",
+    ".webm",
+    ".ogg",
+    ".aac",
+    ".flac",
+}
 LOCAL_NATIVE_AUDIO_FORMATS = {".wav", ".aiff", ".aif"}
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
 
 # Known model sets for auto-correction
 OPENAI_MODELS = {"whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"}
-GROQ_MODELS = {"whisper-large-v3", "whisper-large-v3-turbo", "distil-whisper-large-v3-en"}
+GROQ_MODELS = {
+    "whisper-large-v3",
+    "whisper-large-v3-turbo",
+    "distil-whisper-large-v3-en",
+}
 
 # Singleton for the local model — loaded once, reused across calls
 _local_model: Optional[object] = None
@@ -109,11 +130,11 @@ _local_model_name: Optional[str] = None
 # ---------------------------------------------------------------------------
 
 
-
 def _load_stt_config() -> dict:
     """Load the ``stt`` section from user config, falling back to defaults."""
     try:
         from hermes_cli.config import load_config
+
         return load_config().get("stt", {})
     except Exception:
         return {}
@@ -230,25 +251,19 @@ def _get_provider(stt_config: dict) -> str:
             if _HAS_FASTER_WHISPER:
                 logger.info("Local STT command unavailable, using local faster-whisper")
                 return "local"
-            logger.warning(
-                "STT provider 'local_command' configured but unavailable"
-            )
+            logger.warning("STT provider 'local_command' configured but unavailable")
             return "none"
 
         if provider == "groq":
             if _HAS_OPENAI and get_env_value("GROQ_API_KEY"):
                 return "groq"
-            logger.warning(
-                "STT provider 'groq' configured but GROQ_API_KEY not set"
-            )
+            logger.warning("STT provider 'groq' configured but GROQ_API_KEY not set")
             return "none"
 
         if provider == "openai":
             if _HAS_OPENAI and _has_openai_audio_backend():
                 return "openai"
-            logger.warning(
-                "STT provider 'openai' configured but no API key available"
-            )
+            logger.warning("STT provider 'openai' configured but no API key available")
             return "none"
 
         if provider == "mistral":
@@ -263,9 +278,7 @@ def _get_provider(stt_config: dict) -> str:
         if provider == "xai":
             if get_env_value("XAI_API_KEY"):
                 return "xai"
-            logger.warning(
-                "STT provider 'xai' configured but XAI_API_KEY not set"
-            )
+            logger.warning("STT provider 'xai' configured but XAI_API_KEY not set")
             return "none"
 
         return provider  # Unknown — let it fail downstream
@@ -290,6 +303,7 @@ def _get_provider(stt_config: dict) -> str:
         return "xai"
     return "none"
 
+
 # ---------------------------------------------------------------------------
 # Shared validation
 # ---------------------------------------------------------------------------
@@ -300,9 +314,17 @@ def _validate_audio_file(file_path: str) -> Optional[Dict[str, Any]]:
     audio_path = Path(file_path)
 
     if not audio_path.exists():
-        return {"success": False, "transcript": "", "error": f"Audio file not found: {file_path}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Audio file not found: {file_path}",
+        }
     if not audio_path.is_file():
-        return {"success": False, "transcript": "", "error": f"Path is not a file: {file_path}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Path is not a file: {file_path}",
+        }
     if audio_path.suffix.lower() not in SUPPORTED_FORMATS:
         return {
             "success": False,
@@ -315,12 +337,17 @@ def _validate_audio_file(file_path: str) -> Optional[Dict[str, Any]]:
             return {
                 "success": False,
                 "transcript": "",
-                "error": f"File too large: {file_size / (1024*1024):.1f}MB (max {MAX_FILE_SIZE / (1024*1024):.0f}MB)",
+                "error": f"File too large: {file_size / (1024 * 1024):.1f}MB (max {MAX_FILE_SIZE / (1024 * 1024):.0f}MB)",
             }
     except OSError as e:
-        return {"success": False, "transcript": "", "error": f"Failed to access file: {e}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Failed to access file: {e}",
+        }
 
     return None
+
 
 # ---------------------------------------------------------------------------
 # Provider: local (faster-whisper)
@@ -374,6 +401,7 @@ def _load_local_whisper_model(model_name: str):
     library load failure fall back to CPU + int8.
     """
     from faster_whisper import WhisperModel
+
     try:
         return WhisperModel(model_name, device="auto", compute_type="auto")
     except Exception as exc:
@@ -392,12 +420,19 @@ def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
     global _local_model, _local_model_name
 
     if not _HAS_FASTER_WHISPER:
-        return {"success": False, "transcript": "", "error": "faster-whisper not installed"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": "faster-whisper not installed",
+        }
 
     try:
         # Lazy-load the model (downloads on first use, ~150 MB for 'base')
         if _local_model is None or _local_model_name != model_name:
-            logger.info("Loading faster-whisper model '%s' (first load downloads the model)...", model_name)
+            logger.info(
+                "Loading faster-whisper model '%s' (first load downloads the model)...",
+                model_name,
+            )
             _local_model = _load_local_whisper_model(model_name)
             _local_model_name = model_name
 
@@ -430,6 +465,7 @@ def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
             _local_model = None
             _local_model_name = None
             from faster_whisper import WhisperModel
+
             _local_model = WhisperModel(model_name, device="cpu", compute_type="int8")
             _local_model_name = model_name
             segments, info = _local_model.transcribe(file_path, **transcribe_kwargs)
@@ -437,17 +473,26 @@ def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
 
         logger.info(
             "Transcribed %s via local whisper (%s, lang=%s, %.1fs audio)",
-            Path(file_path).name, model_name, info.language, info.duration,
+            Path(file_path).name,
+            model_name,
+            info.language,
+            info.duration,
         )
 
         return {"success": True, "transcript": transcript, "provider": "local"}
 
     except Exception as e:
         logger.error("Local transcription failed: %s", e, exc_info=True)
-        return {"success": False, "transcript": "", "error": f"Local transcription failed: {e}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Local transcription failed: {e}",
+        }
 
 
-def _prepare_local_audio(file_path: str, work_dir: str) -> tuple[Optional[str], Optional[str]]:
+def _prepare_local_audio(
+    file_path: str, work_dir: str
+) -> tuple[Optional[str], Optional[str]]:
     """Normalize audio for local CLI STT when needed."""
     audio_path = Path(file_path)
     if audio_path.suffix.lower() in LOCAL_NATIVE_AUDIO_FORMATS:
@@ -455,7 +500,10 @@ def _prepare_local_audio(file_path: str, work_dir: str) -> tuple[Optional[str], 
 
     ffmpeg = _find_ffmpeg_binary()
     if not ffmpeg:
-        return None, "Local STT fallback requires ffmpeg for non-WAV inputs, but ffmpeg was not found"
+        return (
+            None,
+            "Local STT fallback requires ffmpeg for non-WAV inputs, but ffmpeg was not found",
+        )
 
     converted_path = os.path.join(work_dir, f"{audio_path.stem}.wav")
     command = [ffmpeg, "-y", "-i", file_path, converted_path]
@@ -501,7 +549,15 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
-            subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
+            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
+            subprocess.run(
+                command,
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True,
+                env=sanitized_env,
+            )
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
             if not txt_files:
@@ -518,7 +574,11 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 normalized_model,
                 len(transcript_text),
             )
-            return {"success": True, "transcript": transcript_text, "provider": "local_command"}
+            return {
+                "success": True,
+                "transcript": transcript_text,
+                "provider": "local_command",
+            }
 
     except KeyError as e:
         return {
@@ -529,10 +589,21 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
     except subprocess.CalledProcessError as e:
         details = e.stderr.strip() or e.stdout.strip() or str(e)
         logger.error("Local STT command failed for %s: %s", file_path, details)
-        return {"success": False, "transcript": "", "error": f"Local STT failed: {details}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Local STT failed: {details}",
+        }
     except Exception as e:
-        logger.error("Unexpected error during local command transcription: %s", e, exc_info=True)
-        return {"success": False, "transcript": "", "error": f"Local transcription failed: {e}"}
+        logger.error(
+            "Unexpected error during local command transcription: %s", e, exc_info=True
+        )
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Local transcription failed: {e}",
+        }
+
 
 # ---------------------------------------------------------------------------
 # Provider: groq (Whisper API — free tier)
@@ -546,16 +617,27 @@ def _transcribe_groq(file_path: str, model_name: str) -> Dict[str, Any]:
         return {"success": False, "transcript": "", "error": "GROQ_API_KEY not set"}
 
     if not _HAS_OPENAI:
-        return {"success": False, "transcript": "", "error": "openai package not installed"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": "openai package not installed",
+        }
 
     # Auto-correct model if caller passed an OpenAI-only model
     if model_name in OPENAI_MODELS:
-        logger.info("Model %s not available on Groq, using %s", model_name, DEFAULT_GROQ_STT_MODEL)
+        logger.info(
+            "Model %s not available on Groq, using %s",
+            model_name,
+            DEFAULT_GROQ_STT_MODEL,
+        )
         model_name = DEFAULT_GROQ_STT_MODEL
 
     try:
         from openai import OpenAI, APIError, APIConnectionError, APITimeoutError
-        client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL, timeout=30, max_retries=0)
+
+        client = OpenAI(
+            api_key=api_key, base_url=GROQ_BASE_URL, timeout=30, max_retries=0
+        )
         try:
             with open(file_path, "rb") as audio_file:
                 transcription = client.audio.transcriptions.create(
@@ -565,8 +647,12 @@ def _transcribe_groq(file_path: str, model_name: str) -> Dict[str, Any]:
                 )
 
             transcript_text = str(transcription).strip()
-            logger.info("Transcribed %s via Groq API (%s, %d chars)",
-                         Path(file_path).name, model_name, len(transcript_text))
+            logger.info(
+                "Transcribed %s via Groq API (%s, %d chars)",
+                Path(file_path).name,
+                model_name,
+                len(transcript_text),
+            )
 
             return {"success": True, "transcript": transcript_text, "provider": "groq"}
         finally:
@@ -575,7 +661,11 @@ def _transcribe_groq(file_path: str, model_name: str) -> Dict[str, Any]:
                 close()
 
     except PermissionError:
-        return {"success": False, "transcript": "", "error": f"Permission denied: {file_path}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Permission denied: {file_path}",
+        }
     except APIConnectionError as e:
         return {"success": False, "transcript": "", "error": f"Connection error: {e}"}
     except APITimeoutError as e:
@@ -584,7 +674,12 @@ def _transcribe_groq(file_path: str, model_name: str) -> Dict[str, Any]:
         return {"success": False, "transcript": "", "error": f"API error: {e}"}
     except Exception as e:
         logger.error("Groq transcription failed: %s", e, exc_info=True)
-        return {"success": False, "transcript": "", "error": f"Transcription failed: {e}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Transcription failed: {e}",
+        }
+
 
 # ---------------------------------------------------------------------------
 # Provider: openai (Whisper API)
@@ -603,15 +698,22 @@ def _transcribe_openai(file_path: str, model_name: str) -> Dict[str, Any]:
         }
 
     if not _HAS_OPENAI:
-        return {"success": False, "transcript": "", "error": "openai package not installed"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": "openai package not installed",
+        }
 
     # Auto-correct model if caller passed a Groq-only model
     if model_name in GROQ_MODELS:
-        logger.info("Model %s not available on OpenAI, using %s", model_name, DEFAULT_STT_MODEL)
+        logger.info(
+            "Model %s not available on OpenAI, using %s", model_name, DEFAULT_STT_MODEL
+        )
         model_name = DEFAULT_STT_MODEL
 
     try:
         from openai import OpenAI, APIError, APIConnectionError, APITimeoutError
+
         client = OpenAI(api_key=api_key, base_url=base_url, timeout=30, max_retries=0)
         try:
             with open(file_path, "rb") as audio_file:
@@ -622,17 +724,29 @@ def _transcribe_openai(file_path: str, model_name: str) -> Dict[str, Any]:
                 )
 
             transcript_text = _extract_transcript_text(transcription)
-            logger.info("Transcribed %s via OpenAI API (%s, %d chars)",
-                         Path(file_path).name, model_name, len(transcript_text))
+            logger.info(
+                "Transcribed %s via OpenAI API (%s, %d chars)",
+                Path(file_path).name,
+                model_name,
+                len(transcript_text),
+            )
 
-            return {"success": True, "transcript": transcript_text, "provider": "openai"}
+            return {
+                "success": True,
+                "transcript": transcript_text,
+                "provider": "openai",
+            }
         finally:
             close = getattr(client, "close", None)
             if callable(close):
                 close()
 
     except PermissionError:
-        return {"success": False, "transcript": "", "error": f"Permission denied: {file_path}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Permission denied: {file_path}",
+        }
     except APIConnectionError as e:
         return {"success": False, "transcript": "", "error": f"Connection error: {e}"}
     except APITimeoutError as e:
@@ -641,7 +755,12 @@ def _transcribe_openai(file_path: str, model_name: str) -> Dict[str, Any]:
         return {"success": False, "transcript": "", "error": f"API error: {e}"}
     except Exception as e:
         logger.error("OpenAI transcription failed: %s", e, exc_info=True)
-        return {"success": False, "transcript": "", "error": f"Transcription failed: {e}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Transcription failed: {e}",
+        }
+
 
 # ---------------------------------------------------------------------------
 # Provider: mistral (Voxtral Transcribe API)
@@ -671,15 +790,29 @@ def _transcribe_mistral(file_path: str, model_name: str) -> Dict[str, Any]:
             transcript_text = _extract_transcript_text(result)
             logger.info(
                 "Transcribed %s via Mistral API (%s, %d chars)",
-                Path(file_path).name, model_name, len(transcript_text),
+                Path(file_path).name,
+                model_name,
+                len(transcript_text),
             )
-            return {"success": True, "transcript": transcript_text, "provider": "mistral"}
+            return {
+                "success": True,
+                "transcript": transcript_text,
+                "provider": "mistral",
+            }
 
     except PermissionError:
-        return {"success": False, "transcript": "", "error": f"Permission denied: {file_path}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Permission denied: {file_path}",
+        }
     except Exception as e:
         logger.error("Mistral transcription failed: %s", e, exc_info=True)
-        return {"success": False, "transcript": "", "error": f"Mistral transcription failed: {type(e).__name__}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Mistral transcription failed: {type(e).__name__}",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -700,11 +833,15 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
 
     stt_config = _load_stt_config()
     xai_config = stt_config.get("xai", {})
-    base_url = str(
-        xai_config.get("base_url")
-        or get_env_value("XAI_STT_BASE_URL")
-        or XAI_STT_BASE_URL
-    ).strip().rstrip("/")
+    base_url = (
+        str(
+            xai_config.get("base_url")
+            or get_env_value("XAI_STT_BASE_URL")
+            or XAI_STT_BASE_URL
+        )
+        .strip()
+        .rstrip("/")
+    )
     language = str(
         xai_config.get("language")
         or os.getenv("HERMES_LOCAL_STT_LANGUAGE")
@@ -745,7 +882,9 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
             detail = ""
             try:
                 err_body = response.json()
-                detail = err_body.get("error", {}).get("message", "") or response.text[:300]
+                detail = (
+                    err_body.get("error", {}).get("message", "") or response.text[:300]
+                )
             except Exception:
                 detail = response.text[:300]
             return {
@@ -775,10 +914,18 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
         return {"success": True, "transcript": transcript_text, "provider": "xai"}
 
     except PermissionError:
-        return {"success": False, "transcript": "", "error": f"Permission denied: {file_path}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"Permission denied: {file_path}",
+        }
     except Exception as e:
         logger.error("xAI STT transcription failed: %s", e, exc_info=True)
-        return {"success": False, "transcript": "", "error": f"xAI STT transcription failed: {e}"}
+        return {
+            "success": False,
+            "transcript": "",
+            "error": f"xAI STT transcription failed: {e}",
+        }
 
 
 # ---------------------------------------------------------------------------
