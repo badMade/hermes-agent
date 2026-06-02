@@ -32,7 +32,7 @@
     "react-router-dom": "^7.14.1",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
-    "unicode-animations": "^1.0.3"
+    "unicode-animations": "file:vendor/unicode-animations"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -48,5 +48,8 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^7.3.1"
+  },
+  "overrides": {
+    "unicode-animations": "file:vendor/unicode-animations"
   }
 }
