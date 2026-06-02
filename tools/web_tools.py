@@ -213,17 +213,15 @@ def _ddgs_package_available() -> bool:
 
 
 def _ddgs_package_importable() -> bool:
-    """Return True when the ``ddgs`` Python package can be imported.
+    """Return True when the ``ddgs`` Python package is available.
 
-    ddgs is the only backend whose availability is driven by a package
-    presence rather than an env var / config entry.  Wrapped in a helper
-    so auto-detect and ``_is_backend_available`` share the same check
-    (and tests can monkeypatch a single symbol).
+    Uses a metadata-based check to avoid executing module-level code or
+    being shadowed by a local ``ddgs.py`` on ``sys.path``.
     """
     try:
-        import ddgs  # noqa: F401
-        return True
-    except ImportError:
+        from tools.web_providers.ddgs import ddgs_package_available
+        return ddgs_package_available()
+    except (ImportError, Exception):
         return False
 
 # ─── Firecrawl Client ────────────────────────────────────────────────────────

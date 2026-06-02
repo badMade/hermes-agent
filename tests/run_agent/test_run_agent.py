@@ -151,6 +151,20 @@ def test_aiagent_reuses_existing_errors_log_handler():
             root_logger.addHandler(handler)
 
 
+
+class _FakeProviderMemoryManager:
+    def __init__(self):
+        self.calls = []
+
+    def has_tool(self, name):
+        return False
+
+    def get_all_tool_names(self):
+        return set()
+
+    def handle_tool_call(self, name, args, **kwargs):
+        self.calls.append((name, args))
+        return '{"status":"ok"}'
 class TestProviderModelNormalization:
     def test_aiagent_strips_matching_native_provider_prefix(self):
         with (

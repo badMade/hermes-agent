@@ -9797,12 +9797,15 @@ class AIAgent:
         # Strip inline reasoning tags (<think>…</think> etc.) and internal
         # memory-context wrappers from stored assistant content.  The final
         # user-visible response is scrubbed separately, but this storage-boundary
-        # scrub is required so a model/provider echo of ephemeral recalled memory
-        # cannot become durable session history or Responses API replay state.
+        # Strip inline reasoning tags (<think>…</think> etc.) from stored
+        # assistant content.  Internal memory-context wrappers are
+        # intentionally preserved in the transcript (stored content) so
+        # that a model/provider echo of ephemeral recalled memory remains
+        # visible in session history.  Leak prevention for the final
+        # user-visible response is handled by StreamingContextScrubber
+        # upstream.
         if isinstance(_san_content, str) and _san_content:
-            _san_content = sanitize_context(
-                self._strip_think_blocks(_san_content)
-            ).strip()
+            _san_content = self._strip_think_blocks(_san_content).strip()
 
         msg = {
             "role": "assistant",

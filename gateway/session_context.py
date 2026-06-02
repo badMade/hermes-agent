@@ -98,13 +98,13 @@ def set_session_vars(
     Returns a list of reset tokens.
     """
     tokens = [
-        _PLATFORM.set(str(platform or "")),
-        _CHAT_ID.set(str(chat_id or "")),
-        _CHAT_NAME.set(str(chat_name or "")),
-        _THREAD_ID.set(str(thread_id or "")),
-        _USER_ID.set(str(user_id or "")),
-        _USER_NAME.set(str(user_name or "")),
-        _SESSION_KEY.set(str(session_key or ""))
+        _PLATFORM.set(str(platform)),
+        _CHAT_ID.set(str(chat_id)),
+        _CHAT_NAME.set(str(chat_name)),
+        _THREAD_ID.set(str(thread_id)),
+        _USER_ID.set(str(user_id)),
+        _USER_NAME.set(str(user_name)),
+        _SESSION_KEY.set(str(session_key)),
     ]
     if terminal_cwd is not None:
         tokens.append(_TERMINAL_CWD.set(str(terminal_cwd)))
@@ -133,7 +133,20 @@ def clear_session_vars(tokens: List) -> None:
         _SESSION_KEY,
     ):
         var.set("")
-    if _TERMINAL_CWD.get() is not _UNSET:
+
+    # Only explicitly clear _TERMINAL_CWD if it was set via terminal_cwd arg
+    # to set_session_vars (indicated by its presence in the tokens list).
+    # Tokens are the return values of ContextVar.set().
+    # Actually, the comment suggested checking if it was set in this context.
+    # We can check if any token in 'tokens' belongs to _TERMINAL_CWD.
+    # Since tokens is a list, we can't easily map back without changing set_session_vars
+    # to return a dict, or just checking if _TERMINAL_CWD is in tokens (if tokens was a dict).
+    # Wait, I previously changed it to a list for compatibility.
+
+    # Let's change set_session_vars to return a dict for better internal handling,
+    # OR just check the length of tokens if we know the order.
+    # Actually, a better way is to see if we have more than 7 tokens.
+    if len(tokens) > 7:
         _TERMINAL_CWD.set("")
 
 
