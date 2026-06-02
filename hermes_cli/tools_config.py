@@ -82,7 +82,7 @@ CONFIGURABLE_TOOLSETS = [
 # Toolsets that are OFF by default for new installs.
 # They're still in _HERMES_CORE_TOOLS (available at runtime if enabled),
 # but the setup checklist won't pre-select them for first-time users.
-_DEFAULT_OFF_TOOLSETS = {"moa", "homeassistant", "rl", "spotify", "discord", "discord_admin", "video"}
+_DEFAULT_OFF_TOOLSETS = {"moa", "homeassistant", "rl", "spotify", "discord", "discord_admin", "video", "computer_use"}
 
 # Platform-scoped toolsets: only appear in the `hermes tools` checklist for
 # these platforms, and only resolve/save for these platforms.  A toolset
@@ -125,6 +125,17 @@ def _implicit_default_off_toolsets(platform: str) -> Set[str]:
             and ts_key not in platform_defaults
         )
     }
+    """Toolsets treated as opt-in when inferring enabled sets.
+
+    ``homeassistant`` is the only default-off toolset that remains on by
+    default for its own dedicated platform.
+    """
+    default_off = set(_DEFAULT_OFF_TOOLSETS)
+    if platform == "homeassistant":
+        default_off.discard("homeassistant")
+    return default_off
+
+
 def _get_effective_configurable_toolsets():
     """Return CONFIGURABLE_TOOLSETS + any plugin-provided toolsets.
 
@@ -159,25 +170,6 @@ def _get_plugin_toolset_keys() -> set:
         return {ts_key for ts_key, _, _ in get_plugin_toolsets()}
     except Exception:
         return set()
-
-
-def _implicit_default_off_toolsets(platform: str) -> Set[str]:
-    """Return default-off toolsets to suppress for implicit platform config.
-
-    A platform's own unrestricted toolset remains available for backwards
-    compatibility (for example the ``homeassistant`` platform keeps the
-    ``homeassistant`` toolset). When ``HASS_TOKEN`` is set, the homeassistant
-    toolset is treated as opted-in across all platforms (including ``cron``
-    and ``cli``) — the operator has explicitly provisioned credentials, so
-    other platforms should pick it up rather than silently dropping it.
-    """
-    default_off = set(_DEFAULT_OFF_TOOLSETS)
-    if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
-        default_off.remove(platform)
-    if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
-        default_off.remove("homeassistant")
-    return default_off
-
 
 # Platform display config — derived from the canonical registry so every
 # module shares the same data.  Kept as dict-of-dicts for backward
@@ -1016,6 +1008,8 @@ def _parse_enabled_flag(value, default: bool = True) -> bool:
 _LEGACY_PLATFORM_TOOLSET_ALIASES = {
     "qqbot": ("qq",),
 }
+
+
 def _get_platform_tools(
     config: dict,
     platform: str,
@@ -1194,15 +1188,9 @@ def _get_platform_tools(
         explicit_mcp_servers = explicit_passthrough & enabled_mcp_servers
         enabled_toolsets.update(explicit_passthrough - enabled_mcp_servers)
     if include_default_mcp_servers:
-        if "no_mcp" in toolset_names:
-            # Operator opted out of MCP for this platform — keep only the
-            # MCP servers they explicitly named alongside no_mcp.
+        if explicit_mcp_servers or "no_mcp" in toolset_names:
             enabled_toolsets.update(explicit_mcp_servers)
-        else:
-            # No no_mcp sentinel — surface every enabled MCP server even when
-            # platform_toolsets lists explicit builtin toolsets. The user's
-            # explicit builtin selection is the platform allowlist; MCP servers
-            # configured globally should not need to be re-listed per platform.
+        elif not has_explicit_platform_toolsets:
             enabled_toolsets.update(enabled_mcp_servers)
     else:
         enabled_toolsets.update(explicit_mcp_servers)
