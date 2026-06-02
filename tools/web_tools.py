@@ -133,8 +133,11 @@ def _get_backend() -> str:
     # Fallback for manual / legacy config — pick the highest-priority
     # available backend. Firecrawl also counts as available when the managed
     # tool gateway is configured for Nous subscribers.
-    # Free-tier backends (searxng / brave-free / ddgs) trail the paid ones so
+    # Free-tier backends (searxng / brave-free) trail the paid ones so
     # existing paid setups are unaffected.
+    # ddgs is intentionally excluded from auto-detect: just having the
+    # package importable is too weak a signal to opt the user into a
+    # rate-limited HTML-scraping backend without explicit configuration.
     backend_candidates = (
         ("firecrawl", _has_env("FIRECRAWL_API_KEY") or _has_env("FIRECRAWL_API_URL") or _is_tool_gateway_ready()),
         ("parallel", _has_env("PARALLEL_API_KEY")),
@@ -208,21 +211,22 @@ def _is_backend_available(backend: str) -> bool:
 
 
 def _ddgs_package_available() -> bool:
-    """Backward-compatible alias for _ddgs_package_importable."""
-    return _ddgs_package_importable()
+    """Return True when the installed ``ddgs`` distribution is safe to import.
+
+    Delegates to :func:`tools.web_providers.ddgs.ddgs_package_available`,
+    which checks distribution metadata and ``importlib.util.find_spec``
+    without executing the package's top-level code. A bare ``import ddgs``
+    here would run any local ``ddgs.py`` shadowing the installed package
+    on ``sys.path`` — an attack the provider's helper specifically guards
+    against and tests cover.
+    """
+    from tools.web_providers.ddgs import ddgs_package_available
+    return ddgs_package_available()
 
 
 def _ddgs_package_importable() -> bool:
-    """Return True when the ``ddgs`` Python package is available.
-
-    Uses a metadata-based check to avoid executing module-level code or
-    being shadowed by a local ``ddgs.py`` on ``sys.path``.
-    """
-    try:
-        from tools.web_providers.ddgs import ddgs_package_available
-        return ddgs_package_available()
-    except (ImportError, Exception):
-        return False
+    """Backward-compat alias for :func:`_ddgs_package_available`."""
+    return _ddgs_package_available()
 
 # ─── Firecrawl Client ────────────────────────────────────────────────────────
 
@@ -1241,8 +1245,6 @@ def web_search_tool(query: str, limit: int = 5) -> str:
             return result_json
 
         if backend == "ddgs":
-            if not _ddgs_package_available():
-                return tool_error("DuckDuckGo backend requires the 'ddgs' package. Install it with 'uv add ddgs'.")
             from tools.web_providers.ddgs import DDGSSearchProvider
             response_data = DDGSSearchProvider().search(query, limit)
             debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))

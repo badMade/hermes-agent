@@ -49,15 +49,14 @@ _UNSET: Any = object()
 # Per-task session variables
 # ---------------------------------------------------------------------------
 
-_PLATFORM: ContextVar = ContextVar("HERMES_SESSION_PLATFORM", default=_UNSET)
-_CHAT_ID: ContextVar = ContextVar("HERMES_SESSION_CHAT_ID", default=_UNSET)
-_CHAT_NAME: ContextVar = ContextVar("HERMES_SESSION_CHAT_NAME", default=_UNSET)
-_USER_ID: ContextVar = ContextVar("HERMES_SESSION_USER_ID", default=_UNSET)
-_USER_NAME: ContextVar = ContextVar("HERMES_SESSION_USER_NAME", default=_UNSET)
-_THREAD_ID: ContextVar = ContextVar("HERMES_SESSION_THREAD_ID", default=_UNSET)
+_SESSION_PLATFORM: ContextVar = ContextVar("HERMES_SESSION_PLATFORM", default=_UNSET)
+_SESSION_CHAT_ID: ContextVar = ContextVar("HERMES_SESSION_CHAT_ID", default=_UNSET)
+_SESSION_CHAT_NAME: ContextVar = ContextVar("HERMES_SESSION_CHAT_NAME", default=_UNSET)
+_SESSION_USER_ID: ContextVar = ContextVar("HERMES_SESSION_USER_ID", default=_UNSET)
+_SESSION_USER_NAME: ContextVar = ContextVar("HERMES_SESSION_USER_NAME", default=_UNSET)
+_SESSION_THREAD_ID: ContextVar = ContextVar("HERMES_SESSION_THREAD_ID", default=_UNSET)
 _SESSION_KEY: ContextVar = ContextVar("HERMES_SESSION_KEY", default=_UNSET)
 _SESSION_ID: ContextVar = ContextVar("HERMES_SESSION_ID", default=_UNSET)
-_TERMINAL_CWD: ContextVar = ContextVar("TERMINAL_CWD", default=_UNSET)
 
 # Cron auto-delivery vars — set per-job in run_job() so concurrent jobs
 # don't clobber each other's delivery targets.
@@ -65,13 +64,19 @@ _CRON_AUTO_DELIVER_PLATFORM: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_P
 _CRON_AUTO_DELIVER_CHAT_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_CHAT_ID", default=_UNSET)
 _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_THREAD_ID", default=_UNSET)
 
+# Session-scoped TERMINAL_CWD — historically read from os.environ but the
+# CLI / cron / gateway may need to override per-session without leaking into
+# concurrent tasks. Keep the env-var name so existing callers using
+# ``os.getenv("TERMINAL_CWD")`` still see process-global values.
+_TERMINAL_CWD: ContextVar = ContextVar("TERMINAL_CWD", default=_UNSET)
+
 _VAR_MAP: Dict[str, ContextVar] = {
-    "HERMES_SESSION_PLATFORM": _PLATFORM,
-    "HERMES_SESSION_CHAT_ID": _CHAT_ID,
-    "HERMES_SESSION_CHAT_NAME": _CHAT_NAME,
-    "HERMES_SESSION_USER_ID": _USER_ID,
-    "HERMES_SESSION_USER_NAME": _USER_NAME,
-    "HERMES_SESSION_THREAD_ID": _THREAD_ID,
+    "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
+    "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
+    "HERMES_SESSION_CHAT_NAME": _SESSION_CHAT_NAME,
+    "HERMES_SESSION_USER_ID": _SESSION_USER_ID,
+    "HERMES_SESSION_USER_NAME": _SESSION_USER_NAME,
+    "HERMES_SESSION_THREAD_ID": _SESSION_THREAD_ID,
     "HERMES_SESSION_KEY": _SESSION_KEY,
     "HERMES_SESSION_ID": _SESSION_ID,
     "HERMES_CRON_AUTO_DELIVER_PLATFORM": _CRON_AUTO_DELIVER_PLATFORM,
@@ -81,6 +86,7 @@ _VAR_MAP: Dict[str, ContextVar] = {
 
 
 def set_session_vars(
+    *,
     platform: str = "",
     chat_id: str = "",
     chat_name: str = "",
@@ -92,19 +98,20 @@ def set_session_vars(
 ) -> List:
     """Set all session context variables and return reset tokens.
 
-    Call ``clear_session_vars(tokens)`` in a ``finally`` block to restore
-    the previous values when the handler exits.
+    Callers should typically call ``clear_session_vars(tokens)`` in a
+    ``finally`` block to mark the session as explicitly ended (suppressing
+    environment fallbacks).
 
     Returns a list of reset tokens.
     """
     tokens = [
-        _PLATFORM.set(str(platform)),
-        _CHAT_ID.set(str(chat_id)),
-        _CHAT_NAME.set(str(chat_name)),
-        _THREAD_ID.set(str(thread_id)),
-        _USER_ID.set(str(user_id)),
-        _USER_NAME.set(str(user_name)),
-        _SESSION_KEY.set(str(session_key)),
+        _SESSION_PLATFORM.set(str(platform or "")),
+        _SESSION_CHAT_ID.set(str(chat_id or "")),
+        _SESSION_CHAT_NAME.set(str(chat_name or "")),
+        _SESSION_THREAD_ID.set(str(thread_id or "")),
+        _SESSION_USER_ID.set(str(user_id or "")),
+        _SESSION_USER_NAME.set(str(user_name or "")),
+        _SESSION_KEY.set(str(session_key or "")),
     ]
     if terminal_cwd is not None:
         tokens.append(_TERMINAL_CWD.set(str(terminal_cwd)))
@@ -124,28 +131,17 @@ def clear_session_vars(tokens: List) -> None:
     "never set" (which holds the ``_UNSET`` sentinel).
     """
     for var in (
-        _PLATFORM,
-        _CHAT_ID,
-        _CHAT_NAME,
-        _THREAD_ID,
-        _USER_ID,
-        _USER_NAME,
+        _SESSION_PLATFORM,
+        _SESSION_CHAT_ID,
+        _SESSION_CHAT_NAME,
+        _SESSION_THREAD_ID,
+        _SESSION_USER_ID,
+        _SESSION_USER_NAME,
         _SESSION_KEY,
     ):
         var.set("")
 
-    # Only explicitly clear _TERMINAL_CWD if it was set via terminal_cwd arg
-    # to set_session_vars (indicated by its presence in the tokens list).
-    # Tokens are the return values of ContextVar.set().
-    # Actually, the comment suggested checking if it was set in this context.
-    # We can check if any token in 'tokens' belongs to _TERMINAL_CWD.
-    # Since tokens is a list, we can't easily map back without changing set_session_vars
-    # to return a dict, or just checking if _TERMINAL_CWD is in tokens (if tokens was a dict).
-    # Wait, I previously changed it to a list for compatibility.
-
-    # Let's change set_session_vars to return a dict for better internal handling,
-    # OR just check the length of tokens if we know the order.
-    # Actually, a better way is to see if we have more than 7 tokens.
+    # Only explicitly clear _TERMINAL_CWD if it was set in this context.
     if len(tokens) > 7:
         _TERMINAL_CWD.set("")
 
@@ -174,11 +170,29 @@ def get_session_env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
 
-def get_terminal_cwd(default: Optional[str] = None) -> str:
-    """Return the session-scoped TERMINAL_CWD, falling back to env/getcwd."""
+def set_terminal_cwd(cwd: str):
+    """Set the session-scoped terminal cwd and return a reset token."""
+    return _TERMINAL_CWD.set(cwd)
+
+
+def reset_terminal_cwd(token) -> None:
+    """Restore the previous session-scoped terminal cwd value."""
+    _TERMINAL_CWD.reset(token)
+
+
+def get_terminal_cwd(default=None):
+    """Return the session-scoped terminal cwd, falling back to ``os.environ``.
+
+    ``TERMINAL_CWD`` is historically configured through the process
+    environment. Runtime per-session overrides set via ``set_terminal_cwd``
+    take precedence so concurrent gateway/cron sessions cannot clobber
+    each other.
+    """
+    import os
+
     value = _TERMINAL_CWD.get()
-    if value is _UNSET:
-        return os.getenv("TERMINAL_CWD", default if default is not None else os.getcwd())
-    if value == "":
-        return default if default is not None else os.getcwd()
-    return value
+    if value is not _UNSET:
+        if value == "":
+            return default if default is not None else os.getcwd()
+        return value
+    return os.getenv("TERMINAL_CWD", default if default is not None else os.getcwd())

@@ -59,6 +59,19 @@ DEFAULT_PORT = 8644
 _INSECURE_NO_AUTH = "INSECURE_NO_AUTH"
 _DYNAMIC_ROUTES_FILENAME = "webhook_subscriptions.json"
 
+_UNRESOLVED_PLACEHOLDER_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
+
+
+def _looks_unresolved_secret(secret: str) -> bool:
+    """True when ``secret`` is an unresolved ``${VAR}`` placeholder.
+
+    A misconfigured deployment may leave the literal ``${WEBHOOK_SECRET}``
+    string in config when the env var is missing. Treating that as a real
+    HMAC secret silently weakens auth — any attacker who can guess the
+    placeholder name can forge a valid signature. Reject it explicitly.
+    """
+    return bool(_UNRESOLVED_PLACEHOLDER_RE.fullmatch((secret or "").strip()))
+
 # Hostnames/IP literals that only serve connections originating on the same
 # machine. Anything else is treated as a public bind for safety-rail purposes.
 _LOOPBACK_HOSTS = frozenset({
@@ -81,18 +94,6 @@ def _is_loopback_host(host: str) -> bool:
     if not host:
         return False
     return host.strip().lower() in _LOOPBACK_HOSTS
-
-
-def _looks_unresolved_secret(secret: str) -> bool:
-    """True when `secret` appears to be an unexpanded env-var placeholder.
-
-    Matches `${VAR_NAME}` and `${VAR_NAME:-default}` style placeholders.
-    If a secret lands on the platform in this form, it means the user's
-    environment did not contain the expected variable. Computing HMAC
-    with the literal placeholder string is almost certainly a mistake.
-    """
-    s = (secret or "").strip()
-    return bool(re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}", s))
 
 
 def check_webhook_requirements() -> bool:
@@ -603,7 +604,9 @@ class WebhookAdapter(BasePlatformAdapter):
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
         if _looks_unresolved_secret(secret):
-            logger.warning("[webhook] Unresolved placeholder secret configured")
+            logger.warning(
+                "[webhook] Unresolved placeholder secret configured (e.g. ${WEBHOOK_SECRET}) — rejecting"
+            )
             return False
 
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
