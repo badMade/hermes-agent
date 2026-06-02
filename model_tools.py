@@ -698,10 +698,11 @@ def handle_function_call(
     function_name: str,
     function_args: Dict[str, Any],
     task_id: Optional[str] = None,
-    tool_call_id: Optional[str] = None,
-    session_id: Optional[str] = None,
     user_task: Optional[str] = None,
     enabled_tools: Optional[List[str]] = None,
+    *,
+    tool_call_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     skip_pre_tool_call_hook: bool = False,
 ) -> str:
     """
