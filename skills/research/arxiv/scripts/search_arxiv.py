@@ -13,7 +13,7 @@ Usage:
 import sys
 import urllib.request
 import urllib.parse
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 
 NS = {'a': 'http://www.w3.org/2005/Atom'}
 
