@@ -246,12 +246,10 @@ class TestIsWsl:
 
         self._reset_cache(monkeypatch)
 
-        _real_open = builtins.open
-
         def _mock_open(p, *a, **kw):
             if p == "/proc/version":
                 raise FileNotFoundError("No such file or directory: '/proc/version'")
-            return _real_open(p, *a, **kw)
+            return builtins.open(p, *a, **kw)
 
         monkeypatch.setattr("builtins.open", _mock_open)
 

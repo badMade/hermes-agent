@@ -13,11 +13,10 @@ import json
 import logging
 import os
 import re
-import secrets
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from urllib.parse import quote
 
 import httpx
 
@@ -43,6 +42,7 @@ DEFAULT_WEBHOOK_HOST = "127.0.0.1"
 DEFAULT_WEBHOOK_PORT = 8645
 DEFAULT_WEBHOOK_PATH = "/bluebubbles-webhook"
 MAX_TEXT_LENGTH = 4000
+DEFAULT_MAX_OUTBOUND_TEXT_CHUNKS = 20
 
 # Tapback reaction codes (BlueBubbles associatedMessageType values)
 _TAPBACK_ADDED = {
@@ -67,30 +67,6 @@ def _redact(text: str) -> str:
     text = _PHONE_RE.sub("[REDACTED]", text)
     text = _EMAIL_RE.sub("[REDACTED]", text)
     return text
-
-
-def _url_with_query_param(url: str, name: str, value: str) -> str:
-    """Return *url* with one query parameter added or replaced."""
-    parts = urlsplit(url)
-    query = [
-        (key, val)
-        for key, val in parse_qsl(parts.query, keep_blank_values=True)
-        if key != name
-    ]
-    query.append((name, value))
-    return urlunsplit(parts._replace(query=urlencode(query)))
-
-
-def _redact_url_query(url: str) -> str:
-    """Redact query values before logging webhook URLs."""
-    parts = urlsplit(url)
-    if not parts.query:
-        return url
-    query = "&".join(
-        f"{quote(key, safe='')}=[REDACTED]"
-        for key, _ in parse_qsl(parts.query, keep_blank_values=True)
-    )
-    return urlunsplit(parts._replace(query=query))
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +102,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
     platform = Platform.BLUEBUBBLES
     SUPPORTS_MESSAGE_EDITING = False
     MAX_MESSAGE_LENGTH = MAX_TEXT_LENGTH
+    MAX_OUTBOUND_TEXT_CHUNKS = DEFAULT_MAX_OUTBOUND_TEXT_CHUNKS
 
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform.BLUEBUBBLES)
@@ -134,14 +111,6 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             extra.get("server_url") or os.getenv("BLUEBUBBLES_SERVER_URL", "")
         )
         self.password = extra.get("password") or os.getenv("BLUEBUBBLES_PASSWORD", "")
-        configured_webhook_token = (
-            extra.get("webhook_token")
-            or os.getenv("BLUEBUBBLES_WEBHOOK_TOKEN", "")
-        )
-        self.webhook_token = (
-            configured_webhook_token
-            or (secrets.token_urlsafe(32) if self.password else "")
-        )
         self.webhook_host = (
             extra.get("webhook_host")
             or os.getenv("BLUEBUBBLES_WEBHOOK_HOST", DEFAULT_WEBHOOK_HOST)
@@ -262,25 +231,18 @@ class BlueBubblesAdapter(BasePlatformAdapter):
 
     @property
     def _webhook_register_url(self) -> str:
-        """Webhook URL registered with BlueBubbles for inbound events.
+        """Webhook URL registered with BlueBubbles, including the password as
+        a query param so inbound webhook POSTs carry credentials.
 
-        BlueBubbles posts to the exact registered URL and does not support
-        custom webhook headers, so URL-based authentication uses a dedicated
-        webhook token rather than the BlueBubbles API password.
+        BlueBubbles posts events to the exact URL registered via
+        ``/api/v1/webhook``. Its webhook registration API does not support
+        custom headers, so embedding the password in the URL is the only
+        way to authenticate inbound webhooks without disabling auth.
         """
         base = self._webhook_url
-        if self.webhook_token:
-            return _url_with_query_param(base, "token", self.webhook_token)
-        return base
-
-    @property
-    def _legacy_password_webhook_url(self) -> str:
-        """Former password-bearing webhook URL, used only for cleanup."""
         if self.password:
-            return _url_with_query_param(
-                self._webhook_url, "password", self.password
-            )
-        return self._webhook_url
+            return f"{base}?password={quote(self.password, safe='')}"
+        return base
 
     async def _find_registered_webhooks(self, url: str) -> list:
         """Return list of BB webhook entries matching *url*."""
@@ -304,13 +266,12 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             return False
 
         webhook_url = self._webhook_register_url
-        log_webhook_url = _redact_url_query(webhook_url)
 
         # Crash resilience — reuse an existing registration if present
         existing = await self._find_registered_webhooks(webhook_url)
         if existing:
             logger.info(
-                "[bluebubbles] webhook already registered: %s", log_webhook_url
+                "[bluebubbles] webhook already registered: %s", webhook_url
             )
             return True
 
@@ -325,7 +286,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             if 200 <= status < 300:
                 logger.info(
                     "[bluebubbles] webhook registered with server: %s",
-                    log_webhook_url,
+                    webhook_url,
                 )
                 return True
             else:
@@ -351,26 +312,21 @@ class BlueBubblesAdapter(BasePlatformAdapter):
         if not self.client:
             return False
 
-        webhook_urls = [self._webhook_register_url]
-        legacy_url = self._legacy_password_webhook_url
-        if legacy_url not in webhook_urls:
-            webhook_urls.append(legacy_url)
+        webhook_url = self._webhook_register_url
         removed = False
 
         try:
-            for webhook_url in webhook_urls:
-                for wh in await self._find_registered_webhooks(webhook_url):
-                    wh_id = wh.get("id")
-                    if wh_id:
-                        res = await self.client.delete(
-                            self._api_url(f"/api/v1/webhook/{wh_id}")
-                        )
-                        res.raise_for_status()
-                        removed = True
+            for wh in await self._find_registered_webhooks(webhook_url):
+                wh_id = wh.get("id")
+                if wh_id:
+                    res = await self.client.delete(
+                        self._api_url(f"/api/v1/webhook/{wh_id}")
+                    )
+                    res.raise_for_status()
+                    removed = True
             if removed:
                 logger.info(
-                    "[bluebubbles] webhook unregistered: %s",
-                    _redact_url_query(self._webhook_register_url),
+                    "[bluebubbles] webhook unregistered: %s", webhook_url
                 )
         except Exception as exc:
             logger.debug(
@@ -447,6 +403,21 @@ class BlueBubblesAdapter(BasePlatformAdapter):
         chunks = BasePlatformAdapter.truncate_message(content, max_length)
         return [re.sub(r"\s*\(\d+/\d+\)$", "", c) for c in chunks]
 
+    def _split_text_chunks(self, text: str) -> List[str]:
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+        if len(paragraphs) > self.MAX_OUTBOUND_TEXT_CHUNKS:
+            chunks = self.truncate_message(text, max_length=self.MAX_MESSAGE_LENGTH)
+        else:
+            chunks = []
+            for para in (paragraphs or [text]):
+                if len(para) <= self.MAX_MESSAGE_LENGTH:
+                    chunks.append(para)
+                else:
+                    chunks.extend(
+                        self.truncate_message(para, max_length=self.MAX_MESSAGE_LENGTH)
+                    )
+        return chunks[: self.MAX_OUTBOUND_TEXT_CHUNKS]
+
     async def send(
         self,
         chat_id: str,
@@ -457,16 +428,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
         text = self.format_message(content)
         if not text:
             return SendResult(success=False, error="BlueBubbles send requires text")
-        # Split on paragraph breaks first (double newlines) so each thought
-        # becomes its own iMessage bubble, then truncate any that are still
-        # too long.
-        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', text) if p.strip()]
-        chunks: List[str] = []
-        for para in (paragraphs or [text]):
-            if len(para) <= self.MAX_MESSAGE_LENGTH:
-                chunks.append(para)
-            else:
-                chunks.extend(self.truncate_message(para, max_length=self.MAX_MESSAGE_LENGTH))
+        chunks = self._split_text_chunks(text)
         last = SendResult(success=True)
         for chunk in chunks:
             guid = await self._resolve_chat_guid(chat_id)
@@ -815,13 +777,13 @@ class BlueBubblesAdapter(BasePlatformAdapter):
         from aiohttp import web
 
         token = (
-            request.query.get("token")
+            request.query.get("password")
             or request.query.get("guid")
-            or request.headers.get("x-webhook-token")
+            or request.headers.get("x-password")
             or request.headers.get("x-guid")
             or request.headers.get("x-bluebubbles-guid")
         )
-        if token != self.webhook_token:
+        if token != self.password:
             return web.json_response({"error": "unauthorized"}, status=401)
         try:
             raw = await request.read()
