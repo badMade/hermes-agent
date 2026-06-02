@@ -576,19 +576,21 @@ def is_shared_multi_user_session(
     group_sessions_per_user: bool = True,
     thread_sessions_per_user: bool = False,
 ) -> bool:
-    """Return True when a non-DM session is shared across participants.
+    """Return True when a non-DM session key is shared by participants.
 
-    Mirrors the isolation rules in :func:`build_session_key`:
-      - DMs are never shared.
-      - Threads are shared unless ``thread_sessions_per_user`` is True.
-      - Non-thread group/channel sessions are shared unless
-        ``group_sessions_per_user`` is True (default: True = isolated).
+    Mirrors the effective isolation rules in :func:`build_session_key`: a
+    non-DM session is single-user only when user isolation is enabled and a
+    participant identifier is available to append to the session key.
     """
     if source.chat_type == "dm":
         return False
-    if source.thread_id:
-        return not thread_sessions_per_user
-    return not group_sessions_per_user
+
+    participant_id = source.user_id_alt or source.user_id
+    isolate_user = group_sessions_per_user
+    if source.thread_id and not thread_sessions_per_user:
+        isolate_user = False
+
+    return not (isolate_user and participant_id)
 
 
 def build_session_key(
