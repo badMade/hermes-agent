@@ -1156,7 +1156,15 @@ class QQAdapter(BasePlatformAdapter):
                     )
 
         # Process all attachments uniformly (images, voice, files)
-        att_result = await self._process_attachments(attachments_raw)
+        # SSRF protection: skip attachment fetching for unauthorized users
+        runner = getattr(self, "gateway_runner", None)
+        source_for_auth = self.build_source(
+            chat_id=user_openid, user_id=user_openid, chat_type="dm"
+        )
+        if runner is not None and hasattr(runner, "_is_user_authorized") and not runner._is_user_authorized(source_for_auth):
+            att_result = {"image_urls": [], "image_media_types": [], "voice_transcripts": [], "attachment_info": ""}
+        else:
+            att_result = await self._process_attachments(attachments_raw)
         image_urls = att_result["image_urls"]
         image_media_types = att_result["image_media_types"]
         voice_transcripts = att_result["voice_transcripts"]

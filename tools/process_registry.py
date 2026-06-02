@@ -1164,6 +1164,10 @@ class ProcessRegistry:
         approval = check_all_command_guards(self._stdin_guard_command(session, payload), "local")
         if approval.get("approved"):
             return None
+        # Normalise: callers (write_stdin, close_stdin) always return a dict
+        # with a "status" key; ensure blocked results conform to that contract.
+        if "status" not in approval:
+            approval = {**approval, "status": "blocked"}
         return approval
 
     def write_stdin(self, session_id: str, data: str) -> dict:

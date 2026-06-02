@@ -379,6 +379,15 @@ class TestAuth:
         assert result is not None
         assert result.status == 401
 
+    def test_documented_placeholder_key_never_authenticates(self):
+        config = PlatformConfig(enabled=True, extra={"key": "your_api_key_here"})
+        adapter = APIServerAdapter(config)
+        mock_request = MagicMock()
+        mock_request.headers = {"Authorization": "Bearer your_api_key_here"}
+        result = adapter._check_auth(mock_request)
+        assert result is not None
+        assert result.status == 401
+
 
 # ---------------------------------------------------------------------------
 # Helpers for HTTP tests
