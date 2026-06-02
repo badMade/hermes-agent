@@ -105,6 +105,32 @@ class TestDownloadPublicUrlBytesAiohttp:
                     )
                 )
 
+    def test_follows_safe_redirect_and_returns_final_url(self):
+        from gateway.platforms.base import download_public_url_bytes_aiohttp
+
+        session = _FakeAiohttpSession(
+            [
+                _FakeAiohttpResponse(302, headers={"Location": "/final.png"}),
+                _FakeAiohttpResponse(200, data=b"ok", content_type="image/png"),
+            ]
+        )
+
+        with patch("tools.url_safety.is_safe_url", return_value=True):
+            data, ct, final_url = asyncio.run(
+                download_public_url_bytes_aiohttp(
+                    session,
+                    "https://safe.example/start.png",
+                    timeout=1,
+                )
+            )
+
+        assert data == b"ok"
+        assert ct == "image/png"
+        assert final_url == "https://safe.example/final.png"
+        assert session.requested_urls == [
+            "https://safe.example/start.png",
+            "https://safe.example/final.png",
+        ]
 
 class TestSafeUrlForLog:
     def test_strips_query_fragment_and_userinfo(self):
