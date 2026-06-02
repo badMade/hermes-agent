@@ -575,7 +575,7 @@ async def download_public_url_bytes_aiohttp(
         ) as resp:
             headers = getattr(resp, "headers", None)
 
-            if 300 <= resp.status < 400:
+            if resp.status in {301, 302, 303, 307, 308}:
                 location = headers.get("Location") if hasattr(headers, "get") else None
                 if not location:
                     raise ValueError(
@@ -585,9 +585,8 @@ async def download_public_url_bytes_aiohttp(
                 current_url = urljoin(current_url, location)
                 continue
 
-            if resp.status >= 400:
+            if resp.status >= 300:
                 raise PublicUrlDownloadHTTPError(resp.status, current_url)
-
             length = headers.get("Content-Length") if hasattr(headers, "get") else None
             if inspect.isawaitable(length):
                 length = await length
