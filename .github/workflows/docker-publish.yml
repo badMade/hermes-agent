@@ -36,7 +36,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  IMAGE_NAME: nousresearch/hermes-agent
+  IMAGE_NAME: badMade/hermes-agent
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -57,6 +57,18 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
         with:
           submodules: recursive
+
+      # The image bundles a large Python venv (ctranslate2, torch, etc.) and
+      # `load: true` imports the whole thing into the local daemon, which can
+      # exhaust the runner's ~14 GB free disk and fail with "no space left on
+      # device".  Reclaim space from preinstalled toolchains we don't use.
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/share/boost /usr/local/lib/node_modules \
+            "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          sudo docker image prune --all --force || true
+          df -h
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
@@ -146,6 +158,16 @@ jobs:
         with:
           submodules: recursive
 
+      # See build-amd64: free space before `load: true` imports the large
+      # venv-bearing image into the local daemon.
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/share/boost /usr/local/lib/node_modules \
+            "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          sudo docker image prune --all --force || true
+          df -h
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
@@ -212,7 +234,7 @@ jobs:
   # On releases it produces :<release_tag_name>.
   # ---------------------------------------------------------------------------
   merge:
-    if: github.repository == 'NousResearch/hermes-agent' && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'release')
+    if: github.repository == 'badMade/hermes-agent' && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'release')
     runs-on: ubuntu-latest
     needs: [build-amd64, build-arm64]
     timeout-minutes: 10
@@ -239,11 +261,15 @@ jobs:
       # commit gets its own immutable tag); releases use the release tag name.
       - name: Compute tag
         id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GITHUB_SHA_VALUE: ${{ github.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "release" ]; then
+            printf 'tag=%s\n' "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            printf 'tag=sha-%s\n' "$GITHUB_SHA_VALUE" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create manifest list and push
@@ -300,7 +326,7 @@ jobs:
   # ---------------------------------------------------------------------------
   move-latest:
     if: |
-      github.repository == 'NousResearch/hermes-agent'
+      github.repository == 'badMade/hermes-agent'
       && github.event_name == 'push'
       && github.ref == 'refs/heads/main'
       && needs.merge.outputs.pushed_sha_tag == 'true'

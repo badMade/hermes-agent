@@ -68,6 +68,7 @@ from urllib.parse import urlparse, parse_qs, urlunparse
 from datetime import datetime
 from pathlib import Path
 
+from agent.redact import redact_sensitive_text
 from hermes_constants import get_hermes_home
 
 
@@ -81,6 +82,16 @@ def _load_openai_cls() -> type:
         from openai import OpenAI as _cls
         _OPENAI_CLS_CACHE = _cls
     return _OPENAI_CLS_CACHE
+
+
+
+def _safe_session_path_component(session_id: str) -> str:
+    """Return a filesystem-safe component for session-scoped log filenames."""
+    raw = str(session_id or "")
+    if re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", raw):
+        return raw
+    digest = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"unsafe-{digest}"
 
 
 class _OpenAIProxy:
@@ -1238,8 +1249,8 @@ class AIAgent:
         # not mid-conversation.  Also validates the api_mode is registered.
         try:
             self._get_transport()
-        except Exception:
-            pass  # Non-fatal — transport may not exist for all modes yet
+        except Exception as e:
+            logger.debug("Could not warm transport cache (Non-fatal): %s", e)
 
         try:
             from hermes_cli.model_normalize import (
@@ -1855,7 +1866,7 @@ class AIAgent:
         hermes_home = get_hermes_home()
         self.logs_dir = hermes_home / "sessions"
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
+        self.session_log_file = self.logs_dir / f"session_{_safe_session_path_component(self.session_id)}.json"
         
         # Track conversation messages for session logging
         self._session_messages: List[Dict[str, Any]] = []
@@ -2002,7 +2013,7 @@ class AIAgent:
         # through get_tool_definitions()).  Duplicate function names cause
         # 400 errors on providers that enforce unique names (e.g. Xiaomi
         # MiMo via Nous Portal).
-        if self._memory_manager and self.tools is not None:
+        if self._memory_provider_tools_allowed() and self.tools is not None:
             _existing_tool_names = {
                 t.get("function", {}).get("name")
                 for t in self.tools
@@ -2325,8 +2336,9 @@ class AIAgent:
             except Exception as _ce_err:
                 logger.debug("Context engine on_session_start: %s", _ce_err)
 
+        from gateway.session_context import get_terminal_cwd
         self._subdirectory_hints = SubdirectoryHintTracker(
-            working_dir=os.getenv("TERMINAL_CWD") or None,
+            working_dir=get_terminal_cwd() or None,
         )
         self._user_turn_count = 0
 
@@ -2458,7 +2470,8 @@ class AIAgent:
         try:
             self._session_db.create_session(
                 session_id=self.session_id,
-                source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                source=self.platform
+                    or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
                 model=self.model,
                 model_config=self._session_init_model_config,
                 system_prompt=self._cached_system_prompt,
@@ -4371,7 +4384,8 @@ class AIAgent:
             ),
             "session_id": self.session_id or "",
             "parent_session_id": self._parent_session_id or "",
-            "platform": self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+            "platform": self.platform
+                            or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
             "tool_name": "memory",
         }
         if task_id:
@@ -5079,7 +5093,7 @@ class AIAgent:
                 dump_payload["error"] = error_info
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            dump_file = self.logs_dir / f"request_dump_{self.session_id}_{timestamp}.json"
+            dump_file = self.logs_dir / f"request_dump_{_safe_session_path_component(self.session_id)}_{timestamp}.json"
             dump_file.write_text(
                 json.dumps(dump_payload, ensure_ascii=False, indent=2, default=str),
                 encoding="utf-8",
@@ -5871,11 +5885,12 @@ class AIAgent:
             context_parts.append(system_message)
 
         if not self.skip_context_files:
-            # Use TERMINAL_CWD for context file discovery when set (gateway
-            # mode).  The gateway process runs from the hermes-agent install
-            # dir, so os.getcwd() would pick up the repo's AGENTS.md and
-            # other dev files — inflating token usage by ~10k for no benefit.
-            _context_cwd = os.getenv("TERMINAL_CWD") or None
+            # Use session-scoped TERMINAL_CWD for context file discovery when
+            # set (gateway/cron mode). Falling back to os.getcwd() in the
+            # gateway process would pick up the repo's AGENTS.md and other
+            # dev files — inflating token usage by ~10k for no benefit.
+            from gateway.session_context import get_terminal_cwd
+            _context_cwd = get_terminal_cwd() or None
             context_files_prompt = build_context_files_prompt(
                 cwd=_context_cwd, skip_soul=_soul_loaded)
             if context_files_prompt:
@@ -5987,6 +6002,12 @@ class AIAgent:
                     role,
                 )
                 continue
+            if any(str(key).startswith("_hermes_") for key in msg):
+                msg = {
+                    key: value
+                    for key, value in msg.items()
+                    if not str(key).startswith("_hermes_")
+                }
             filtered.append(msg)
         messages = filtered
 
@@ -9112,14 +9133,18 @@ class AIAgent:
 
         # Non-vision Anthropic model (rare today, but keep the fallback for
         # compat): replace each image part with a vision_analyze text note.
-        transformed = copy.deepcopy(api_messages)
-        for msg in transformed:
+        transformed = []
+        for msg in api_messages:
             if not isinstance(msg, dict):
+                transformed.append(msg)
                 continue
-            msg["content"] = self._preprocess_anthropic_content(
+
+            new_msg = msg.copy()
+            new_msg["content"] = self._preprocess_anthropic_content(
                 msg.get("content"),
                 str(msg.get("role", "user") or "user"),
             )
+            transformed.append(new_msg)
         return transformed
 
     def _prepare_messages_for_non_vision_model(self, api_messages: list) -> list:
@@ -9140,18 +9165,23 @@ class AIAgent:
         if self._model_supports_vision():
             return api_messages
 
-        transformed = copy.deepcopy(api_messages)
-        for msg in transformed:
+        transformed = []
+        for msg in api_messages:
             if not isinstance(msg, dict):
+                transformed.append(msg)
                 continue
+
+            # Shallow copy the message to avoid mutating the original
+            new_msg = msg.copy()
             # Reuse the Anthropic text-fallback preprocessor — the behaviour is
             # identical (walk content parts, replace images with cached
             # descriptions, merge back into a single text or structured
             # content). Naming is historical.
-            msg["content"] = self._preprocess_anthropic_content(
+            new_msg["content"] = self._preprocess_anthropic_content(
                 msg.get("content"),
                 str(msg.get("role", "user") or "user"),
             )
+            transformed.append(new_msg)
         return transformed
 
     def _try_shrink_image_parts_in_messages(self, api_messages: list) -> bool:
@@ -9305,33 +9335,37 @@ class AIAgent:
         return base_url_host_matches(self._base_url_lower, "portal.qwen.ai")
 
     def _qwen_prepare_chat_messages(self, api_messages: list) -> list:
-        prepared = copy.deepcopy(api_messages)
-        if not prepared:
-            return prepared
+        if not api_messages:
+            return []
 
-        for msg in prepared:
+        prepared = []
+        for msg in api_messages:
             if not isinstance(msg, dict):
+                prepared.append(msg)
                 continue
-            content = msg.get("content")
+
+            new_msg = msg.copy()
+            content = new_msg.get("content")
             if isinstance(content, str):
-                msg["content"] = [{"type": "text", "text": content}]
+                new_msg["content"] = [{"type": "text", "text": content}]
             elif isinstance(content, list):
                 # Normalize: convert bare strings to text dicts, keep dicts as-is.
-                # deepcopy already created independent copies, no need for dict().
                 normalized_parts = []
                 for part in content:
                     if isinstance(part, str):
                         normalized_parts.append({"type": "text", "text": part})
                     elif isinstance(part, dict):
-                        normalized_parts.append(part)
+                        normalized_parts.append(part.copy())
                 if normalized_parts:
-                    msg["content"] = normalized_parts
+                    new_msg["content"] = normalized_parts
+            prepared.append(new_msg)
 
         # Inject cache_control on the last part of the system message.
         for msg in prepared:
             if isinstance(msg, dict) and msg.get("role") == "system":
                 content = msg.get("content")
                 if isinstance(content, list) and content and isinstance(content[-1], dict):
+                    # content[-1] is already a copy from above loop
                     content[-1]["cache_control"] = {"type": "ephemeral"}
                 break
 
@@ -9760,19 +9794,17 @@ class AIAgent:
         if reasoning_text:
             reasoning_text = _sanitize_surrogates(reasoning_text)
 
-        # Strip inline reasoning tags (<think>…</think> etc.) from the stored
-        # assistant content.  Reasoning was already captured into
-        # ``reasoning_text`` above (either from structured fields or the
-        # inline-block fallback), so the raw tags in content are redundant.
-        # Leaving them in place caused reasoning to leak to messaging
-        # platforms (#8878, #9568), inflate context on subsequent turns
-        # (#9306 observed 16% content-size reduction on a real MiniMax
-        # session), and pollute generated session titles.  One strip at the
-        # storage boundary cleans content for every downstream consumer:
-        # API replay, session transcript, gateway delivery, CLI display,
-        # compression, title generation.
+        # Strip inline reasoning tags (<think>…</think> etc.) and internal
+        # memory-context wrappers from stored assistant content.  The final
+        # user-visible response is scrubbed separately, but this storage-boundary
+        # scrub is required so a model/provider echo of ephemeral recalled memory
+        # cannot become durable session history or Responses API replay state.
         if isinstance(_san_content, str) and _san_content:
-            _san_content = self._strip_think_blocks(_san_content).strip()
+            _stripped_content = self._strip_think_blocks(_san_content)
+            if isinstance(_stripped_content, str):
+                _san_content = sanitize_context(_stripped_content).strip()
+            else:
+                _san_content = sanitize_context(_san_content).strip()
 
         msg = {
             "role": "assistant",
@@ -9815,16 +9847,19 @@ class AIAgent:
         #
         # Promote the already-sanitized streamed ``reasoning_text`` to
         # ``reasoning_content`` at write time, but ONLY when no prior branch
-        # already set it AND we actually captured reasoning text. This
-        # preserves every existing behavior:
+        # already set it, we actually captured reasoning text, and this is not
+        # a tool-call turn.  Tool-call turns without provider-native
+        # ``reasoning_content`` must keep the legacy shape so DeepSeek/Kimi
+        # replay can pad instead of forwarding another provider's private
+        # chain-of-thought (#15748). This preserves every existing behavior:
         #   - SDK-exposed ``reasoning_content`` (OpenAI/Moonshot/DeepSeek SDK)
         #     still wins.
-        #   - DeepSeek tool-call ""-pad (#15250) still fires.
+        #   - DeepSeek/Kimi tool-call pad (#15250, #17400) still fires.
         #   - Non-thinking turns with no reasoning leave the field absent,
         #     so ``_copy_reasoning_content_for_api``'s cross-provider leak
         #     guard (#15748) and ``reasoning``→``reasoning_content``
         #     promotion tiers still apply at replay time.
-        if "reasoning_content" not in msg and reasoning_text:
+        if "reasoning_content" not in msg and reasoning_text and not assistant_tool_calls:
             msg["reasoning_content"] = reasoning_text
 
         if hasattr(assistant_message, 'reasoning_details') and assistant_message.reasoning_details:
@@ -10216,8 +10251,14 @@ class AIAgent:
             # and get recovered by retrying on main?  Surface that so users
             # know their auxiliary.compression.model setting is broken even
             # though compression succeeded.
-            _aux_fail_model = getattr(self.context_compressor, "_last_aux_model_failure_model", None)
-            _aux_fail_err = getattr(self.context_compressor, "_last_aux_model_failure_error", None)
+            _aux_fail_model = redact_sensitive_text(
+                getattr(self.context_compressor, "_last_aux_model_failure_model", None),
+                force=True,
+            )
+            _aux_fail_err = redact_sensitive_text(
+                getattr(self.context_compressor, "_last_aux_model_failure_error", None),
+                force=True,
+            )
             if _aux_fail_model:
                 # Dedup on (model, error) so we don't spam on every compaction
                 _aux_key = (_aux_fail_model, _aux_fail_err)
@@ -10253,7 +10294,7 @@ class AIAgent:
                 except Exception:
                     pass
                 # Update session_log_file to point to the new session's JSON file
-                self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
+                self.session_log_file = self.logs_dir / f"session_{_safe_session_path_component(self.session_id)}.json"
                 self._session_db_created = False
                 self._session_db.create_session(
                     session_id=self.session_id,
@@ -10409,6 +10450,18 @@ class AIAgent:
         finally:
             self._executing_tools = False
 
+    def _memory_provider_tools_allowed(self) -> bool:
+        """Return True when provider-backed memory tools are in this agent's toolset."""
+        return bool(self._memory_manager and "memory" in self.valid_tool_names)
+
+    def _is_allowed_memory_provider_tool(self, function_name: str) -> bool:
+        """Return True only for provider memory tools exposed to this agent."""
+        return bool(
+            self._memory_manager
+            and function_name in self.valid_tool_names
+            and self._memory_manager.has_tool(function_name)
+        )
+
     def _dispatch_delegate_task(self, function_args: dict) -> str:
         """Single call site for delegate_task dispatch.
 
@@ -10422,8 +10475,6 @@ class AIAgent:
             toolsets=function_args.get("toolsets"),
             tasks=function_args.get("tasks"),
             max_iterations=function_args.get("max_iterations"),
-            acp_command=function_args.get("acp_command"),
-            acp_args=function_args.get("acp_args"),
             role=function_args.get("role"),
             parent_agent=self,
         )
@@ -10469,6 +10520,7 @@ class AIAgent:
                 limit=function_args.get("limit", 3),
                 db=session_db,
                 current_session_id=self.session_id,
+                current_source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
             )
         elif function_name == "memory":
             target = function_args.get("target", "memory")
@@ -10495,7 +10547,7 @@ class AIAgent:
                 except Exception:
                     pass
             return result
-        elif self._memory_manager and self._memory_manager.has_tool(function_name):
+        elif self._is_allowed_memory_provider_tool(function_name):
             return self._memory_manager.handle_tool_call(function_name, function_args)
         elif function_name == "clarify":
             from tools.clarify_tool import clarify_tool as _clarify_tool
@@ -10592,9 +10644,10 @@ class AIAgent:
             # Checkpoint before destructive terminal commands
             if function_name == "terminal" and self._checkpoint_mgr.enabled:
                 try:
+                    from gateway.session_context import get_terminal_cwd
                     cmd = function_args.get("command", "")
                     if _is_destructive_command(cmd):
-                        cwd = function_args.get("workdir") or os.getenv("TERMINAL_CWD", os.getcwd())
+                        cwd = function_args.get("workdir") or get_terminal_cwd(os.getcwd())
                         self._checkpoint_mgr.ensure_checkpoint(
                             cwd, f"before terminal: {cmd[:60]}"
                         )
@@ -11051,9 +11104,10 @@ class AIAgent:
             # Checkpoint before destructive terminal commands
             if not _execution_blocked and function_name == "terminal" and self._checkpoint_mgr.enabled:
                 try:
+                    from gateway.session_context import get_terminal_cwd
                     cmd = function_args.get("command", "")
                     if _is_destructive_command(cmd):
-                        cwd = function_args.get("workdir") or os.getenv("TERMINAL_CWD", os.getcwd())
+                        cwd = function_args.get("workdir") or get_terminal_cwd(os.getcwd())
                         self._checkpoint_mgr.ensure_checkpoint(
                             cwd, f"before terminal: {cmd[:60]}"
                         )
@@ -11094,6 +11148,7 @@ class AIAgent:
                         limit=function_args.get("limit", 3),
                         db=session_db,
                         current_session_id=self.session_id,
+                        current_source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
                     )
                 tool_duration = time.time() - tool_start_time
                 if self._should_emit_quiet_tool_messages():
@@ -11183,7 +11238,7 @@ class AIAgent:
                         spinner.stop(cute_msg)
                     elif self._should_emit_quiet_tool_messages():
                         self._vprint(f"  {cute_msg}")
-            elif self._memory_manager and self._memory_manager.has_tool(function_name):
+            elif self._is_allowed_memory_provider_tool(function_name):
                 # Memory provider tools (hindsight_retain, honcho_search, etc.)
                 # These are not in the tool registry — route through MemoryManager.
                 spinner = None
@@ -13861,6 +13916,9 @@ class AIAgent:
                             self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
                             restart_with_compressed_messages = True
+                            # Fix: reset retry counters after compression so the model
+                            # gets a fresh budget on the compressed context.
+                            retry_count = 0
                             break
                         else:
                             self._vprint(f"{self.log_prefix}❌ Payload too large and cannot compress further.", force=True)
@@ -13900,7 +13958,7 @@ class AIAgent:
                         # Note: max_tokens = output token cap (one response).
                         #       context_length = total window (input + output combined).
                         available_out = parse_available_output_tokens_from_error(error_msg)
-                        if available_out is not None:
+                        if available_out is not None and available_out >= 512:
                             # Error is purely about the output cap being too large.
                             # Cap output to the available space and retry without
                             # touching context_length or triggering compression.
@@ -14019,6 +14077,9 @@ class AIAgent:
                                 self._emit_status(f"🗜️ Compressed {original_len} → {len(messages)} messages, retrying...")
                             time.sleep(2)  # Brief pause between compression retries
                             restart_with_compressed_messages = True
+                            # Fix: reset retry counters after compression so the model
+                            # gets a fresh budget on the compressed context.
+                            retry_count = 0
                             break
                         else:
                             # Can't compress further and already at minimum tier

@@ -69,6 +69,11 @@ class TestMSGraphWebhookConfig:
         ]
 
 
+    def test_client_state_configured_tracks_secret_presence(self):
+        assert _make_adapter().client_state_configured is True
+        assert _make_adapter(client_state="").client_state_configured is False
+
+
 class TestMSGraphValidationHandshake:
     @pytest.mark.anyio
     async def test_validation_token_echo_on_get(self):
@@ -261,7 +266,10 @@ class TestMSGraphNotifications:
 
         await asyncio.sleep(0.05)
 
+        assert adapter._duplicate_count == 0
         assert len(scheduled) == 2
+        assert scheduled[0][1].message_id == ""
+        assert scheduled[1][1].message_id == ""
 
     @pytest.mark.anyio
     async def test_resource_patterns_accept_leading_slash(self):
