@@ -5226,7 +5226,9 @@ class GatewayRunner:
             if not check_signal_requirements():
                 logger.warning("Signal: SIGNAL_HTTP_URL or SIGNAL_ACCOUNT not configured")
                 return None
-            return SignalAdapter(config)
+            adapter = SignalAdapter(config)
+            adapter.gateway_runner = self
+            return adapter
 
         elif platform == Platform.HOMEASSISTANT:
             from gateway.platforms.homeassistant import HomeAssistantAdapter, check_ha_requirements
@@ -8221,8 +8223,11 @@ class GatewayRunner:
                 try:
                     self._session_db.set_session_title(new_entry.session_id, sanitized)
                     header = t("gateway.reset.header_titled", title=sanitized)
-                except ValueError as e:
-                    _title_note = t("gateway.reset.title_error_untitled", error=str(e))
+                except ValueError:
+                    _title_note = t(
+                        "gateway.reset.title_error_untitled",
+                        error=t("gateway.reset.title_unavailable"),
+                    )
                 except Exception:
                     pass
             elif not _title_note:
@@ -11409,8 +11414,8 @@ class GatewayRunner:
                     return t("gateway.title.set_to", title=sanitized)
                 else:
                     return t("gateway.title.not_found")
-            except ValueError as e:
-                return t("gateway.shared.warn_passthrough", error=e)
+            except ValueError:
+                return t("gateway.title.warn_prefix", error=t("gateway.title.unavailable"))
         else:
             # Show the current title and session ID
             title = self._session_db.get_session_title(session_id)
