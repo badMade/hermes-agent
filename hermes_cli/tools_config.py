@@ -762,14 +762,12 @@ def _pip_install(
                 stderr=f"pip not available and ensurepip failed: {e}",
             )
 
-    from tools.environments.local import _sanitize_subprocess_env
-
     return subprocess.run(
         pip_cmd + ["install", *args],
         capture_output=capture_output,
         text=True,
         timeout=timeout,
-        env=_sanitize_subprocess_env(os.environ.copy()),
+        env=pip_env,
     )
 
 
@@ -790,11 +788,14 @@ def _run_post_setup(post_setup_key: str):
             # execute npm.cmd on Windows (CreateProcessW otherwise rejects
             # batch shims).  On POSIX npm_bin is the plain path — same
             # behaviour as before.
+            from tools.environments.local import _sanitize_subprocess_env
+
             result = subprocess.run(
                 [npm_bin, "install", "--silent"],
                 capture_output=True,
                 text=True,
                 cwd=str(PROJECT_ROOT),
+                env=_sanitize_subprocess_env(os.environ.copy()),
             )
             if result.returncode == 0:
                 _print_success("    Node.js dependencies installed")
