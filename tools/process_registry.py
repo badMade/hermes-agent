@@ -1164,7 +1164,7 @@ class ProcessRegistry:
         approval = check_all_command_guards(self._stdin_guard_command(session, payload), "local")
         if approval.get("approved"):
             return None
-        return approval
+        return {"status": "error", **approval}
 
     def write_stdin(self, session_id: str, data: str) -> dict:
         """Send raw data to a running process's stdin (no newline appended)."""
