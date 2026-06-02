@@ -762,12 +762,14 @@ def _pip_install(
                 stderr=f"pip not available and ensurepip failed: {e}",
             )
 
+    from tools.environments.local import _sanitize_subprocess_env
+
     return subprocess.run(
         pip_cmd + ["install", *args],
         capture_output=capture_output,
         text=True,
         timeout=timeout,
-        env=pip_env,
+        env=_sanitize_subprocess_env(os.environ.copy()),
     )
 
 
