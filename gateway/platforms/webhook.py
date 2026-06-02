@@ -59,6 +59,19 @@ DEFAULT_PORT = 8644
 _INSECURE_NO_AUTH = "INSECURE_NO_AUTH"
 _DYNAMIC_ROUTES_FILENAME = "webhook_subscriptions.json"
 
+_UNRESOLVED_PLACEHOLDER_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
+
+
+def _looks_unresolved_secret(secret: str) -> bool:
+    """True when ``secret`` is an unresolved ``${VAR}`` placeholder.
+
+    A misconfigured deployment may leave the literal ``${WEBHOOK_SECRET}``
+    string in config when the env var is missing. Treating that as a real
+    HMAC secret silently weakens auth — any attacker who can guess the
+    placeholder name can forge a valid signature. Reject it explicitly.
+    """
+    return bool(_UNRESOLVED_PLACEHOLDER_RE.fullmatch((secret or "").strip()))
+
 # Hostnames/IP literals that only serve connections originating on the same
 # machine. Anything else is treated as a public bind for safety-rail purposes.
 _LOOPBACK_HOSTS = frozenset({
@@ -81,22 +94,6 @@ def _is_loopback_host(host: str) -> bool:
     if not host:
         return False
     return host.strip().lower() in _LOOPBACK_HOSTS
-
-
-_PLACEHOLDER_SECRET_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
-
-
-def _looks_unresolved_secret(secret: str) -> bool:
-    """True when `secret` is an unresolved ``${VAR}`` env-template literal.
-
-    Operators sometimes hand-edit configs and forget that ``${WEBHOOK_SECRET}``
-    is a placeholder — when the env var is unset, the literal string flows
-    through to the validator and HMAC computes against it. Anyone who guesses
-    the literal placeholder can then forge a signature, defeating auth.
-    """
-    if not secret:
-        return False
-    return bool(_PLACEHOLDER_SECRET_RE.fullmatch(secret.strip()))
 
 
 def check_webhook_requirements() -> bool:
@@ -610,7 +607,9 @@ class WebhookAdapter(BasePlatformAdapter):
         # otherwise be HMAC'd verbatim, accepting any caller who guesses the
         # literal ``${WEBHOOK_SECRET}`` string as the secret.
         if _looks_unresolved_secret(secret):
-            logger.warning("[webhook] Unresolved placeholder secret configured; rejecting")
+            logger.warning(
+                "[webhook] Unresolved placeholder secret configured (e.g. ${WEBHOOK_SECRET}) — rejecting"
+            )
             return False
 
         # GitHub: X-Hub-Signature-256 = sha256=<hex>

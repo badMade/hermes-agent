@@ -135,11 +135,9 @@ def _get_backend() -> str:
     # tool gateway is configured for Nous subscribers.
     # Free-tier backends (searxng / brave-free) trail the paid ones so
     # existing paid setups are unaffected.
-    #
-    # ddgs is intentionally NOT in auto-detect: it ships in dev installs
-    # via the test extras, so its mere presence would silently downgrade
-    # users who never asked for DuckDuckGo. It's only picked when explicitly
-    # configured (web.backend: ddgs).
+    # ddgs is intentionally excluded from auto-detect: just having the
+    # package importable is too weak a signal to opt the user into a
+    # rate-limited HTML-scraping backend without explicit configuration.
     backend_candidates = (
         ("firecrawl", _has_env("FIRECRAWL_API_KEY") or _has_env("FIRECRAWL_API_URL") or _is_tool_gateway_ready()),
         ("parallel", _has_env("PARALLEL_API_KEY")),
@@ -213,18 +211,17 @@ def _is_backend_available(backend: str) -> bool:
 
 
 def _ddgs_package_available() -> bool:
-    """Return True when the ``ddgs`` Python package can be imported.
+    """Return True when the installed ``ddgs`` distribution is safe to import.
 
-    ddgs is the only backend whose availability is driven by a package
-    presence rather than an env var / config entry.  Wrapped in a helper
-    so auto-detect and ``_is_backend_available`` share the same check
-    (and tests can monkeypatch a single symbol).
+    Delegates to :func:`tools.web_providers.ddgs.ddgs_package_available`,
+    which checks distribution metadata and ``importlib.util.find_spec``
+    without executing the package's top-level code. A bare ``import ddgs``
+    here would run any local ``ddgs.py`` shadowing the installed package
+    on ``sys.path`` — an attack the provider's helper specifically guards
+    against and tests cover.
     """
-    try:
-        import ddgs  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    from tools.web_providers.ddgs import ddgs_package_available
+    return ddgs_package_available()
 
 
 # Backward-compat alias for older tests / external callers that imported
