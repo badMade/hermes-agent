@@ -100,18 +100,30 @@ def _count_tokens_for_entry(entry: Dict) -> Tuple[Dict, int]:
     conversations = entry.get("conversations", [])
     if not conversations:
         return entry, 0
-    
-    total = 0
-    for turn in conversations:
-        value = turn.get("value", "")
-        if value:
-            try:
-                total += len(_TOKENIZER.encode(value))
-            except Exception:
-                # Fallback to character estimate
-                total += len(value) // 4
-    
-    return entry, total
+
+    texts = [turn.get("value", "") for turn in conversations if turn.get("value", "")]
+    if not texts:
+        return entry, 0
+
+    if _TOKENIZER is not None:
+        try:
+            # Use the HuggingFace tokenizer's batch encoding, which is
+            # significantly faster than encoding each string in a loop.
+            token_ids = _TOKENIZER(texts)["input_ids"]
+            return entry, sum(len(ids) for ids in token_ids)
+        except Exception:
+            # Fall back to per-text encoding so a single failing text only
+            # degrades that text to a character estimate, not the whole entry.
+            total = 0
+            for text in texts:
+                try:
+                    total += len(_TOKENIZER.encode(text))
+                except Exception:
+                    total += len(text) // 4
+            return entry, total
+
+    # No tokenizer available: fall back to a character estimate.
+    return entry, sum(len(text) // 4 for text in texts)
 
 
 def sample_from_datasets(
