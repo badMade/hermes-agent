@@ -695,7 +695,7 @@ def _exec_in_container(container_info: dict, cli_args: list):
     exec_user = container_info["exec_user"]
     hermes_bin = container_info["hermes_bin"]
 
-    runtime = shutil.which(backend)
+    runtime = container_info.get("runtime_path") or shutil.which(backend)
     if not runtime:
         print(
             f"Error: {backend} not found on PATH. Cannot route to container.",

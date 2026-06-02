@@ -1,7 +1,7 @@
 """Tests for container-aware CLI routing (NixOS container mode).
 
 When container.enable = true in the NixOS module, the activation script
-writes a .container-mode metadata file. The host CLI detects this and
+writes root-owned host routing metadata. The host CLI detects this and
 execs into the container instead of running locally.
 """
 import os
@@ -28,6 +28,10 @@ def container_env(tmp_path, monkeypatch):
     hermes_home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.delenv("HERMES_DEV", raising=False)
+    monkeypatch.setattr(
+        "hermes_cli.config._CONTAINER_MODE_SYSTEM_FILE",
+        tmp_path / "missing-system-container-mode",
+    )
 
     container_mode = hermes_home / ".container-mode"
     container_mode.write_text(
@@ -41,7 +45,7 @@ def container_env(tmp_path, monkeypatch):
 
 
 def test_get_container_exec_info_returns_metadata(container_env):
-    """Reads .container-mode and returns all fields including exec_user."""
+    """Reads legacy fallback metadata and returns all fields including exec_user."""
     with patch("hermes_constants.is_container", return_value=False):
         info = get_container_exec_info()
 
@@ -50,6 +54,72 @@ def test_get_container_exec_info_returns_metadata(container_env):
     assert info["container_name"] == "hermes-agent"
     assert info["exec_user"] == "hermes"
     assert info["hermes_bin"] == "/data/current-package/bin/hermes"
+
+
+def test_get_container_exec_info_prefers_trusted_system_file(container_env, tmp_path, monkeypatch):
+    """Trusted /etc-style metadata wins over writable HERMES_HOME fallback."""
+    system_file = tmp_path / "etc" / "hermes-agent" / "container-mode"
+    system_file.parent.mkdir(parents=True)
+    system_file.write_text(
+        "backend=podman\n"
+        "runtime_path=/nix/store/podman/bin/podman\n"
+        "container_name=trusted-container\n"
+        "exec_user=trusted-user\n"
+        "hermes_bin=/trusted/hermes\n"
+    )
+    (container_env / ".container-mode").write_text(
+        "backend=docker\n"
+        "runtime_path=/tmp/attacker-runtime\n"
+        "container_name=attacker-container\n"
+        "exec_user=root\n"
+        "hermes_bin=/tmp/attacker-hermes\n"
+    )
+    monkeypatch.setattr("hermes_cli.config._CONTAINER_MODE_SYSTEM_FILE", system_file)
+
+    with patch("hermes_constants.is_container", return_value=False):
+        info = get_container_exec_info()
+
+    assert info == {
+        "backend": "podman",
+        "runtime_path": "/nix/store/podman/bin/podman",
+        "container_name": "trusted-container",
+        "exec_user": "trusted-user",
+        "hermes_bin": "/trusted/hermes",
+    }
+
+
+def test_get_container_exec_info_ignores_fallback_runtime_path(container_env, tmp_path, monkeypatch):
+    """Legacy fallback metadata cannot choose the runtime binary path."""
+    missing_system_file = tmp_path / "missing" / "container-mode"
+    (container_env / ".container-mode").write_text(
+        "backend=podman\n"
+        "runtime_path=/tmp/attacker-runtime\n"
+        "container_name=legacy-container\n"
+        "exec_user=hermes\n"
+        "hermes_bin=/data/current-package/bin/hermes\n"
+    )
+    monkeypatch.setattr("hermes_cli.config._CONTAINER_MODE_SYSTEM_FILE", missing_system_file)
+
+    with patch("hermes_constants.is_container", return_value=False):
+        info = get_container_exec_info()
+
+    assert info is not None
+    assert info["backend"] == "podman"
+    assert info["container_name"] == "legacy-container"
+    assert "runtime_path" not in info
+
+
+def test_get_container_exec_info_restricts_fallback_backend(container_env, tmp_path, monkeypatch):
+    """Legacy fallback metadata cannot select an arbitrary runtime backend."""
+    missing_system_file = tmp_path / "missing" / "container-mode"
+    (container_env / ".container-mode").write_text("backend=/tmp/evil\n")
+    monkeypatch.setattr("hermes_cli.config._CONTAINER_MODE_SYSTEM_FILE", missing_system_file)
+
+    with patch("hermes_constants.is_container", return_value=False):
+        info = get_container_exec_info()
+
+    assert info is not None
+    assert info["backend"] == "docker"
 
 
 def test_get_container_exec_info_none_inside_container(container_env):
@@ -66,6 +136,10 @@ def test_get_container_exec_info_none_without_file(tmp_path, monkeypatch):
     hermes_home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.delenv("HERMES_DEV", raising=False)
+    monkeypatch.setattr(
+        "hermes_cli.config._CONTAINER_MODE_SYSTEM_FILE",
+        tmp_path / "missing-system-container-mode",
+    )
 
     with patch("hermes_constants.is_container", return_value=False):
         info = get_container_exec_info()
@@ -105,7 +179,10 @@ def test_get_container_exec_info_defaults():
         )
 
         with patch("hermes_constants.is_container", return_value=False), \
-             patch.dict(get_container_exec_info.__globals__, {"get_hermes_home": lambda: hermes_home}), \
+             patch.dict(get_container_exec_info.__globals__, {
+                 "get_hermes_home": lambda: hermes_home,
+                 "_CONTAINER_MODE_SYSTEM_FILE": Path(tmpdir) / "missing-system-container-mode",
+             }), \
              patch.dict(os.environ, {}, clear=False):
             os.environ.pop("HERMES_DEV", None)
             info = get_container_exec_info()
@@ -142,6 +219,16 @@ def test_get_container_exec_info_crashes_on_permission_error(container_env):
         with pytest.raises(PermissionError):
             get_container_exec_info()
 
+
+
+def test_nixos_activation_writes_trusted_container_metadata():
+    """NixOS container mode writes host routing metadata outside HERMES_HOME."""
+    module_text = (Path(__file__).parents[2] / "nix" / "nixosModules.nix").read_text(encoding="utf-8")
+
+    assert "install -d -o root -g root -m 0755 /etc/hermes-agent" in module_text
+    assert "runtime_path=${containerBin}" in module_text
+    assert 'mv -Tf "$_container_mode_tmp" /etc/hermes-agent/container-mode' in module_text
+    assert "cat > ${cfg.stateDir}/.hermes/.container-mode" not in module_text
 
 # =============================================================================
 # _exec_in_container
@@ -216,6 +303,28 @@ def test_exec_in_container_non_tty_uses_i_only(docker_container_info):
     cmd = mock_execvp.call_args[0][1]
     assert "-i" in cmd
     assert "-it" not in cmd
+
+
+def test_exec_in_container_uses_trusted_runtime_path(docker_container_info):
+    """Trusted metadata can pin the exact container runtime binary."""
+    from hermes_cli.main import _exec_in_container
+
+    docker_container_info = dict(docker_container_info)
+    docker_container_info["runtime_path"] = "/nix/store/docker/bin/docker"
+
+    with patch("shutil.which") as mock_which, \
+         patch("subprocess.run") as mock_run, \
+         patch("sys.stdin") as mock_stdin, \
+         patch("os.execvp") as mock_execvp:
+        mock_stdin.isatty.return_value = False
+        mock_run.return_value = MagicMock(returncode=0)
+
+        _exec_in_container(docker_container_info, ["status"])
+
+    mock_which.assert_not_called()
+    mock_execvp.assert_called_once()
+    cmd = mock_execvp.call_args[0][1]
+    assert cmd[0] == "/nix/store/docker/bin/docker"
 
 
 def test_exec_in_container_no_runtime_hard_fails(podman_container_info):
