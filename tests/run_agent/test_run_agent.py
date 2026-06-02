@@ -1654,7 +1654,7 @@ class TestBuildAssistantMessage:
         )
         msg = _mock_assistant_msg(content=original)
         result = agent._build_assistant_message(msg, "stop")
-        assert "<memory-context>" in result["content"]
+        assert "<memory-context>" not in result["content"]
         assert "Visible answer" in result["content"]
 
     def test_unterminated_think_block_stripped(self, agent):
@@ -1694,6 +1694,15 @@ class TestFormatToolsForSystemMessage:
 # Group 3: Conversation Loop Pieces (OpenAI mock)
 # ===================================================================
 
+
+class _FakeProviderMemoryManager:
+    def __init__(self):
+        self.calls = []
+        self.providers = []
+
+    def handle_tool_call(self, name, args):
+        self.calls.append((name, args))
+        return "success"
 
 class TestExecuteToolCalls:
     def test_single_tool_executed(self, agent):
