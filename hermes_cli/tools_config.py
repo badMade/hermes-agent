@@ -28,7 +28,6 @@ from hermes_cli.nous_subscription import (
     apply_nous_managed_defaults,
     get_nous_subscription_features,
 )
-from tools.environments.local import _sanitize_subprocess_env
 from tools.tool_backend_helpers import fal_key_is_configured, managed_nous_tools_enabled
 from utils import base_url_hostname, is_truthy_value
 
@@ -568,6 +567,7 @@ def _pip_install(
     timeout: int = 300,
     capture_output: bool = True,
 ):
+    from tools.environments.local import _sanitize_subprocess_env
     """Install Python packages from a post-setup hook.
 
     Strategy (in order):
@@ -636,6 +636,7 @@ def _pip_install(
 def _run_post_setup(post_setup_key: str):
     """Run post-setup hooks for tools that need extra installation steps."""
     import shutil
+    from tools.environments.local import _sanitize_subprocess_env
     if post_setup_key in {"agent_browser", "browserbase"}:
         node_modules = PROJECT_ROOT / "node_modules" / "agent-browser"
         npm_bin = shutil.which("npm")
