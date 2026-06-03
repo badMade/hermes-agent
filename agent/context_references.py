@@ -154,6 +154,11 @@ async def preprocess_context_references_async(
     blocks: list[str] = []
     injected_tokens = 0
 
+    # Gate references by kind *before* any expansion happens. When a toolset
+    # that would back a reference type is disabled, we must never read the
+    # underlying file/command output -- doing so would leak local contents
+    # (e.g. @file:secret.txt) into a session whose toolset never granted that
+    # capability. Disallowed tokens are left intact with a warning instead.
     allowed_refs = refs
     if allowed_kinds is not None:
         allowed_refs = []
