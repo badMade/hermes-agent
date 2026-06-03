@@ -162,5 +162,5 @@ def get_terminal_cwd(default=None):
     with environment-based CWD setting.
     """
     import os
-    # Fallback to HERMES_CWD or default
-    return os.getenv("HERMES_CWD", default)
+    # Fallback to TERMINAL_CWD or default
+    return os.getenv("TERMINAL_CWD", default)
