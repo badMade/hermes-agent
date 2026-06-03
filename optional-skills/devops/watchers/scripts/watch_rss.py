@@ -20,6 +20,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 import defusedxml.ElementTree as ET
+from xml.etree.ElementTree import ParseError
+ET.ParseError = ParseError  # type: ignore
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _watermark import Watermark, format_items_as_markdown  # type: ignore
