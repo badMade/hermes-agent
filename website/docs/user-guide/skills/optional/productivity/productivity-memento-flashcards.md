@@ -69,7 +69,7 @@ Do not use this skill for general Q&A, coding help, or non-memory tasks.
 | "Export my cards" | Call `memento_cards.py json` with `command: export` |
 | "Import cards from CSV" | Call `memento_cards.py json` with `command: import` |
 | "Show my stats" | Call `memento_cards.py stats` |
-| "Delete a card" | Call `memento_cards.py json` with `command: delete` |
+| "Delete a card" | Call `memento_cards.py delete --id ID` |
 | "Delete a collection" | Call `memento_cards.py json` with `command: delete-collection` |
 
 ## Shell Safety
