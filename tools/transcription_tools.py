@@ -490,9 +490,18 @@ def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
         }
 
 
-def _prepare_local_audio(
-    file_path: str, work_dir: str
-) -> tuple[Optional[str], Optional[str]]:
+    ffmpeg = _find_ffmpeg_binary()
+    if not ffmpeg:
+        return (
+            None,
+            "Local STT fallback requires ffmpeg for non-WAV inputs, but ffmpeg was not found",
+        )
+
+    converted_path = os.path.join(work_dir, f"{audio_path.stem}.wav")
+    command = [ffmpeg, "-y", "-i", file_path, converted_path]
+    sanitized_env = _sanitize_subprocess_env(os.environ.copy())
+    subprocess.run(command, check=True, capture_output=True, text=True, env=sanitized_env)
+    return converted_path, None
     """Normalize audio for local CLI STT when needed."""
     audio_path = Path(file_path)
     if audio_path.suffix.lower() in LOCAL_NATIVE_AUDIO_FORMATS:
