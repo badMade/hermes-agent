@@ -983,7 +983,7 @@ def _run_post_setup(post_setup_key: str):
                 _print_warning(
                     "    cua-driver install did not complete. Re-run manually:"
                 )
-                _print_info(f"      {install_cmd}")
+                _print_info(f"      {shlex.join(install_cmd)}")
         except subprocess.TimeoutExpired:
             _print_warning("    cua-driver install timed out. Re-run manually.")
         except Exception as e:
