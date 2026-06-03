@@ -58,7 +58,7 @@ class TestPreNavigationSsrf:
         result = json.loads(browser_tool.browser_navigate(self.PRIVATE_URL))
 
         assert result["success"] is False
-        assert "private or internal address" in result["error"]
+        assert "private/internal address" in result["error"]
 
     def test_cloud_allows_private_url_when_setting_true(self, monkeypatch, _common_patches):
         """Private URLs pass in cloud mode when allow_private_urls is True."""
@@ -91,7 +91,7 @@ class TestPreNavigationSsrf:
         result = json.loads(browser_tool.browser_navigate(self.PRIVATE_URL))
 
         assert result["success"] is False
-        assert "private or internal address" in result["error"]
+        assert "private/internal address" in result["error"]
 
     def test_local_allows_private_url_when_setting_true(self, monkeypatch, _common_patches):
         """Local backends allow private URLs when allow_private_urls is True."""
@@ -112,7 +112,7 @@ class TestPreNavigationSsrf:
         result = json.loads(browser_tool.browser_navigate("file:///etc/passwd"))
 
         assert result["success"] is False
-        assert "private or internal address" in result["error"]
+        assert "private/internal address" in result["error"]
 
     def test_local_allows_public_url(self, monkeypatch, _common_patches):
         """Local backends pass public URLs too (sanity check)."""

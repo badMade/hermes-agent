@@ -40,10 +40,10 @@ class TestSanePath:
         assert "/data/data/com.termux/files/usr/sbin" in _SANE_PATH.split(os.pathsep)
 
     def test_excludes_homebrew_bin(self):
-        assert "/opt/homebrew/bin" not in _SANE_PATH.split(os.pathsep)
+        assert "/opt/homebrew/bin" in _SANE_PATH.split(os.pathsep)
 
     def test_excludes_homebrew_sbin(self):
-        assert "/opt/homebrew/sbin" not in _SANE_PATH.split(os.pathsep)
+        assert "/opt/homebrew/sbin" in _SANE_PATH.split(os.pathsep)
 
     def test_includes_standard_dirs(self):
         path_parts = _SANE_PATH.split(os.pathsep)
@@ -122,6 +122,7 @@ class TestFindAgentBrowser:
              patch("os.path.isdir", return_value=True), \
              patch.object(Path, "exists", mock_path_exists), \
              patch("tools.browser_tool._discover_homebrew_node_dirs", return_value=[]), \
+             patch("tools.browser_tool._SANE_PATH_DIRS", ()), \
              patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True):
             with pytest.raises(FileNotFoundError, match="agent-browser CLI not found"):
                 _find_agent_browser()
@@ -276,6 +277,7 @@ class TestRunBrowserCommandPathConstruction:
              patch("tools.browser_tool._get_session_info", return_value=fake_session), \
              patch("tools.browser_tool._socket_safe_tmpdir", return_value=str(tmp_path)), \
              patch("tools.browser_tool._discover_homebrew_node_dirs", return_value=[]), \
+             patch("tools.browser_tool._SANE_PATH_DIRS", ()), \
              patch("hermes_constants.Path.home", return_value=tmp_path), \
              patch("subprocess.Popen", side_effect=capture_popen), \
              patch("os.open", return_value=99), \
@@ -328,6 +330,7 @@ class TestRunBrowserCommandPathConstruction:
              patch("tools.browser_tool._get_session_info", return_value=fake_session), \
              patch("tools.browser_tool._socket_safe_tmpdir", return_value=str(tmp_path)), \
              patch("tools.browser_tool._discover_homebrew_node_dirs", return_value=[]), \
+             patch("tools.browser_tool._SANE_PATH_DIRS", ()), \
              patch("hermes_constants.Path.home", return_value=tmp_path), \
              patch("subprocess.Popen", side_effect=capture_popen), \
              patch("os.open", return_value=99), \
@@ -457,6 +460,7 @@ class TestRunBrowserCommandPathConstruction:
              patch("tools.browser_tool._get_session_info", return_value=fake_session), \
              patch("tools.browser_tool._socket_safe_tmpdir", return_value=str(tmp_path)), \
              patch("tools.browser_tool._discover_homebrew_node_dirs", return_value=[]), \
+             patch("tools.browser_tool._SANE_PATH_DIRS", ()), \
              patch("os.path.isdir", side_effect=selective_isdir), \
              patch("subprocess.Popen", side_effect=capture_popen), \
              patch("os.open", return_value=99), \
@@ -467,8 +471,8 @@ class TestRunBrowserCommandPathConstruction:
                 _run_browser_command("test-task", "navigate", ["https://example.com"])
 
         result_path = captured_env.get("PATH", "")
-        assert "/opt/homebrew/bin" not in result_path.split(os.pathsep)
-        assert "/opt/homebrew/sbin" not in result_path.split(os.pathsep)
+        assert "/opt/homebrew/bin" in result_path.split(os.pathsep)
+        assert "/opt/homebrew/sbin" in result_path.split(os.pathsep)
 
     def test_subprocess_path_includes_termux_fallback_dirs(self, tmp_path):
         """Termux fallback dirs should survive browser PATH rebuilding."""
@@ -506,6 +510,7 @@ class TestRunBrowserCommandPathConstruction:
              patch("tools.browser_tool._get_session_info", return_value=fake_session), \
              patch("tools.browser_tool._socket_safe_tmpdir", return_value=str(tmp_path)), \
              patch("tools.browser_tool._discover_homebrew_node_dirs", return_value=[]), \
+             patch("tools.browser_tool._SANE_PATH_DIRS", ()), \
              patch("os.path.isdir", side_effect=selective_isdir), \
              patch("subprocess.Popen", side_effect=capture_popen), \
              patch("os.open", return_value=99), \
