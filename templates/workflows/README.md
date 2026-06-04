@@ -31,7 +31,7 @@ and design notes are in [`../../AUTO_MERGE.md`](../../AUTO_MERGE.md).
    | `AUTO_MERGE_JOB_NAME` | Keep in sync with the job's `name:` so its own check runs are excluded. |
    | `MERGE_METHOD` | `squash`, `merge`, or `rebase` (repo must allow the chosen method). |
    | `REVIEW_BOTS` | Comma-separated bot logins whose activity counts as a review. |
-   | `POLL_INTERVAL_MS` / `POLL_TIMEOUT_MS` | Poll cadence/limit for review/label/comment triggers. |
+   | `POLL_INTERVAL_MS` / `POLL_TIMEOUT_MS` | Poll cadence/limit for review/label triggers. |
    | `SETTLE_DELAY_MS` | Delay before reading state on non-`workflow_run` events. |
 4. **If you rename the workflow** (the top-level `name:`), also update the
    `github.event.workflow_run.name != 'Auto-merge'` self-trigger guard in the

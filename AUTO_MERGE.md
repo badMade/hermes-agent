@@ -25,7 +25,6 @@ no external/custom action and no persisted state.
 | `pull_request` | `opened`, `synchronize`, `reopened` | **Fast path** — post a visible `pending` status and return immediately (no polling). |
 | `pull_request` | `labeled` | Real evaluation, but only when the label is `reviewed` (gated in `if:`). |
 | `pull_request_review` | `submitted` | Re-evaluate when a review lands. |
-| `issue_comment` | `created` | Re-evaluate on PR comments (e.g. a bot review comment). |
 | `workflow_run` | `completed` | **Primary driver.** Fires when a watched CI workflow finishes, giving a fresh evaluation the moment the last check goes green. |
 
 > **Gotcha:** `workflow_run` triggers are read from the workflow file **as it
@@ -62,8 +61,7 @@ The job runs only when:
   (prevents a self-trigger loop), **or**
 - `pull_request_review` from a **same-repo** head (forks excluded), **or**
 - `pull_request` from a same-repo head — and for `labeled` events, the label
-  must be `reviewed`, **or**
-- `issue_comment` where the issue is actually a PR.
+  must be `reviewed`.
 
 Fork PRs are excluded everywhere (they cannot be granted a `write` token).
 
@@ -144,7 +142,7 @@ flowchart TD
   hidden HTML marker (e.g. `<!-- auto-merge-fail -->`) and edits it instead of
   posting duplicates.
 - **No-poll philosophy for CI.** `workflow_run: completed` events re-evaluate as
-  each CI workflow finishes; only review/label/comment events poll, because
+  each CI workflow finishes; only review/label events poll, because
   those don't receive a CI-completion event. The poll also **aborts early** the
   moment any check reports a failing conclusion, rather than waiting out the
   full timeout.

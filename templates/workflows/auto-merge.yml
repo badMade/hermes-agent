@@ -25,8 +25,6 @@ on:
     types: [opened, synchronize, reopened, labeled]
   pull_request_review:
     types: [submitted]
-  issue_comment:
-    types: [created]
   workflow_run:
     # 👈 EDIT: list the display `name:` of every CI workflow that gates merge.
     # (`on.workflow_run.workflows` cannot read env vars — edit this list.)
@@ -73,8 +71,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.name != 'Auto-merge') ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'reviewed')) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null)
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'reviewed'))
     timeout-minutes: 30
 
     # ── Configuration ────────────────────────────────────────────────────────
@@ -99,7 +96,7 @@ jobs:
         github-copilot[bot],github-copilot,Copilot,copilot[bot],copilot,
         coderabbitai[bot],coderabbitai,
         qodo-merge-pro[bot],qodo-merge-pro,codium-ai[bot],codium-ai
-      # Poll cadence for human-action triggers (review/label/comment).
+      # Poll cadence for human-action triggers (review/label).
       POLL_INTERVAL_MS: "60000"
       POLL_TIMEOUT_MS: "1500000"   # 25 minutes
       # Settle delay (ms) before reading state on non-workflow_run events.
@@ -169,8 +166,6 @@ jobs:
                 core.info('workflow_run has no associated same-repo PR — skipping.');
                 return;
               }
-            } else if (context.eventName === 'issue_comment') {
-              prNumber = context.payload.issue.number;
             } else {
               prNumber = context.payload.pull_request.number;
             }
