@@ -3,17 +3,21 @@
 # =============================================================================
 # A generic version of hermes-agent's auto-merge workflow. Copy this file to
 # `.github/workflows/auto-merge.yml` in the target repo and edit the spots
-# marked `# 👈 EDIT`. Everything repo-specific is collected here at the top
-# (the `env:` block on the job) or flagged inline.
+# marked `# 👈 EDIT`. Most repo-specific values live in the job's `env:` block,
+# but a few cannot: GitHub exposes no `env` context to `on:` triggers or to a
+# job-level `if:`, so the watched-workflow list, the self-trigger guard, and the
+# `labeled` event's label literal are edited inline (all flagged `# 👈 EDIT`).
 #
-# Behaviour: squash-merges a PR once (1) all external CI checks pass,
-# (2) a review happened (approval, non-author inline comment, or a review-bot
-# reply), and (3) the required label is present. See AUTO_MERGE.md for the full
-# decision flow.
+# Behaviour: merges a PR — squash by default, configurable via MERGE_METHOD —
+# once (1) all external CI checks pass, (2) a review happened (approval,
+# non-author inline comment, or a review-bot reply), and (3) the required label
+# is present. See AUTO_MERGE.md for the full decision flow.
 #
 # NOTE: `workflow_run` triggers only take effect once this file is on the
 # repo's DEFAULT branch.
 # =============================================================================
+# 👈 EDIT: this top-level workflow name is referenced by the self-trigger guard
+# in the job `if:` below (`workflow_run.name != 'Auto-merge'`). Keep them in sync.
 name: Auto-merge
 
 on:
@@ -54,10 +58,18 @@ permissions:
 
 jobs:
   auto-merge:
-    # 👈 EDIT: if you change this name, also update WORKFLOW_NAME below and the
-    # `github.event.workflow_run.name != '...'` guard in the `if:` expression.
+    # 👈 EDIT: if you rename this JOB, also update AUTO_MERGE_JOB_NAME in env:
+    # below — it excludes this job's own check runs from the CI list.
     name: Auto-merge on review + passing checks
     runs-on: ubuntu-latest
+    # The `if:` below cannot read env vars: a job-level `if:` only sees the
+    # github / needs / vars / inputs contexts, not `env`. So two literals here
+    # are hand-edited rather than parameterized:
+    #   • `workflow_run.name != 'Auto-merge'` — must match the top-level
+    #     workflow `name:` above (self-trigger guard).       👈 EDIT if renamed.
+    #   • `github.event.label.name == 'reviewed'` — must match REQUIRED_LABEL.
+    #     This only gates the `labeled` fast-trigger; the other triggers read
+    #     REQUIRED_LABEL from env in the script.              👈 EDIT to match.
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.name != 'Auto-merge') ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository) ||
@@ -70,7 +82,9 @@ jobs:
     # the script below.
     env:
       CURRENT_RUN_ID: ${{ github.run_id }}
-      # Label that must be present for merge to proceed.
+      # Label that must be present for merge to proceed. Drives the in-script
+      # check; if you rename it, also edit the matching 'reviewed' literal in the
+      # job `if:` above (env vars are not available in a job-level `if:`).
       REQUIRED_LABEL: "reviewed"
       # Display name of THIS workflow's job (used to exclude its own check runs).
       AUTO_MERGE_JOB_NAME: "Auto-merge on review + passing checks"
@@ -233,6 +247,7 @@ jobs:
             }
 
             // ── 4. Wait for all checks to complete ────────────────────────────
+            const acceptable = new Set(['success', 'skipped', 'neutral']);
             let pendingRuns = externalRuns.filter(r => r.status !== 'completed');
             if (pendingRuns.length > 0) {
               if (context.eventName === 'workflow_run') {
@@ -253,14 +268,21 @@ jobs:
                   `Waiting on ${pendingRuns.length} CI check(s) (${elapsedMin}m).`);
                 await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
                 externalRuns = await fetchExternalRuns();
+                // Abort the poll early if any completed check has already failed —
+                // no point waiting out the full timeout for the remaining checks.
+                if (externalRuns.some(r => r.status === 'completed' && !acceptable.has(r.conclusion))) {
+                  core.warning('A check has failed — aborting poll early.');
+                  break;
+                }
                 pendingRuns  = externalRuns.filter(r => r.status !== 'completed');
               }
-              core.info('All CI checks have now completed.');
+              core.info('CI polling finished.');
             }
 
             // ── 5. Guard: failing checks ───────────────────────────────────────
-            const acceptable = new Set(['success', 'skipped', 'neutral']);
-            const failing = externalRuns.filter(r => !acceptable.has(r.conclusion));
+            // Only completed runs with a non-acceptable conclusion count as
+            // failing; still-pending runs (possible after an early abort) do not.
+            const failing = externalRuns.filter(r => r.status === 'completed' && !acceptable.has(r.conclusion));
             if (failing.length > 0) {
               core.warning(`${failing.length} check(s) failing.`);
               await setStatus(headSha, 'failure',
@@ -297,9 +319,17 @@ jobs:
             const allReviews = await github.paginate(github.rest.pulls.listReviews, {
               owner, repo, pull_number: prNumber,
             });
+            // Resolve each reviewer's EFFECTIVE state the way GitHub does: only
+            // APPROVED / CHANGES_REQUESTED / DISMISSED reviews change it. A later
+            // COMMENTED review must NOT erase an existing approval or block,
+            // otherwise a CHANGES_REQUESTED could be silently bypassed.
             const latestByReviewer = {};
             for (const review of allReviews) {
-              latestByReviewer[review.user.login] = review;
+              if (review.state === 'APPROVED' ||
+                  review.state === 'CHANGES_REQUESTED' ||
+                  review.state === 'DISMISSED') {
+                latestByReviewer[review.user.login] = review;
+              }
             }
             const reviewList       = Object.values(latestByReviewer);
             const changesRequested = reviewList.filter(r => r.state === 'CHANGES_REQUESTED');
@@ -335,7 +365,9 @@ jobs:
               owner, repo, issue_number: prNumber,
             });
             const botIssueComments = issueComments.filter(c => REVIEW_BOTS.has(c.user.login));
-            const botReviews       = reviewList.filter(r => REVIEW_BOTS.has(r.user.login));
+            // Count bot reviews from the full review list (not the state-filtered
+            // one) so a bot's COMMENTED review still registers as review activity.
+            const botReviews       = allReviews.filter(r => REVIEW_BOTS.has(r.user.login));
             const reviewBotActivity = botIssueComments.length + botReviews.length;
             const botNames = Array.from(new Set([
               ...botIssueComments.map(c => c.user.login),

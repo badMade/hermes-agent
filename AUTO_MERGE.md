@@ -88,7 +88,7 @@ flowchart TD
     noci -- no --> pending{"Any checks still running?"}
 
     pending -- "yes / workflow_run" --> ret3(["Return — next<br/>workflow_run re-evaluates"])
-    pending -- "yes / other event" --> poll["Poll every 60s, up to 25 min"]
+    pending -- "yes / other event" --> poll["Poll every 60s (up to 25 min)<br/>abort early if a check fails"]
     poll --> timeout{"Timed out?"}
     timeout -- yes --> errstatus["Status: error"] --> ret4([Return])
     timeout -- no --> failcheck
@@ -100,7 +100,7 @@ flowchart TD
 
     refetch --> shachg{"Head SHA changed<br/>or PR closed?"}
     shachg -- yes --> ret6(["Return — avoid merging<br/>unreviewed code"])
-    shachg -- no --> reviews["Collect reviews<br/>latest per reviewer"]
+    shachg -- no --> reviews["Collect reviews<br/>latest decisive (non-COMMENTED)<br/>review per reviewer"]
 
     reviews --> cr{"Any CHANGES_REQUESTED?"}
     cr -- yes --> crstatus["Status: failure<br/>Comment: changes requested"] --> ret7([Return])
@@ -131,6 +131,12 @@ flowchart TD
 - **`reviewDetected` is an OR of three signals:** ≥1 `APPROVED` review, OR ≥1
   inline review comment from a non-author, OR ≥1 comment/review from a review
   bot.
+- **Reviewer state follows GitHub's resolution.** When computing each
+  reviewer's latest state, only `APPROVED` / `CHANGES_REQUESTED` / `DISMISSED`
+  reviews count — a later `COMMENTED` review does **not** erase an existing
+  approval or `CHANGES_REQUESTED` block (which would otherwise let a block be
+  bypassed). Bot-activity detection still scans the full review list, so a bot's
+  `COMMENTED` review keeps counting as review activity.
 - **Visible `auto-merge` commit status.** Posted to the head SHA with a stable
   context, so reposts update in place and the status shows in the PR check list
   (`pending` → `success`/`failure`/`error`).
@@ -139,7 +145,9 @@ flowchart TD
   posting duplicates.
 - **No-poll philosophy for CI.** `workflow_run: completed` events re-evaluate as
   each CI workflow finishes; only review/label/comment events poll, because
-  those don't receive a CI-completion event.
+  those don't receive a CI-completion event. The poll also **aborts early** the
+  moment any check reports a failing conclusion, rather than waiting out the
+  full timeout.
 - **`unstable` is tolerated at merge time.** The workflow's own non-required
   `auto-merge` status may still read `pending` from an earlier run, which makes
   GitHub report `mergeable_state: unstable`. Since every real condition was

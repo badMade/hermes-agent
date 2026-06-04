@@ -8,9 +8,9 @@ don't want two auto-mergers competing in this repo.
 ## `auto-merge.yml`
 
 A generic version of [`../../.github/workflows/auto-merge.yml`](../../.github/workflows/auto-merge.yml).
-It squash-merges a PR once CI is green, a review happened, and a required label
-is present. The full decision flow and design notes are in
-[`../../AUTO_MERGE.md`](../../AUTO_MERGE.md).
+It merges a PR — squash by default, configurable via `MERGE_METHOD` — once CI is
+green, a review happened, and a required label is present. The full decision flow
+and design notes are in [`../../AUTO_MERGE.md`](../../AUTO_MERGE.md).
 
 ### How to adopt it in another repo
 
@@ -19,18 +19,24 @@ is present. The full decision flow and design notes are in
 2. **Edit the `on.workflow_run.workflows` list** — set it to the display `name:`
    of every CI workflow that must pass before merge. (This list cannot read env
    vars, so it's edited directly. Look for the `# 👈 EDIT` marker.)
-3. **Edit the `env:` config block** on the `auto-merge` job:
+3. **Edit the `env:` config block** on the `auto-merge` job. These drive the
+   inline script. Note that `REQUIRED_LABEL` controls the in-script label check
+   only — because a job-level `if:` cannot read `env`, you must *also* edit the
+   `'reviewed'` literal in the job `if:` to match if you rename the label (that
+   literal only gates the `pull_request: labeled` fast-trigger).
+
    | Variable | Purpose |
    |----------|---------|
-   | `REQUIRED_LABEL` | Label that must be present to merge (default `reviewed`). |
+   | `REQUIRED_LABEL` | Label that must be present to merge (default `reviewed`). Also update the matching `'reviewed'` literal in the job `if:`. |
    | `AUTO_MERGE_JOB_NAME` | Keep in sync with the job's `name:` so its own check runs are excluded. |
-   | `MERGE_METHOD` | `squash`, `merge`, or `rebase`. |
+   | `MERGE_METHOD` | `squash`, `merge`, or `rebase` (repo must allow the chosen method). |
    | `REVIEW_BOTS` | Comma-separated bot logins whose activity counts as a review. |
    | `POLL_INTERVAL_MS` / `POLL_TIMEOUT_MS` | Poll cadence/limit for review/label/comment triggers. |
    | `SETTLE_DELAY_MS` | Delay before reading state on non-`workflow_run` events. |
-4. **If you rename the job**, also update the
+4. **If you rename the workflow** (the top-level `name:`), also update the
    `github.event.workflow_run.name != 'Auto-merge'` self-trigger guard in the
-   job-level `if:`.
+   job-level `if:` to match. (Renaming the *job* instead means updating
+   `AUTO_MERGE_JOB_NAME` in `env:`.)
 5. **Merge to the default branch.** `workflow_run` triggers are only active once
    the file is on the repo's default branch.
 
