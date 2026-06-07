@@ -603,11 +603,9 @@ class WebhookAdapter(BasePlatformAdapter):
         self, request: "web.Request", body: bytes, secret: str
     ) -> bool:
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
-        # An unresolved ${VAR} env-var placeholder is never a real secret.
-        # Treat it as a misconfiguration and refuse the request rather than
-        # silently HMACing the literal placeholder text.  Avoid logging the
-        # raw secret value — even a placeholder shape can leak the env-var
-        # name to anyone reading logs.
+        # Reject unresolved ${VAR} env-template placeholders — these would
+        # otherwise be HMAC'd verbatim, accepting any caller who guesses the
+        # literal ``${WEBHOOK_SECRET}`` string as the secret.
         if _looks_unresolved_secret(secret):
             logger.warning(
                 "[webhook] Unresolved placeholder secret configured (e.g. ${WEBHOOK_SECRET}) — rejecting"

@@ -5373,7 +5373,7 @@ class GatewayRunner:
         user_id = source.user_id
         if not user_id:
             return False
-        team_id = (source.guild_id or "").strip() if source.platform == Platform.SLACK else ""
+        team_id = str(source.guild_id or "").strip() if source.platform == Platform.SLACK else ""
 
         # Optional Slack-style team scoping.  When source carries a team_id
         # (e.g. Slack), the pairing/allowlist checks below augment the bare
