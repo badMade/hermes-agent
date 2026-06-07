@@ -229,10 +229,6 @@ def _ddgs_package_importable() -> bool:
     return _ddgs_package_available()
 
 
-# Backward-compat alias for older callers/tests that still import the
-# previous name.  Prefer ``_ddgs_package_available`` going forward.
-_ddgs_package_importable = _ddgs_package_available
-
 # ─── Firecrawl Client ────────────────────────────────────────────────────────
 
 _firecrawl_client = None
