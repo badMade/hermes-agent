@@ -32,6 +32,10 @@ _approval_session_key: contextvars.ContextVar[str] = contextvars.ContextVar(
     "approval_session_key",
     default="",
 )
+_approval_run_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "approval_run_id",
+    default="",
+)
 
 # Per-run identity for approvals issued during a single agent turn (API server
 # attaches a run_id; cron/CLI leave this empty).  Used by approval-hook
@@ -79,17 +83,17 @@ def reset_current_session_key(token: contextvars.Token[str]) -> None:
 
 
 def set_current_run_id(run_id: str) -> contextvars.Token[str]:
-    """Bind the active approval run id to the current context."""
+    """Bind the active API run id to pending gateway approvals."""
     return _approval_run_id.set(run_id or "")
 
 
 def reset_current_run_id(token: contextvars.Token[str]) -> None:
-    """Restore the prior approval run id context."""
+    """Restore the prior API run id context."""
     _approval_run_id.reset(token)
 
 
 def get_current_run_id(default: str = "") -> str:
-    """Return the active approval run id, or *default* when unset."""
+    """Return the active API run id for approval binding, or *default* when unset."""
     return _approval_run_id.get() or default
 
 

@@ -65,9 +65,10 @@ _CRON_AUTO_DELIVER_CHAT_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_CH
 _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_THREAD_ID", default=_UNSET)
 
 # Per-task terminal working directory.  The legacy env var is ``TERMINAL_CWD``
-# (no ``HERMES_`` prefix); cron/scheduler.py and the CLI still set that.  This
+# (no ``HERMES_`` prefix); cron/scheduler.py and the CLI still set that.  The
 # contextvar takes precedence when set so concurrent gateway tasks don't
-# clobber each other's workdir.
+# clobber each other's workdir.  Internal debug name matches the file's
+# ``HERMES_*`` convention; ``_VAR_MAP`` is keyed by that name too.
 _TERMINAL_CWD: ContextVar = ContextVar("HERMES_TERMINAL_CWD", default=_UNSET)
 
 _VAR_MAP = {
@@ -170,6 +171,20 @@ def get_session_env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
 
+def set_terminal_cwd(cwd: str):
+    """Set the session-scoped terminal cwd and return a reset token.
+
+    Lower-level companion to ``set_session_vars(terminal_cwd=...)`` for
+    callers that only need to scope the cwd (e.g. cron job workdir setup).
+    """
+    return _TERMINAL_CWD.set(cwd)
+
+
+def reset_terminal_cwd(token) -> None:
+    """Restore the previous session-scoped terminal cwd value."""
+    _TERMINAL_CWD.reset(token)
+
+
 def get_terminal_cwd(default: Optional[str] = None) -> str:
     """Backward-compatible accessor for the terminal working directory.
 
@@ -180,11 +195,11 @@ def get_terminal_cwd(default: Optional[str] = None) -> str:
 
     Resolution order:
     1. ``_TERMINAL_CWD`` contextvar when explicitly set via
-       ``set_session_vars(terminal_cwd=...)`` — that value wins, including
-       the empty-string "explicitly cleared" state from
-       ``clear_session_vars`` (which suppresses env-var fallback to avoid
-       leaking stale state from a prior gateway session, matching the
-       invariant documented on ``get_session_env``).
+       ``set_session_vars(terminal_cwd=...)`` or ``set_terminal_cwd`` —
+       that value wins, including the empty-string "explicitly cleared"
+       state from ``clear_session_vars`` (which suppresses env-var
+       fallback to avoid leaking stale state from a prior gateway session,
+       matching the invariant documented on ``get_session_env``).
     2. ``os.environ["TERMINAL_CWD"]`` — consulted only when the contextvar
        is at its ``_UNSET`` sentinel (CLI, cron scheduler, or any
        ``set_session_vars`` call that didn't pass ``terminal_cwd``).

@@ -59,15 +59,18 @@ DEFAULT_PORT = 8644
 _INSECURE_NO_AUTH = "INSECURE_NO_AUTH"
 _DYNAMIC_ROUTES_FILENAME = "webhook_subscriptions.json"
 
-# Matches ``${VAR}`` env-var template literals that survived unresolved into
-# a route's ``secret`` field — usually a config bug (the env var wasn't set
-# when config was rendered).  We must NOT HMAC the literal placeholder text.
-_PLACEHOLDER_SECRET_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
+_UNRESOLVED_PLACEHOLDER_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
 
 
 def _looks_unresolved_secret(secret: str) -> bool:
-    s = (secret or "").strip()
-    return bool(_PLACEHOLDER_SECRET_RE.fullmatch(s))
+    """True when ``secret`` is an unresolved ``${VAR}`` placeholder.
+
+    A misconfigured deployment may leave the literal ``${WEBHOOK_SECRET}``
+    string in config when the env var is missing. Treating that as a real
+    HMAC secret silently weakens auth — any attacker who can guess the
+    placeholder name can forge a valid signature. Reject it explicitly.
+    """
+    return bool(_UNRESOLVED_PLACEHOLDER_RE.fullmatch((secret or "").strip()))
 
 # Hostnames/IP literals that only serve connections originating on the same
 # machine. Anything else is treated as a public bind for safety-rail purposes.
@@ -602,11 +605,12 @@ class WebhookAdapter(BasePlatformAdapter):
         """Validate webhook signature (GitHub, GitLab, generic HMAC-SHA256)."""
         # An unresolved ${VAR} env-var placeholder is never a real secret.
         # Treat it as a misconfiguration and refuse the request rather than
-        # silently HMACing the literal placeholder text.
+        # silently HMACing the literal placeholder text.  Avoid logging the
+        # raw secret value — even a placeholder shape can leak the env-var
+        # name to anyone reading logs.
         if _looks_unresolved_secret(secret):
             logger.warning(
-                "[webhook] Unresolved placeholder secret configured (%r) — rejecting",
-                secret,
+                "[webhook] Unresolved placeholder secret configured (e.g. ${WEBHOOK_SECRET}) — rejecting"
             )
             return False
 
