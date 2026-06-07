@@ -136,6 +136,12 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 |-------|-------------|------|
 | [`obsidian`](/docs/user-guide/skills/bundled/note-taking/note-taking-obsidian) | Read, search, create, and edit notes in the Obsidian vault. | `note-taking/obsidian` |
 
+## pr-review
+
+| Skill | Description | Path |
+|-------|-------------|------|
+| [`pr-review`](/docs/user-guide/skills/bundled/pr-review/pr-review-pr-review) | Review current branch against codebase rules before opening PR. | `pr-review` |
+
 ## productivity
 
 | Skill | Description | Path |

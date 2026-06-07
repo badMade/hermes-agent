@@ -700,19 +700,13 @@ class TestKanbanWaitpidWindowsGuard:
     def test_source_gates_waitpid_loop(self):
         root = Path(__file__).resolve().parents[2]
         source = (root / "hermes_cli" / "kanban_db.py").read_text(encoding="utf-8")
-        # Find the scoped waitpid call and confirm it's inside a POSIX gate.
-        idx = source.find("os.waitpid(int(pid), os.WNOHANG)")
+        # Find the waitpid call and confirm it's inside a POSIX gate.
+        idx = source.find("os.waitpid(-1, os.WNOHANG)")
         assert idx > 0, "waitpid call must exist"
         # Look backwards up to 400 chars for the gate.
         preamble = source[max(0, idx - 400):idx]
-        has_windows_guard = (
-            'os.name == "nt"' in preamble
-            or "os.name == 'nt'" in preamble
-            or 'os.name != "nt"' in preamble
-            or "os.name != 'nt'" in preamble
-        )
-        assert has_windows_guard and "WNOHANG" in preamble, (
-            "os.waitpid(int(pid), os.WNOHANG) must sit behind an OS/WNOHANG guard"
+        assert 'os.name != "nt"' in preamble or "os.name != 'nt'" in preamble, (
+            "os.waitpid(-1, os.WNOHANG) must sit behind an os.name != 'nt' guard"
         )
 
 
@@ -956,3 +950,35 @@ class TestGatewayDetachedWatcherWindowsFlags:
         # Windows branch uses windows_detach_popen_kwargs
         assert "windows_detach_popen_kwargs" in source
 
+
+class TestBrowserWindowsBatchLauncherQuoting:
+    """agent-browser .cmd/.bat shims must quote model-controlled args."""
+
+    def test_batch_launcher_uses_shell_string_and_quotes_url_metacharacters(self, monkeypatch):
+        import tools.browser_tool as bt
+
+        monkeypatch.setattr(bt.os, "name", "nt")
+        cmd, kwargs = bt._prepare_browser_popen_command([
+            r"C:\repo\node_modules\.bin\agent-browser.cmd",
+            "--session",
+            "poc-session",
+            "--json",
+            "open",
+            "https://example.com/?x=1&calc",
+        ])
+
+        assert kwargs == {"shell": True}
+        assert isinstance(cmd, str)
+        assert '"https://example.com/?x=1&calc"' in cmd
+        assert " https://example.com/?x=1&calc" not in cmd
+
+    def test_non_batch_launcher_keeps_posix_argv_unchanged(self, monkeypatch):
+        import tools.browser_tool as bt
+
+        monkeypatch.setattr(bt.os, "name", "posix")
+        argv = ["/usr/bin/agent-browser", "open", "https://example.com/?x=1&y=2"]
+
+        cmd, kwargs = bt._prepare_browser_popen_command(argv)
+
+        assert cmd is argv
+        assert kwargs == {}
