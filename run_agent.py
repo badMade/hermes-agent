@@ -7569,7 +7569,7 @@ class AIAgent:
         if cb is None or not isinstance(assistant_msg, dict):
             return
         content = assistant_msg.get("content")
-        visible = self._strip_think_blocks(content or "").strip()
+        visible = sanitize_context(self._strip_think_blocks(content or "")).strip()
         if not visible or visible == "(empty)":
             return
         already_streamed = self._interim_content_was_streamed(visible)
@@ -14944,7 +14944,9 @@ class AIAgent:
                             # old code injected "Calling the X tools..." which
                             # poisoned the conversation history.  Just use the
                             # fallback text as the final response and break.
-                            final_response = self._strip_think_blocks(fallback).strip()
+                            final_response = sanitize_context(
+                                self._strip_think_blocks(fallback)
+                            ).strip()
                             self._response_was_previewed = True
                             break
 
@@ -15191,7 +15193,9 @@ class AIAgent:
                         truncated_response_prefix = ""
                         length_continue_retries = 0
                     
-                    final_response = self._strip_think_blocks(final_response).strip()
+                    final_response = sanitize_context(
+                        self._strip_think_blocks(final_response)
+                    ).strip()
                     
                     final_msg = self._build_assistant_message(assistant_message, finish_reason)
 
@@ -15438,6 +15442,9 @@ class AIAgent:
             if msg.get("role") == "assistant" and msg.get("reasoning"):
                 last_reasoning = msg["reasoning"]
                 break
+
+        if isinstance(final_response, str):
+            final_response = sanitize_context(final_response).strip()
 
         # Build result with interrupt info if applicable
         result = {
