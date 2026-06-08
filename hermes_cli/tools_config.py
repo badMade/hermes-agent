@@ -29,6 +29,7 @@ from hermes_cli.nous_subscription import (
     get_nous_subscription_features,
 )
 from tools.tool_backend_helpers import fal_key_is_configured, managed_nous_tools_enabled
+from tools.environments.local import _sanitize_subprocess_env
 from utils import base_url_hostname, is_truthy_value
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,25 @@ def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
     return allowed is None or platform in allowed
 
 
+def _implicit_default_off_toolsets(platform: str) -> Set[str]:
+    """Default-off toolsets that should be suppressed for ``platform``.
+
+    This only applies to configurable toolsets that are valid on the target
+    platform.
+    """
+    configurable_keys = {ts_key for ts_key, _, _ in CONFIGURABLE_TOOLSETS}
+    # Dedicated Home Assistant sessions should keep the homeassistant toolset
+    # enabled by default on that platform.
+    platform_defaults = {"homeassistant"} if platform == "homeassistant" else set()
+    return {
+        ts_key
+        for ts_key in _DEFAULT_OFF_TOOLSETS
+        if (
+            ts_key in configurable_keys
+            and _toolset_allowed_for_platform(ts_key, platform)
+            and ts_key not in platform_defaults
+        )
+    }
 def _get_effective_configurable_toolsets():
     """Return CONFIGURABLE_TOOLSETS + any plugin-provided toolsets.
 
@@ -140,6 +160,25 @@ def _get_plugin_toolset_keys() -> set:
         return {ts_key for ts_key, _, _ in get_plugin_toolsets()}
     except Exception:
         return set()
+
+
+def _implicit_default_off_toolsets(platform: str) -> Set[str]:
+    """Return default-off toolsets to suppress for implicit platform config.
+
+    A platform's own unrestricted toolset remains available for backwards
+    compatibility (for example the ``homeassistant`` platform keeps the
+    ``homeassistant`` toolset). When ``HASS_TOKEN`` is set, the homeassistant
+    toolset is treated as opted-in across all platforms (including ``cron``
+    and ``cli``) — the operator has explicitly provisioned credentials, so
+    other platforms should pick it up rather than silently dropping it.
+    """
+    default_off = set(_DEFAULT_OFF_TOOLSETS)
+    if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
+        default_off.remove(platform)
+    if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
+        default_off.remove("homeassistant")
+    return default_off
+
 
 # Platform display config — derived from the canonical registry so every
 # module shares the same data.  Kept as dict-of-dicts for backward
@@ -546,7 +585,7 @@ def _pip_install(
     (or the last failure for the caller to inspect).
     """
     venv_root = Path(sys.executable).parent.parent
-    uv_env = {**os.environ, "VIRTUAL_ENV": str(venv_root)}
+    uv_env = _sanitize_subprocess_env(os.environ.copy(), {"VIRTUAL_ENV": str(venv_root)})
 
     uv_bin = shutil.which("uv")
     if uv_bin:
@@ -569,6 +608,7 @@ def _pip_install(
         probe = subprocess.run(
             pip_cmd + ["--version"],
             capture_output=True, text=True, timeout=15,
+            env=_sanitize_subprocess_env(os.environ.copy()),
         )
         if probe.returncode != 0:
             raise FileNotFoundError("pip not in venv")
@@ -577,6 +617,7 @@ def _pip_install(
             subprocess.run(
                 [sys.executable, "-m", "ensurepip", "--upgrade", "--default-pip"],
                 capture_output=True, text=True, timeout=120, check=True,
+                env=_sanitize_subprocess_env(os.environ.copy()),
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             # Synthesize a result so callers see a clean failure path.
@@ -588,6 +629,7 @@ def _pip_install(
     return subprocess.run(
         pip_cmd + ["install", *args],
         capture_output=capture_output, text=True, timeout=timeout,
+        env=_sanitize_subprocess_env(os.environ.copy()),
     )
 
 
@@ -608,7 +650,8 @@ def _run_post_setup(post_setup_key: str):
             # behaviour as before.
             result = subprocess.run(
                 [npm_bin, "install", "--silent"],
-                capture_output=True, text=True, cwd=str(PROJECT_ROOT)
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+                env=_sanitize_subprocess_env(os.environ.copy()),
             )
             if result.returncode == 0:
                 _print_success("    Node.js dependencies installed")
@@ -684,6 +727,7 @@ def _run_post_setup(post_setup_key: str):
             result = subprocess.run(
                 install_cmd,
                 capture_output=True, text=True, cwd=str(PROJECT_ROOT), timeout=600,
+                env=_sanitize_subprocess_env(os.environ.copy()),
             )
             if result.returncode == 0:
                 _print_success("    Chromium installed")
@@ -713,7 +757,8 @@ def _run_post_setup(post_setup_key: str):
             # Absolute npm path so .cmd shim executes on Windows.
             result = subprocess.run(
                 [_npm_bin, "install", "--silent"],
-                capture_output=True, text=True, cwd=str(PROJECT_ROOT)
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+                env=_sanitize_subprocess_env(os.environ.copy()),
             )
             if result.returncode == 0:
                 _print_success("    Camofox installed")
@@ -741,6 +786,7 @@ def _run_post_setup(post_setup_key: str):
                 version = subprocess.run(
                     ["cua-driver", "--version"],
                     capture_output=True, text=True, timeout=5,
+                    env=_sanitize_subprocess_env(os.environ.copy()),
                 ).stdout.strip()
                 _print_success(f"    cua-driver already installed: {version or 'unknown version'}")
             except Exception:
@@ -760,7 +806,10 @@ def _run_post_setup(post_setup_key: str):
                 "https://raw.githubusercontent.com/trycua/cua/main/"
                 "libs/cua-driver/scripts/install.sh)\""
             )
-            result = subprocess.run(install_cmd, shell=True, timeout=300)
+            result = subprocess.run(
+                install_cmd, shell=True, timeout=300,
+                env=_sanitize_subprocess_env(os.environ.copy()),
+            )
             if result.returncode == 0 and shutil.which("cua-driver"):
                 _print_success("    cua-driver installed.")
                 _print_info("    IMPORTANT — grant macOS permissions now:")
@@ -975,6 +1024,9 @@ def _parse_enabled_flag(value, default: bool = True) -> bool:
     return default
 
 
+_LEGACY_PLATFORM_TOOLSET_ALIASES = {
+    "qqbot": ("qq",),
+}
 def _get_platform_tools(
     config: dict,
     platform: str,
@@ -986,8 +1038,16 @@ def _get_platform_tools(
 
     platform_toolsets = config.get("platform_toolsets") or {}
     toolset_names = platform_toolsets.get(platform)
+    if toolset_names is None:
+        legacy_platforms = _LEGACY_PLATFORM_TOOLSET_ALIASES.get(platform, ())
+        for legacy_platform in legacy_platforms:
+            legacy_toolset_names = platform_toolsets.get(legacy_platform)
+            if isinstance(legacy_toolset_names, list):
+                toolset_names = legacy_toolset_names
+                break
 
-    if toolset_names is None or not isinstance(toolset_names, list):
+    has_explicit_platform_toolsets = isinstance(toolset_names, list)
+    if not has_explicit_platform_toolsets:
         plat_info = PLATFORMS.get(platform)
         if plat_info:
             default_ts = plat_info["default_toolset"]
@@ -1040,11 +1100,7 @@ def _get_platform_tools(
                 if ts_tools and ts_tools.issubset(composite_tools):
                     expanded.add(ts_key)
 
-            default_off = set(_DEFAULT_OFF_TOOLSETS)
-            if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
-                default_off.remove(platform)
-            if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
-                default_off.remove("homeassistant")
+            default_off = _implicit_default_off_toolsets(platform)
             expanded -= default_off
 
             enabled_toolsets |= expanded
@@ -1063,23 +1119,7 @@ def _get_platform_tools(
             if ts_tools and ts_tools.issubset(all_tool_names):
                 enabled_toolsets.add(ts_key)
 
-        default_off = set(_DEFAULT_OFF_TOOLSETS)
-        # Legacy safety: if the platform's own name matches a default-off
-        # toolset (e.g. `homeassistant` platform + `homeassistant` toolset),
-        # keep that toolset enabled on first install.  Skip this dodge for
-        # platform-restricted toolsets — those are always opt-in even on
-        # their own platform (e.g. `discord` + `discord` should stay OFF).
-        if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
-            default_off.remove(platform)
-        # Home Assistant is already runtime-gated by its check_fn (requires
-        # HASS_TOKEN to register any tools). When a user has configured
-        # HASS_TOKEN, they've explicitly opted in — don't also strip it via
-        # _DEFAULT_OFF_TOOLSETS, which would silently drop HA from platforms
-        # (e.g. cron) that run through _get_platform_tools without an
-        # explicit saved toolset list. Without this, Norbert's HA cron jobs
-        # regressed after #14798 made cron honor per-platform tool config.
-        if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
-            default_off.remove("homeassistant")
+        default_off = _implicit_default_off_toolsets(platform)
         enabled_toolsets -= default_off
 
     # Recover non-configurable platform toolsets (e.g. discord, feishu_doc,
@@ -1146,9 +1186,9 @@ def _get_platform_tools(
         and ts not in platform_default_keys
     }
 
-    # MCP servers are expected to be available on all platforms by default.
-    # If the platform explicitly lists one or more MCP server names, treat that
-    # as an allowlist. Otherwise include every globally enabled MCP server.
+    # MCP servers are available by default only for platforms using their
+    # implicit default toolset. Once platform_toolsets explicitly lists tools,
+    # that list becomes the platform allowlist; MCP servers must be named there.
     # Special sentinel: "no_mcp" in the toolset list disables all MCP servers.
     mcp_servers = config.get("mcp_servers") or {}
     enabled_mcp_servers = {
@@ -1157,18 +1197,16 @@ def _get_platform_tools(
         if isinstance(server_cfg, dict)
         and _parse_enabled_flag(server_cfg.get("enabled", True), default=True)
     }
-    # Allow "no_mcp" sentinel to opt out of all MCP servers for this platform
+    # Allow "no_mcp" sentinel to opt out of all MCP servers for this platform.
     if "no_mcp" in toolset_names:
         explicit_mcp_servers = set()
         enabled_toolsets.update(explicit_passthrough - enabled_mcp_servers - {"no_mcp"})
     else:
         explicit_mcp_servers = explicit_passthrough & enabled_mcp_servers
         enabled_toolsets.update(explicit_passthrough - enabled_mcp_servers)
-    if include_default_mcp_servers:
-        if explicit_mcp_servers or "no_mcp" in toolset_names:
-            enabled_toolsets.update(explicit_mcp_servers)
-        else:
-            enabled_toolsets.update(enabled_mcp_servers)
+
+    if include_default_mcp_servers and not has_explicit_platform_toolsets:
+        enabled_toolsets.update(enabled_mcp_servers)
     else:
         enabled_toolsets.update(explicit_mcp_servers)
 

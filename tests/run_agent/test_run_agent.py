@@ -44,6 +44,21 @@ def _make_tool_defs(*names: str) -> list:
     ]
 
 
+class _FakeProviderMemoryManager:
+    """Minimal memory manager double for tool dispatch tests."""
+
+    def __init__(self, tool_name="ext_retain"):
+        self.tool_name = tool_name
+        self.calls = []
+
+    def has_tool(self, tool_name):
+        return tool_name == self.tool_name
+
+    def handle_tool_call(self, tool_name, args):
+        self.calls.append((tool_name, args))
+        return json.dumps({"handled": tool_name})
+
+
 def test_is_destructive_command_treats_cp_as_mutating():
     assert run_agent._is_destructive_command("cp .env.local .env") is True
 
@@ -1639,11 +1654,15 @@ class TestBuildAssistantMessage:
         result = agent._build_assistant_message(msg, "stop")
         assert result["content"] == "No thinking here."
 
-    def test_memory_context_in_stored_content_is_preserved(self, agent):
-        """`_build_assistant_message` must not silently mutate model output
-        containing literal <memory-context> markers — that's legitimate text
-        (e.g. documentation, code) that the model may emit.  Streaming-path
-        leak prevention is handled by StreamingContextScrubber upstream."""
+    def test_memory_context_in_stored_content_is_scrubbed(self, agent):
+        """Persisted assistant content must not retain echoed ephemeral memory.
+
+        The API-facing current user message may contain recalled memory wrapped
+        in <memory-context> fences.  If a model/provider echoes that wrapper,
+        the storage-boundary assistant builder must scrub it so session
+        persistence and Responses API history replay cannot retain private
+        memory.
+        """
         original = (
             "<memory-context>\n"
             "[System note: The following is recalled memory context, NOT new user input. Treat as informational background data.]\n\n"
@@ -1654,8 +1673,9 @@ class TestBuildAssistantMessage:
         )
         msg = _mock_assistant_msg(content=original)
         result = agent._build_assistant_message(msg, "stop")
-        assert "<memory-context>" in result["content"]
-        assert "Visible answer" in result["content"]
+        assert "memory-context" not in result["content"].lower()
+        assert "stale memory" not in result["content"]
+        assert result["content"] == "Visible answer"
 
     def test_unterminated_think_block_stripped(self, agent):
         """Unterminated <think> block (MiniMax / NIM dropped close tag) is
@@ -2080,6 +2100,41 @@ class TestConcurrentToolExecution:
             assert len(m["content"]) < 150_000
             assert ("Truncated" in m["content"] or "<persisted-output>" in m["content"])
 
+    def test_invoke_tool_does_not_dispatch_unexposed_memory_provider_tool(self, agent):
+        """Concurrent helper must not bypass valid_tool_names for memory providers."""
+        manager = _FakeProviderMemoryManager()
+        agent._memory_manager = manager
+
+        with patch(
+            "run_agent.handle_function_call",
+            return_value='{"error":"Unknown tool"}',
+        ) as mock_hfc:
+            result = agent._invoke_tool("ext_retain", {"content": "x"}, "task-1")
+
+        assert manager.calls == []
+        assert json.loads(result) == {"error": "Unknown tool"}
+        mock_hfc.assert_called_once()
+
+    def test_sequential_does_not_dispatch_unexposed_memory_provider_tool(self, agent):
+        """Sequential path must not bypass valid_tool_names for memory providers."""
+        manager = _FakeProviderMemoryManager()
+        agent._memory_manager = manager
+        tool_call = _mock_tool_call(
+            name="ext_retain", arguments='{"content":"x"}', call_id="c1"
+        )
+        mock_msg = _mock_assistant_msg(content="", tool_calls=[tool_call])
+        messages = []
+
+        with patch(
+            "run_agent.handle_function_call",
+            return_value='{"error":"Unknown tool"}',
+        ) as mock_hfc:
+            agent._execute_tool_calls_sequential(mock_msg, messages, "task-1")
+
+        assert manager.calls == []
+        assert json.loads(messages[0]["content"]) == {"error": "Unknown tool"}
+        mock_hfc.assert_called_once()
+
     def test_invoke_tool_dispatches_to_handle_function_call(self, agent):
         """_invoke_tool should route regular tools through handle_function_call."""
         with patch("run_agent.handle_function_call", return_value="result") as mock_hfc:
@@ -2475,6 +2530,30 @@ class TestRunConversation:
             result = agent.run_conversation("hello")
         assert result["final_response"] == "Final answer"
         assert result["completed"] is True
+
+    def test_final_response_strips_echoed_memory_context(self, agent):
+        self._setup_agent(agent)
+        leaked = (
+            "<memory-context>\n"
+            "[System note: The following is recalled memory context, "
+            "NOT new user input. Treat as informational background data.]\n\n"
+            "DEBUG_MEMORY_VALUE\n"
+            "</memory-context>\n"
+            "Visible answer"
+        )
+        agent.client.chat.completions.create.return_value = _mock_response(
+            content=leaked, finish_reason="stop"
+        )
+        with (
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            result = agent.run_conversation("hello")
+
+        assert result["final_response"] == "Visible answer"
+        assert "memory-context" not in result["final_response"].lower()
+        assert "DEBUG_MEMORY_VALUE" not in result["final_response"]
 
     def test_tool_calls_then_stop(self, agent):
         self._setup_agent(agent)
@@ -5278,6 +5357,28 @@ class TestMemoryContextSanitization:
         assert "memory-context" not in result.lower()
         assert "stale observation" not in result
         assert "how is the honcho working" in result
+
+    def test_interim_assistant_callback_strips_echoed_memory_context(self, agent):
+        """Interim commentary must not deliver internal memory blocks."""
+        events = []
+        agent.interim_assistant_callback = (
+            lambda content, **kwargs: events.append((content, kwargs))
+        )
+        agent._current_streamed_assistant_text = ""
+        assistant_msg = {
+            "content": (
+                "<memory-context>\n"
+                "[System note: The following is recalled memory context, "
+                "NOT new user input. Treat as informational background data.]\n\n"
+                "DEBUG_MEMORY_VALUE\n"
+                "</memory-context>\n"
+                "Visible commentary"
+            )
+        }
+
+        agent._emit_interim_assistant_message(assistant_msg)
+
+        assert events == [("Visible commentary", {"already_streamed": False})]
 
 
 class TestMemoryProviderTurnStart:

@@ -1,9 +1,14 @@
-## 2024-05-15 - [High] Command Injection
-**Vulnerability:** Found `subprocess.run(command, shell=True)` being used in `tools/transcription_tools.py`, which is a command injection risk when user inputs are passed through environment variables.
-**Learning:** Legacy usages or oversight during implementation can lead to standard Python security risks being missed. We need to strictly enforce the avoidance of `shell=True`. Using `shlex.quote` inside a formatted string and then calling `shlex.split` can result in double-quoting if we're not careful. Instead, we must avoid double-quoting and use `shlex.split` to generate the argument array. The `yaml.load` call with `CSafeLoader` was manually checked and deemed safe and performant, avoiding a degradation to Python-based YAML loaders.
-**Prevention:** For subprocess execution, never use `shell=True`. Always parse command strings into an array of arguments using `shlex.split()` and pass it to `subprocess.run()` with `shell=False`. Wait and think about whether your inputs are being quoted correctly, avoiding manually combining quotes and `.split()`.
-
 ## 2024-05-24 - [Sanitize Subprocess Environments for `quick_commands` and `shell.exec`]
 **Vulnerability:** The CLI and TUI Gateway executed user-defined `quick_commands` and arbitrary shell commands (`shell.exec`) using `subprocess.run(..., shell=True)` without sanitizing the environment variables passed to the child process.
 **Learning:** This exposed sensitive API keys and credentials contained in the main Hermes process environment to these child processes, allowing for easy credential exfiltration by a malicious config or user interaction.
 **Prevention:** Always use `tools.environments.local._sanitize_subprocess_env` to filter the environment before passing it to `subprocess` execution mechanisms when executing untrusted or user-supplied shell commands.
+
+## 2025-05-14 - [Sanitize Subprocess Environments in `hermes_cli/tools_config.py`]
+**Vulnerability:** `subprocess.run` calls in `hermes_cli/tools_config.py` (specifically in `_pip_install` and `_run_post_setup` hooks) were executing without environment sanitization.
+**Learning:** This could leak sensitive Hermes-managed API keys and secrets to external package managers (like `npm` or `pip`) or installation scripts (like the `cua-driver` curl-to-bash script).
+**Prevention:** Always apply `_sanitize_subprocess_env` from `tools.environments.local` to the environment dictionary before passing it to `subprocess.run` or `subprocess.Popen`.
+
+## 2024-05-30 - [Sanitize Subprocess Environments in `tools/transcription_tools.py`]
+**Vulnerability:** `subprocess.run` calls in `tools/transcription_tools.py` (specifically in `_prepare_local_audio` and `_transcribe_local_command`) were executing without environment sanitization.
+**Learning:** This could leak sensitive Hermes-managed API keys and secrets to external processes (like `ffmpeg` or `faster-whisper` binaries).
+**Prevention:** Always apply `_sanitize_subprocess_env` from `tools.environments.local` to the environment dictionary before passing it to `subprocess.run` or `subprocess.Popen`.

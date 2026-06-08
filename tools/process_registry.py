@@ -586,6 +586,11 @@ class ProcessRegistry:
             # descendants spawned via setsid) before re-raising so they do not
             # leak as untracked background processes.
             try:
+                if proc.poll() is None:
+                    proc.kill()
+            except Exception:
+                pass
+            try:
                 self._terminate_host_pid(proc.pid)
             except Exception:
                 pass
@@ -1159,9 +1164,12 @@ class ProcessRegistry:
         approval = check_all_command_guards(self._stdin_guard_command(session, payload), "local")
         if approval.get("approved"):
             return None
-        return approval
-
-    def write_stdin(self, session_id: str, data: str) -> dict:
+        # Normalise: callers (write_stdin, close_stdin) always return a dict
+        # with a "status" key; ensure blocked guard results conform to that
+        # contract so consumers can rely on result["status"] unconditionally.
+        if "status" not in approval:
+            approval = {**approval, "status": "blocked"}
+        return approval    def write_stdin(self, session_id: str, data: str) -> dict:
         """Send raw data to a running process's stdin (no newline appended)."""
         session = self.get(session_id)
         if session is None:

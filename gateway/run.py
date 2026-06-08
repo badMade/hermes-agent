@@ -3479,8 +3479,6 @@ class GatewayRunner:
             adapter.set_fatal_error_handler(self._handle_adapter_fatal_error)
             adapter.set_session_store(self.session_store)
             adapter.set_busy_session_handler(self._handle_active_session_busy_message)
-            if hasattr(adapter, "set_interaction_authorizer"):
-                adapter.set_interaction_authorizer(self._is_user_authorized)
             
             # Try to connect
             logger.info("Connecting to %s...", platform.value)
@@ -4762,8 +4760,6 @@ class GatewayRunner:
                     adapter.set_fatal_error_handler(self._handle_adapter_fatal_error)
                     adapter.set_session_store(self.session_store)
                     adapter.set_busy_session_handler(self._handle_active_session_busy_message)
-                    if hasattr(adapter, "set_interaction_authorizer"):
-                        adapter.set_interaction_authorizer(self._is_user_authorized)
 
                     success = await self._connect_adapter_with_timeout(adapter, platform)
                     if success:
@@ -5230,7 +5226,9 @@ class GatewayRunner:
             if not check_signal_requirements():
                 logger.warning("Signal: SIGNAL_HTTP_URL or SIGNAL_ACCOUNT not configured")
                 return None
-            return SignalAdapter(config)
+            adapter = SignalAdapter(config)
+            adapter.gateway_runner = self
+            return adapter
 
         elif platform == Platform.HOMEASSISTANT:
             from gateway.platforms.homeassistant import HomeAssistantAdapter, check_ha_requirements
@@ -5375,6 +5373,13 @@ class GatewayRunner:
         user_id = source.user_id
         if not user_id:
             return False
+        team_id = str(source.guild_id or "").strip() if source.platform == Platform.SLACK else ""
+
+        # Optional Slack-style team scoping.  When source carries a team_id
+        # (e.g. Slack), the pairing/allowlist checks below augment the bare
+        # auth id with a "{team_id}:{auth_user_id}" key.  Other platforms
+        # don't populate team_id, so default to "" and skip those checks.
+        team_id = getattr(source, "team_id", None) or ""
 
         platform_env_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
@@ -5422,8 +5427,9 @@ class GatewayRunner:
             Platform.YUANBAO: "YUANBAO_ALLOW_ALL_USERS",
         }
         # Bots admitted by {PLATFORM}_ALLOW_BOTS bypass the human allowlist (#4466).
+        # Only platforms with explicit gateway-level bot bypass semantics
+        # should be listed here.
         platform_allow_bots_map = {
-            Platform.DISCORD: "DISCORD_ALLOW_BOTS",
             Platform.FEISHU: "FEISHU_ALLOW_BOTS",
         }
 
@@ -5464,10 +5470,15 @@ class GatewayRunner:
 
         # Check pairing store (always checked, regardless of allowlists)
         platform_name = source.platform.value if source.platform else ""
+        team_id = source.guild_id or ""
         auth_user_id = user_id
         if source.platform == Platform.WECOM_CALLBACK and source.chat_id:
             auth_user_id = source.chat_id
-        if self.pairing_store.is_approved(platform_name, auth_user_id):
+        team_id = ""
+        pairing_check_ids = [auth_user_id]
+        if team_id:
+            pairing_check_ids.insert(0, f"{team_id}:{auth_user_id}")
+        if any(self.pairing_store.is_approved(platform_name, uid) for uid in pairing_check_ids):
             return True
 
         # Check platform-specific and global allowlists
@@ -5541,6 +5552,8 @@ class GatewayRunner:
             return True
 
         check_ids = {auth_user_id}
+        if team_id:
+            check_ids.add(f"{team_id}:{auth_user_id}")
         if "@" in auth_user_id:
             check_ids.add(auth_user_id.split("@")[0])
 
@@ -6712,9 +6725,17 @@ class GatewayRunner:
                     self._busy_ack_ts.pop(_quick_key, None)
 
     @staticmethod
-    def _allowed_context_reference_kinds(enabled_toolsets: set[str]) -> set[str]:
-        """Map enabled gateway toolsets to safe inline @ reference types."""
+    def _allowed_context_reference_kinds(enabled_toolsets: set[str] | None) -> set[str]:
+        """Map enabled gateway toolsets to safe inline @ reference types.
+
+        A reference kind is only expandable when the toolset that would back
+        it is enabled for the platform. This prevents @file:/@folder: (and
+        git/url) expansion -- and the local file reads they perform -- from
+        leaking content into sessions whose toolset never granted access.
+        """
         allowed: set[str] = set()
+        if not enabled_toolsets:
+            return allowed
         if "file" in enabled_toolsets:
             allowed.update({"file", "folder"})
         if "terminal" in enabled_toolsets:
@@ -8210,8 +8231,11 @@ class GatewayRunner:
                 try:
                     self._session_db.set_session_title(new_entry.session_id, sanitized)
                     header = t("gateway.reset.header_titled", title=sanitized)
-                except ValueError as e:
-                    _title_note = t("gateway.reset.title_error_untitled", error=str(e))
+                except ValueError:
+                    _title_note = t(
+                        "gateway.reset.title_error_untitled",
+                        error=t("gateway.reset.title_unavailable"),
+                    )
                 except Exception:
                     pass
             elif not _title_note:
@@ -8361,6 +8385,71 @@ class GatewayRunner:
         )
 
 
+    @staticmethod
+    def _gateway_kanban_parse_args(tokens: List[str]):
+        """Parse Kanban argv with the same argparse semantics as /kanban."""
+        if not tokens or tokens[0] in {"help", "--help", "-h", "?"}:
+            return None
+
+        import argparse
+        import contextlib
+        import io
+        from hermes_cli.kanban import build_parser
+
+        wrapper = argparse.ArgumentParser(prog="/kanban-wrap", add_help=False)
+        wrapper.exit_on_error = False  # type: ignore[attr-defined]
+        top_subparsers = wrapper.add_subparsers(dest="_top")
+        kanban_parser = build_parser(top_subparsers)
+        kanban_parser.prog = "/kanban"
+        kanban_parser.exit_on_error = False  # type: ignore[attr-defined]
+        for action in kanban_parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for name, choice in action.choices.items():
+                    choice.prog = f"/kanban {name}"
+                    choice.exit_on_error = False  # type: ignore[attr-defined]
+
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    return kanban_parser.parse_args(tokens)
+        except (argparse.ArgumentError, SystemExit):
+            return None
+
+    @staticmethod
+    def _gateway_kanban_is_unassign(profile: str | None) -> bool:
+        """Return whether a profile argument means "remove assignee"."""
+        return (profile or "").lower() in {"", "none", "-", "null"}
+
+    @classmethod
+    def _gateway_kanban_spawn_denial(cls, args) -> Optional[str]:
+        """Deny gateway Kanban requests that can launch or relaunch profiles."""
+        action = getattr(args, "kanban_action", None) if args else None
+        if not action:
+            return None
+
+        if action in {"dispatch", "unblock"}:
+            return (
+                "kanban: this subcommand can start work under another Hermes "
+                "profile and is only available from the local CLI"
+            )
+
+        if action in {"assign", "reassign"}:
+            if not cls._gateway_kanban_is_unassign(getattr(args, "profile", None)):
+                return (
+                    "kanban: assigning tasks from the gateway is disabled; "
+                    "assign worker profiles from the local CLI"
+                )
+            return None
+
+        if action == "create" and (getattr(args, "assignee", None) or "").strip():
+            return (
+                "kanban: creating assigned tasks from the gateway is disabled; "
+                "create the task unassigned and assign it from the local CLI"
+            )
+
+        return None
+
+
     async def _handle_kanban_command(self, event: MessageEvent) -> str:
         """Handle /kanban — delegate to the shared kanban CLI.
 
@@ -8387,26 +8476,45 @@ class GatewayRunner:
         if text.startswith("kanban"):
             text = text[len("kanban"):].lstrip()
 
-        tokens = shlex.split(text) if text else []
-        requested_board = None
-        action = None
-        i = 0
-        while i < len(tokens):
-            tok = tokens[i]
-            if tok == "--board":
-                if i + 1 >= len(tokens):
-                    break
-                requested_board = tokens[i + 1]
-                i += 2
-                continue
-            if tok.startswith("--board="):
-                requested_board = tok.split("=", 1)[1]
-                i += 1
-                continue
-            action = tok
-            break
+        try:
+            tokens = shlex.split(text) if text else []
+        except ValueError as exc:
+            return f"kanban: invalid arguments: {exc}"
 
-        is_create = action == "create"
+        parsed_args = self._gateway_kanban_parse_args(tokens)
+        requested_board = getattr(parsed_args, "board", None) if parsed_args else None
+
+        denial = self._gateway_kanban_spawn_denial(parsed_args)
+        if denial:
+            return denial
+
+        is_create = (getattr(parsed_args, "kanban_action", None) == "create") if parsed_args else False
+        if getattr(parsed_args, "kanban_action", None) == "notify-subscribe":
+            # Gateway-originated subscriptions must always be bound to the
+            # currently running profile, never caller-supplied text.
+            safe_tokens: list[str] = []
+            i = 0
+            while i < len(tokens):
+                tok = tokens[i]
+                if tok == "--notifier-profile":
+                    i += 1
+                    # Only consume the next token if it's actually a value (not another flag)
+                    if i < len(tokens) and not tokens[i].startswith("-"):
+                        i += 1
+                    continue
+                if tok.startswith("--notifier-profile="):
+                    i += 1
+                    continue
+                safe_tokens.append(tok)
+                i += 1
+            safe_tokens.extend(
+                [
+                    "--notifier-profile",
+                    getattr(self, "_kanban_notifier_profile", None)
+                    or self._active_profile_name(),
+                ]
+            )
+            text = shlex.join(safe_tokens)
 
         try:
             output = await asyncio.to_thread(run_slash, text)
@@ -11366,8 +11474,8 @@ class GatewayRunner:
                     return t("gateway.title.set_to", title=sanitized)
                 else:
                     return t("gateway.title.not_found")
-            except ValueError as e:
-                return t("gateway.shared.warn_passthrough", error=e)
+            except ValueError:
+                return t("gateway.title.warn_prefix", error=t("gateway.title.unavailable"))
         else:
             # Show the current title and session ID
             title = self._session_db.get_session_title(session_id)
@@ -11882,7 +11990,7 @@ class GatewayRunner:
         """
         loop = asyncio.get_running_loop()
         try:
-            from agent.skill_commands import reload_skills
+            from agent.skill_commands import reload_skills, sanitize_reload_description
 
             result = await loop.run_in_executor(None, reload_skills)
             added = result.get("added", [])      # [{"name", "description"}, ...]
@@ -11919,7 +12027,7 @@ class GatewayRunner:
 
             def _fmt_line(item: dict) -> str:
                 nm = item.get("name", "")
-                desc = item.get("description", "")
+                desc = sanitize_reload_description(item.get("description", ""))
                 if desc:
                     return t("gateway.reload_skills.item_with_desc", name=nm, desc=desc)
                 return t("gateway.reload_skills.item_no_desc", name=nm)
@@ -16232,18 +16340,11 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
                 "Replacing existing gateway instance (PID %d) with --replace.",
                 existing_pid,
             )
-            # Record a takeover marker so the target's shutdown handler
-            # recognises its SIGTERM as a planned takeover and exits 0
-            # (rather than exit 1, which would trigger systemd's
-            # Restart=on-failure and start a flap loop against us).
-            # Best-effort — proceed even if the write fails.
             try:
-                from gateway.status import write_takeover_marker
-                write_takeover_marker(existing_pid)
-            except Exception as e:
-                logger.debug("Could not write takeover marker: %s", e)
-            try:
-                terminate_pid(existing_pid, force=False)
+                if hasattr(signal, "SIGUSR1"):
+                    os.kill(existing_pid, signal.SIGUSR1)  # windows-footgun: POSIX signal, guarded by hasattr
+                else:
+                    terminate_pid(existing_pid, force=False)
             except ProcessLookupError:
                 pass  # Already gone
             except (PermissionError, OSError):
@@ -16251,13 +16352,6 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
                     "Permission denied killing PID %d. Cannot replace.",
                     existing_pid,
                 )
-                # Marker is scoped to a specific target; clean it up on
-                # give-up so it doesn't grief an unrelated future shutdown.
-                try:
-                    from gateway.status import clear_takeover_marker
-                    clear_takeover_marker()
-                except Exception:
-                    pass
                 return False
             # Wait up to 10 seconds for the old process to exit.
             # ``os.kill(pid, 0)`` on Windows is NOT a no-op — use the
@@ -16283,13 +16377,6 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
             # Force-unlink to cover the old-process-crashed case.
             try:
                 (get_hermes_home() / "gateway.pid").unlink(missing_ok=True)
-            except Exception:
-                pass
-            # Clean up any takeover marker the old process didn't consume
-            # (e.g. SIGKILL'd before its shutdown handler could read it).
-            try:
-                from gateway.status import clear_takeover_marker
-                clear_takeover_marker()
             except Exception:
                 pass
             # Also release all scoped locks left by the old process.
@@ -16361,20 +16448,6 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     # Set up signal handlers
     def shutdown_signal_handler(received_signal=None):
         nonlocal _signal_initiated_shutdown
-        # Planned --replace takeover check: when a sibling gateway is
-        # taking over via --replace, it wrote a marker naming this PID
-        # before sending SIGTERM. If present, treat the signal as a
-        # planned shutdown and exit 0 so systemd's Restart=on-failure
-        # doesn't revive us (which would flap-fight the replacer when
-        # both services are enabled, e.g. hermes.service + hermes-
-        # gateway.service from pre-rename installs).
-        planned_takeover = False
-        try:
-            from gateway.status import consume_takeover_marker_for_self
-            planned_takeover = consume_takeover_marker_for_self()
-        except Exception as e:
-            logger.debug("Takeover marker check failed: %s", e)
-
         # Planned stop check: service managers and `hermes gateway stop`
         # also send SIGTERM, which is indistinguishable from an unexpected
         # external kill unless the CLI marks it first. SIGINT comes from an
@@ -16382,7 +16455,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
         planned_stop = False
         if received_signal == signal.SIGINT:
             planned_stop = True
-        elif not planned_takeover:
+        else:
             try:
                 from gateway.status import consume_planned_stop_marker_for_self
                 planned_stop = consume_planned_stop_marker_for_self()
@@ -16406,12 +16479,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
             _shutdown_ctx = None
             logger.debug("snapshot_shutdown_context failed: %s", _e)
 
-        if planned_takeover:
-            logger.info(
-                "Received %s as a planned --replace takeover — exiting cleanly",
-                _shutdown_ctx["signal"] if _shutdown_ctx else "SIGTERM",
-            )
-        elif planned_stop:
+        if planned_stop:
             logger.info(
                 "Received %s as a planned gateway stop — exiting cleanly",
                 _shutdown_ctx["signal"] if _shutdown_ctx else "SIGTERM/SIGINT",

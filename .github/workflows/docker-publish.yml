@@ -58,24 +58,37 @@ jobs:
         with:
           submodules: recursive
 
+      # The image bundles a large Python venv (ctranslate2, torch, etc.) and
+      # `load: true` imports the whole thing into the local daemon, which can
+      # exhaust the runner's ~14 GB free disk and fail with "no space left on
+      # device".  Reclaim space from preinstalled toolchains we don't use.
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/share/boost /usr/local/lib/node_modules \
+            "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          sudo docker image prune --all --force || true
+          df -h
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
-      # Build once, load into the local daemon for smoke testing.  Cached
-      # to gha with a per-arch scope; the push step below reuses every
-      # layer from this build.
+      # Build once. On push/release, load into the local daemon for smoke
+      # testing; on pull_request, skip local load to avoid runner disk
+      # exhaustion when importing very large images.
       - name: Build image (amd64, smoke test)
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
           context: .
           file: Dockerfile
-          load: true
+          load: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64
           tags: ${{ env.IMAGE_NAME }}:test
           cache-from: type=gha,scope=docker-amd64
           cache-to: type=gha,mode=max,scope=docker-amd64
 
       - name: Smoke test image
+        if: github.event_name != 'pull_request'
         uses: ./.github/actions/hermes-smoke-test
         with:
           image: ${{ env.IMAGE_NAME }}:test
@@ -136,6 +149,8 @@ jobs:
   # ---------------------------------------------------------------------------
   build-arm64:
     # See build-amd64 for the fork-friendly guard scheme.
+    # Skip on PRs: arm64 never pushes on PR events, so amd64 smoke test suffices.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     outputs:
@@ -146,24 +161,35 @@ jobs:
         with:
           submodules: recursive
 
+      # See build-amd64: free space before `load: true` imports the large
+      # venv-bearing image into the local daemon.
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/share/boost /usr/local/lib/node_modules \
+            "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          sudo docker image prune --all --force || true
+          df -h
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
-      # Build once, load into the local daemon for smoke testing.  Cached
-      # to gha with a per-arch scope; the push step below reuses every
-      # layer from this build.
+      # Build once. On push/release, load into the local daemon for smoke
+      # testing; on pull_request, skip local load to avoid runner disk
+      # exhaustion when importing very large images.
       - name: Build image (arm64, smoke test)
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
           context: .
           file: Dockerfile
-          load: true
+          load: ${{ github.event_name != 'pull_request' }}
           platforms: linux/arm64
           tags: ${{ env.IMAGE_NAME }}:test
           cache-from: type=gha,scope=docker-arm64
           cache-to: type=gha,mode=max,scope=docker-arm64
 
       - name: Smoke test image
+        if: github.event_name != 'pull_request'
         uses: ./.github/actions/hermes-smoke-test
         with:
           image: ${{ env.IMAGE_NAME }}:test

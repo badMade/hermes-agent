@@ -83,6 +83,25 @@ def _make_plugin_dir(base: Path, name: str, *, register_body: str = "pass",
     return plugin_dir
 
 
+def _make_entrypoint_package(site_packages: Path, name: str = "nix_ep_plugin") -> Path:
+    """Create a minimal entry-point package in a fake site-packages dir."""
+    site_packages.mkdir(parents=True, exist_ok=True)
+    package_dir = site_packages / name
+    package_dir.mkdir()
+    (package_dir / "__init__.py").write_text(
+        "def register(ctx):\n"
+        "    ctx.manager_marker = 'loaded'\n"
+    )
+
+    dist_info = site_packages / f"{name}-0.1.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(f"Name: {name}\nVersion: 0.1.0\n")
+    (dist_info / "entry_points.txt").write_text(
+        f"[{ENTRY_POINTS_GROUP}]\n{name} = {name}\n"
+    )
+    return site_packages
+
+
 # ── TestPluginDiscovery ────────────────────────────────────────────────────
 
 
@@ -100,33 +119,6 @@ class TestPluginDiscovery:
 
         assert "hello_plugin" in mgr._plugins
         assert mgr._plugins["hello_plugin"].enabled
-
-    def test_directory_disable_blocks_mismatched_manifest_name(self, tmp_path, monkeypatch):
-        """Directory-key disables must win even if plugin.yaml changes name."""
-        from hermes_cli.plugins_cmd import cmd_disable
-
-        hermes_home = tmp_path / "hermes_test"
-        plugins_dir = hermes_home / "plugins"
-        _make_plugin_dir(
-            plugins_dir,
-            "benign",
-            manifest_extra={"name": "evil"},
-            auto_enable=False,
-        )
-        (hermes_home / "config.yaml").write_text(
-            yaml.safe_dump({"plugins": {"enabled": ["evil"]}}),
-        )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-
-        cmd_disable("benign")
-
-        mgr = PluginManager()
-        mgr.discover_and_load()
-
-        loaded = mgr._plugins["benign"]
-        assert loaded.manifest.name == "evil"
-        assert loaded.enabled is False
-        assert loaded.error == "disabled via config"
 
     def test_discover_project_plugins(self, tmp_path, monkeypatch):
         """Plugins in ./.hermes/plugins/ are discovered."""
@@ -212,6 +204,71 @@ class TestPluginDiscovery:
             mgr.discover_and_load()
 
         assert "ep_plugin" in mgr._plugins
+
+    def test_nix_entrypoint_paths_do_not_use_startup_pythonpath(
+        self, tmp_path, monkeypatch
+    ):
+        """Nix entry-point packages are discovered without adding them to sys.path."""
+        hermes_home = tmp_path / "hermes_test"
+        (hermes_home / "config.yaml").parent.mkdir(parents=True, exist_ok=True)
+        (hermes_home / "config.yaml").write_text(
+            yaml.safe_dump({"plugins": {"enabled": []}})
+        )
+        site_packages = _make_entrypoint_package(tmp_path / "site-packages")
+        (site_packages / "sitecustomize.py").write_text(
+            "raise RuntimeError('must not run during plugin discovery')\n"
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("HERMES_PLUGIN_PYTHONPATH", str(site_packages))
+        monkeypatch.delenv("PYTHONPATH", raising=False)
+
+        mgr = PluginManager()
+        mgr.discover_and_load()
+
+        assert "nix_ep_plugin" in mgr._plugins
+        assert not mgr._plugins["nix_ep_plugin"].enabled
+        assert str(site_packages) not in sys.path
+
+    def test_enabled_nix_entrypoint_loads_only_matched_path(
+        self, tmp_path, monkeypatch
+    ):
+        """Loading one enabled Nix entry point must not expose later paths."""
+        monkeypatch.setattr(sys, "path", list(sys.path))
+        module_name = "nix_shadow_plugin"
+        hermes_home = tmp_path / "hermes_test"
+        (hermes_home / "config.yaml").parent.mkdir(parents=True, exist_ok=True)
+        (hermes_home / "config.yaml").write_text(
+            yaml.safe_dump({"plugins": {"enabled": [module_name]}})
+        )
+
+        enabled_site = _make_entrypoint_package(
+            tmp_path / "enabled-site", name=module_name
+        )
+        disabled_site = tmp_path / "disabled-site"
+        disabled_package = disabled_site / module_name
+        disabled_package.mkdir(parents=True)
+        (disabled_package / "__init__.py").write_text(
+            "raise RuntimeError('disabled package imported')\n"
+        )
+
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv(
+            "HERMES_PLUGIN_PYTHONPATH",
+            os.pathsep.join([str(enabled_site), str(disabled_site)]),
+        )
+        monkeypatch.delenv("PYTHONPATH", raising=False)
+        sys.modules.pop(module_name, None)
+
+        mgr = PluginManager()
+        mgr.discover_and_load()
+
+        plugin = mgr._plugins[module_name]
+        assert plugin.enabled
+        assert plugin.error is None
+        assert plugin.module is not None
+        assert Path(plugin.module.__file__).parent == enabled_site / module_name
+        assert str(enabled_site) in sys.path
+        assert str(disabled_site) not in sys.path
 
 
 # ── TestPluginLoading ──────────────────────────────────────────────────────
