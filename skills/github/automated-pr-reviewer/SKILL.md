@@ -19,7 +19,7 @@ This skill sets up a scheduled workflow that monitors GitHub repository Pull Req
 
 1. **Trigger**: A scheduled job runs periodically (e.g., via cron).
 2. **Scan**: It queries GitHub for open PR comments mentioning `@jules` (all pages).
-3. **Authorize**: It confirms at least one matching comment was made by an `OWNER`, `MEMBER`, or `COLLABORATOR` and that the comment is a genuine trigger request (not just a mention of `@jules`).
+3. **Authorize**: It confirms at least one matching comment was made by an `OWNER`, `MEMBER`, or `COLLABORATOR` and that the comment contains a standalone `@jules` token (not part of a longer name like `@jules-bot`).
 4. **Trust Source**: It only reviews PRs whose head branch comes from the same repository, skipping forks by default.
 5. **Filter**: It filters out PRs that already have the `reviewed` label.
 6. **Action**: For each authorized PR, the agent performs a static code review from the diff.
@@ -57,7 +57,6 @@ When invoked, the agent should run the following bash script to find authorized 
 set -euo pipefail
 
 main() {
-<<<<<<< HEAD
 
   # Ensure GH CLI is installed and authenticated
   if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
@@ -75,23 +74,6 @@ main() {
   # Search all pages for open PRs with matching comments, excluding PRs already reviewed.
   gh api --paginate -X GET search/issues \
     -f q="repo:$REPO is:pr is:open in:comments \"@jules\" -label:reviewed" \
-=======
-  # Ensure GH CLI is installed and authenticated
-  if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
-    echo "GitHub CLI (gh) is not installed or not authenticated."
-    return 1 2>/dev/null || true
-  fi
-
-  REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-  PRS_TO_REVIEW=$(mktemp "${TMPDIR:-/tmp}/hermes-prs-to-review.XXXXXX")
-  trap 'rm -f "$PRS_TO_REVIEW" "$PRS_TO_REVIEW.candidates"' RETURN EXIT
-
-  echo "Scanning $REPO for authorized '@jules code review' PR review requests..."
-
-  # Search all pages for open PRs with matching comments, excluding PRs already reviewed.
-  gh api --paginate -X GET search/issues \
-    -f q="repo:$REPO is:pr is:open in:comments \"@jules code review\" -label:jules-reviewed" \
->>>>>>> origin/main
     --jq '.items[].number' > "$PRS_TO_REVIEW.candidates"
 
   while read -r PR_NUMBER; do
@@ -105,7 +87,6 @@ main() {
       continue
     fi
 
-<<<<<<< HEAD
     # Require at least one genuine trigger comment (exact @jules token, not @jules-bot etc.)
     # from a trusted repository participant. Boundary markers ensure @jules
     # is not part of a longer username (e.g. @jules-bot, @jules_jr are rejected).
@@ -115,17 +96,6 @@ main() {
 
     if [ "$TRUSTED_COMMENT_COUNT" -eq 0 ]; then
       echo "Skipping PR #$PR_NUMBER: no trusted @jules trigger comment found."
-=======
-    # Require at least one genuine trigger comment (exact @jules code review token, not @jules-bot etc.)
-    # from a trusted repository participant. Boundary markers ensure @jules code review
-    # is not part of a longer username (e.g. @jules-bot, @jules_jr are rejected).
-    TRUSTED_COMMENT_COUNT=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
-      --jq '.[] | select((.body // "") | test("(^|[^A-Za-z0-9_-])@jules code review([^A-Za-z0-9_-]|$)")) | select(.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR") | .id' \
-      | wc -l | tr -d ' ')
-
-    if [ "$TRUSTED_COMMENT_COUNT" -eq 0 ]; then
-      echo "Skipping PR #$PR_NUMBER: no trusted @jules code review trigger comment found."
->>>>>>> origin/main
       continue
     fi
 
@@ -136,21 +106,12 @@ main() {
 
   if [ ! -s "$PRS_TO_REVIEW" ]; then
     echo "No authorized PRs to review."
-<<<<<<< HEAD
     return 0
   fi
 
   # Ensure the reviewed label exists before we attempt to apply it.
   gh api -X POST "repos/$REPO/labels" \
     -f name="reviewed" -f color="0e8a16" \
-=======
-    return 0 2>/dev/null || true
-  fi
-
-  # Ensure the jules-reviewed label exists before we attempt to apply it.
-  gh api -X POST "repos/$REPO/labels" \
-    -f name="jules-reviewed" -f color="0e8a16" \
->>>>>>> origin/main
     --silent 2>/dev/null || true
 
   while read -r PR_NUMBER; do
@@ -160,25 +121,15 @@ main() {
     gh pr diff "$PR_NUMBER"
 
     echo "After completing the static review, post the review and then run:"
-<<<<<<< HEAD
     echo "  gh pr edit $PR_NUMBER --add-label reviewed"
-=======
-    echo "  gh pr edit $PR_NUMBER --add-label jules-reviewed"
->>>>>>> origin/main
     echo "Do not label or acknowledge PR #$PR_NUMBER before the review is complete."
   done < "$PRS_TO_REVIEW"
 
   echo "Review pass complete."
-<<<<<<< HEAD
 
 }
 
 main "$@"
-=======
-}
-
-main
->>>>>>> origin/main
 ```
 
 ## Agent Instructions
