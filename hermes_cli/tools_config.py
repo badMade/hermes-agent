@@ -29,7 +29,6 @@ from hermes_cli.nous_subscription import (
     get_nous_subscription_features,
 )
 from tools.tool_backend_helpers import fal_key_is_configured, managed_nous_tools_enabled
-from tools.environments.local import _sanitize_subprocess_env
 from utils import base_url_hostname, is_truthy_value
 
 logger = logging.getLogger(__name__)
@@ -584,6 +583,8 @@ def _pip_install(
     Returns the ``subprocess.CompletedProcess`` from whichever tier succeeded
     (or the last failure for the caller to inspect).
     """
+    from tools.environments.local import _sanitize_subprocess_env
+
     venv_root = Path(sys.executable).parent.parent
     uv_env = _sanitize_subprocess_env(os.environ.copy(), {"VIRTUAL_ENV": str(venv_root)})
 
@@ -636,6 +637,8 @@ def _pip_install(
 def _run_post_setup(post_setup_key: str):
     """Run post-setup hooks for tools that need extra installation steps."""
     import shutil
+    from tools.environments.local import _sanitize_subprocess_env
+
     if post_setup_key in {"agent_browser", "browserbase"}:
         node_modules = PROJECT_ROOT / "node_modules" / "agent-browser"
         npm_bin = shutil.which("npm")
