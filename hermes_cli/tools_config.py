@@ -804,7 +804,7 @@ def _run_post_setup(post_setup_key: str):
             install_cmd = [
                 "/bin/bash",
                 "-c",
-                "curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash"
+                "set -o pipefail; curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash"
             ]
             result = subprocess.run(
                 install_cmd,
