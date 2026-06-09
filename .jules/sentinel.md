@@ -1,9 +1,4 @@
-## 2024-05-24 - [Sanitize Subprocess Environments for `quick_commands` and `shell.exec`]
-**Vulnerability:** The CLI and TUI Gateway executed user-defined `quick_commands` and arbitrary shell commands (`shell.exec`) using `subprocess.run(..., shell=True)` without sanitizing the environment variables passed to the child process.
-**Learning:** This exposed sensitive API keys and credentials contained in the main Hermes process environment to these child processes, allowing for easy credential exfiltration by a malicious config or user interaction.
-**Prevention:** Always use `tools.environments.local._sanitize_subprocess_env` to filter the environment before passing it to `subprocess` execution mechanisms when executing untrusted or user-supplied shell commands.
-
-## 2025-02-26 - [Replace xml.etree with defusedxml to prevent XXE]
-**Vulnerability:** The codebase was using `xml.etree.ElementTree.fromstring` and `xml.etree.ElementTree.parse` to parse untrusted XML data. This module is natively vulnerable to XML External Entity (XXE) injections, allowing malicious XML documents to access local files, conduct Server-Side Request Forgery (SSRF), or cause Denial of Service (Billion Laughs attack).
-**Learning:** Python's built-in `xml.etree` is unsafe for parsing untrusted or external XML payloads.
-**Prevention:** Always use `defusedxml.ElementTree` or `defusedxml.minidom` for parsing XML that could contain untrusted data.
+## 2024-05-18 - [CRITICAL] Fix unauthorized arbitrary code execution and CWE-377 in automated PR reviewer
+**Vulnerability:** The automated PR reviewer skill (`skills/github/automated-pr-reviewer/SKILL.md`) was modified to checkout untrusted PR branches locally without verifying the author association or checking if the PR originated from a fork, allowing attackers to trigger arbitrary code execution via malicious Git hooks. Additionally, it used a predictable, world-writable temporary file path (`/tmp/prs_to_review.txt`), introducing a CWE-377 symlink vulnerability.
+**Learning:** Checking out untrusted PR branches locally introduces significant risk of arbitrary code execution. PR reviews should be conducted using static diffs (`gh pr diff`) unless explicitly isolated and authorized. Furthermore, temporary files should always be created securely using tools like `mktemp`.
+**Prevention:** 1) Require static diff reviews instead of local checkouts for automated workflows unless strict isolation is guaranteed. 2) Implement strict authorization checks (e.g., verifying `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`) before processing any PR comments. 3) Always use `mktemp` for creating temporary files securely.
