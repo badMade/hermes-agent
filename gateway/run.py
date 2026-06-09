@@ -16341,8 +16341,9 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
                 existing_pid,
             )
             try:
-                if hasattr(signal, "SIGUSR1"):
-                    os.kill(existing_pid, signal.SIGUSR1)  # windows-footgun: POSIX signal, guarded by hasattr
+                sigusr1 = getattr(signal, "SIGUSR1", None)
+                if sigusr1 is not None:
+                    os.kill(existing_pid, sigusr1)
                 else:
                     terminate_pid(existing_pid, force=False)
             except ProcessLookupError:
