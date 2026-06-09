@@ -1,7 +1,7 @@
 ---
 name: automated-pr-reviewer
-description: "Automated PR reviewer: scans for authorized '@jules code review' PR comments and triggers static code reviews."
-version: 1.0.2
+description: "Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews."
+version: 1.0.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -13,7 +13,7 @@ metadata:
 
 # Automated PR Reviewer Workflow
 
-This skill sets up a scheduled workflow that monitors GitHub repository Pull Request comments for the exact phrase `@jules code review`. A matching comment is only a review request when it was posted by a trusted repository participant and the PR branch is from the same repository. Authorized requests are reviewed using a static diff approach, and the PR is labeled only after the review is safely completed.
+This skill sets up a scheduled workflow that monitors GitHub repository Pull Request comments for the exact phrase `@jules code review`. A matching comment is only a review request when it was posted by a trusted repository participant and the PR branch is from the same repository. Requests are reviewed using a diff approach, and the PR is labeled only after the review is safely completed.
 
 ## How It Works
 
@@ -22,7 +22,7 @@ This skill sets up a scheduled workflow that monitors GitHub repository Pull Req
 3. **Authorize**: It confirms at least one matching comment was made by an `OWNER`, `MEMBER`, or `COLLABORATOR` and that the comment is a genuine trigger request (not just a mention of `@jules code review`).
 4. **Trust Source**: It only reviews PRs whose head branch comes from the same repository, skipping forks by default.
 5. **Filter**: It filters out PRs that already have the `jules-reviewed` label.
-6. **Action**: For each authorized PR, the agent performs a static code review from the diff.
+6. **Action**: For each PR, the agent performs a code review from the diff.
 7. **Mark Done**: Once the review completes, it ensures the `jules-reviewed` label exists, adds it to the PR, and posts the review comment.
 
 ## Security Requirements
@@ -50,7 +50,7 @@ cronjob(
 
 ## The Workflow Script
 
-When invoked, the agent should run the following bash script to find authorized review requests. It writes PR numbers to a temporary file and prints each safe diff without checking out PR code.
+When invoked, the agent should run the following bash script to find review requests. It writes PR numbers to a temporary file and prints each diff without checking out PR code.
 
 ```bash
 #!/bin/bash
@@ -66,7 +66,7 @@ REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 PRS_TO_REVIEW=$(mktemp "${TMPDIR:-/tmp}/hermes-prs-to-review.XXXXXX")
 trap 'rm -f "$PRS_TO_REVIEW" "$PRS_TO_REVIEW.candidates"' EXIT
 
-echo "Scanning $REPO for authorized '@jules code review' PR review requests..."
+echo "Scanning $REPO for '@jules code review' PR review requests..."
 
 # Search all pages for open PRs with matching comments, excluding PRs already reviewed.
 gh api --paginate -X GET search/issues \
@@ -102,7 +102,7 @@ done < "$PRS_TO_REVIEW.candidates"
 rm -f "$PRS_TO_REVIEW.candidates"
 
 if [ ! -s "$PRS_TO_REVIEW" ]; then
-  echo "No authorized PRs to review."
+  echo "No PRs to review."
   exit 0
 fi
 
@@ -112,12 +112,12 @@ gh api -X POST "repos/$REPO/labels" \
   --silent 2>/dev/null || true
 
 while read -r PR_NUMBER; do
-  echo "Authorized request for PR #$PR_NUMBER. Generating static diff..."
+  echo "Request for PR #$PR_NUMBER. Generating diff..."
 
   # Review the patch without checking out or executing PR code.
   gh pr diff "$PR_NUMBER"
 
-  echo "After completing the static review, post the review and then run:"
+  echo "After completing the review, post the review and then run:"
   echo "  gh pr edit $PR_NUMBER --add-label jules-reviewed"
   echo "Do not label or acknowledge PR #$PR_NUMBER before the review is complete."
 done < "$PRS_TO_REVIEW"
@@ -129,8 +129,8 @@ echo "Review pass complete."
 
 When you are asked to "check for PRs to review" or when this skill is run:
 
-1. Run the bash snippet above to identify authorized PR numbers and display their diffs.
-2. For each authorized PR number output by the script, analyze only the static diff and any needed base-branch context.
+1. Run the bash snippet above to identify PR numbers and display their diffs.
+2. For each PR number output by the script, analyze only the diff and any needed base-branch context.
 3. Do not checkout the PR branch and do not run tests, linters, package scripts, build commands, hooks, or other commands from the PR.
-4. Post the review as a PR comment or PR Review based only on the static diff and permitted base-branch context gathered without checking out or executing PR code.
+4. Post the review as a PR comment or PR Review based only on the diff and permitted base-branch context gathered without checking out or executing PR code.
 5. After the review is posted successfully, add the `jules-reviewed` label to prevent re-processing.
