@@ -122,7 +122,7 @@ class WXBizMsgCrypt:
         NativeET.SubElement(root, "MsgSignature").text = signature
         NativeET.SubElement(root, "TimeStamp").text = timestamp
         NativeET.SubElement(root, "Nonce").text = nonce
-        return NativeET.tostring(root, encoding="utf-8").decode("utf-8")
+        return NativeET.tostring(root, encoding="unicode")
 
     def _encrypt_bytes(self, raw: bytes) -> str:
         try:
