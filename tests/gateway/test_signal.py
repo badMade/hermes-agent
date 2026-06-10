@@ -1888,6 +1888,47 @@ class TestSignalContentlessEnvelope:
         assert captured["event"].media_urls == []
 
     @pytest.mark.asyncio
+    async def test_fails_closed_when_authorizer_raises(self, monkeypatch):
+        """A raising authorizer must fail closed (skip fetch), not crash the loop."""
+        adapter = _make_signal_adapter(monkeypatch)
+        captured = {}
+
+        async def fake_handle(event):
+            captured["event"] = event
+
+        adapter.handle_message = fake_handle
+
+        def boom(_source):
+            raise RuntimeError("authorizer backend down")
+
+        adapter.set_interaction_authorizer(boom)
+
+        fetch_calls = []
+
+        async def fake_fetch(attachment_id):
+            fetch_calls.append(attachment_id)
+            return "/tmp/should_not_exist.png", ".png"
+
+        adapter._fetch_attachment = fake_fetch
+
+        await adapter._handle_envelope({
+            "envelope": {
+                "sourceNumber": "+15550001111",
+                "sourceUuid": "05668cf3-8ffa-467e-9b24-f5eefa5cf475",
+                "sourceName": "Sender",
+                "timestamp": 1777600696077,
+                "dataMessage": {
+                    "message": "with attachment",
+                    "attachments": [{"id": "att-123", "size": 200}],
+                },
+            }
+        })
+
+        assert fetch_calls == []
+        assert "event" in captured
+        assert captured["event"].media_urls == []
+
+    @pytest.mark.asyncio
     async def test_allows_normal_text_message(self, monkeypatch):
         """Normal text messages should still flow through."""
         adapter = _make_signal_adapter(monkeypatch)

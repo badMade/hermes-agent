@@ -595,13 +595,14 @@ class SignalAdapter(BasePlatformAdapter):
         media_urls = []
         media_types = []
         allow_attachment_fetch = True
-        if (
-            chat_type == "dm"
-            and callable(self._interaction_authorizer)
-            and not self._interaction_authorizer(source)
-        ):
-            allow_attachment_fetch = False
-            logger.debug("Signal: skipping attachment fetch for unauthorized sender %s", redact_phone(sender))
+        if chat_type == "dm" and callable(self._interaction_authorizer):
+            try:
+                if not self._interaction_authorizer(source):
+                    allow_attachment_fetch = False
+                    logger.debug("Signal: skipping attachment fetch for unauthorized sender %s", redact_phone(sender))
+            except Exception as exc:
+                allow_attachment_fetch = False
+                logger.warning("Signal: interaction authorization check failed: %s", exc, exc_info=True)
 
         if attachments_data and allow_attachment_fetch and not getattr(self, "ignore_attachments", False):
             for att in attachments_data:
