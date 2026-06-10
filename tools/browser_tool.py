@@ -126,7 +126,7 @@ def _browser_url_security_block(url: str, *, auto_local_this_nav: bool = False) 
             ),
         }
 
-    if not _is_local_backend() and _is_always_blocked_url(url):
+    if _is_always_blocked_url(url):
         return {"success": False, "error": "Blocked: URL targets a cloud metadata endpoint"}
 
     if _is_camofox_mode():
