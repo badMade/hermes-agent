@@ -163,7 +163,18 @@ jobs:
                 return;
               }
             } else if (context.eventName === 'issue_comment') {
-              prNumber = context.payload.issue.number;
+              // issue_comment fires for fork PRs too; explicitly skip forks.
+              const candidateNumber = context.payload.issue.number;
+              const { data: prFromIssue } = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: candidateNumber,
+              });
+              if (prFromIssue.head.repo.full_name !== `${owner}/${repo}`) {
+                core.info('issue_comment on fork PR — skipping.');
+                return;
+              }
+              prNumber = candidateNumber;
             } else {
               prNumber = context.payload.pull_request.number;
             }
