@@ -584,7 +584,7 @@ def _pip_install(
     (or the last failure for the caller to inspect).
     """
     venv_root = Path(sys.executable).parent.parent
-    uv_env = {**os.environ, "VIRTUAL_ENV": str(venv_root)}
+    uv_env = _sanitize_subprocess_env(os.environ.copy(), {"VIRTUAL_ENV": str(venv_root)})
 
     uv_bin = shutil.which("uv")
     if uv_bin:
