@@ -1,15 +1,33 @@
 ---
-name: automated-pr-reviewer
-description: "Automated PR reviewer: scans for authorized '@jules code review' PR comments and triggers static code reviews."
-version: 1.0.2
-author: Hermes Agent
-license: MIT
-platforms: [linux, macos, windows]
-metadata:
-  hermes:
-    tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, review]
-    related_skills: [github-code-review, cronjob]
+title: "Automated Pr Reviewer"
+sidebar_label: "Automated Pr Reviewer"
+description: "Automated PR reviewer: scans for authorized '@jules code review' PR comments and triggers static code reviews"
 ---
+
+{/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
+
+# Automated Pr Reviewer
+
+Automated PR reviewer: scans for authorized '@jules code review' PR comments and triggers static code reviews.
+
+## Skill metadata
+
+| | |
+|---|---|
+| Source | Bundled (installed by default) |
+| Path | `skills/github/automated-pr-reviewer` |
+| Version | `1.0.2` |
+| Author | Hermes Agent |
+| License | MIT |
+| Platforms | linux, macos, windows |
+| Tags | `GitHub`, `Code-Review`, `Automation`, `Pull-Requests`, `Cron`, `review` |
+| Related skills | [`github-code-review`](/docs/user-guide/skills/bundled/github/github-github-code-review), `cronjob` |
+
+## Reference: full SKILL.md
+
+:::info
+The following is the complete skill definition that Hermes loads when this skill is triggered. This is what the agent sees as instructions when the skill is active.
+:::
 
 # Automated PR Reviewer Workflow
 
