@@ -582,7 +582,9 @@ class SignalAdapter(BasePlatformAdapter):
         media_urls = []
         media_types = []
 
-        if attachments_data and not getattr(self, "ignore_attachments", False):
+    def set_interaction_authorizer(self, authorizer) -> None:
+        """Install a callback that returns True when a sender is authorized."""
+        self._interaction_authorizer = authorizer
             for att in attachments_data:
                 att_id = att.get("id")
                 att_size = att.get("size", 0)
