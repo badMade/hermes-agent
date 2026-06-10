@@ -2565,15 +2565,6 @@ class MatrixAdapter(BasePlatformAdapter):
         return f"{self._homeserver}/_matrix/client/v1/media/download/{parts}"
 
     def _markdown_to_html(self, text: str) -> str:
-        """Convert Markdown to Matrix-compatible HTML (org.matrix.custom.html).
-
-        Uses the ``markdown`` library when available (installed with the
-        ``matrix`` extra).  Falls back to a comprehensive regex converter
-        that handles fenced code blocks, inline code, headers, bold,
-        italic, strikethrough, links, blockquotes, lists, and horizontal
-        rules — everything the Matrix HTML spec allows.
-        """
-    def _markdown_to_html(self, text: str) -> str:
         """Convert Markdown to hardened HTML (org.matrix.custom.html).
 
         Always uses the sanitized regex-based converter to prevent

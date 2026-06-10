@@ -998,9 +998,7 @@ def _ensure_tui_node() -> None:
             [
                 "bash",
                 "-c",
-                'source -- "$1" >&2 && ensure_node >&2 && command -v node',
-                "bash",
-                str(helper),
+                f'source "{helper}" >&2 && ensure_node >&2 && command -v node',
             ],
             env={**os.environ, "HERMES_HOME": hermes_home},
             capture_output=True,
