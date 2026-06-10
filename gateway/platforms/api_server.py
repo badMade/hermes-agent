@@ -3023,7 +3023,7 @@ class APIServerAdapter(BasePlatformAdapter):
         approval_session_key = f"api_run:{run_id}"
         ephemeral_system_prompt = instructions
         loop = asyncio.get_running_loop()
-        q: "asyncio.Queue[Optional[Dict]]" = asyncio.Queue()
+        q: "asyncio.Queue[Optional[Dict]]" = asyncio.Queue(maxsize=self._RUN_STREAM_MAX_EVENTS)
         created_at = time.time()
         self._run_streams[run_id] = q
         self._run_streams_created[run_id] = created_at
