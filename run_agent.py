@@ -68,6 +68,7 @@ from urllib.parse import urlparse, parse_qs, urlunparse
 from datetime import datetime
 from pathlib import Path
 
+from agent.redact import redact_sensitive_text
 from hermes_constants import get_hermes_home
 
 
@@ -9799,9 +9800,11 @@ class AIAgent:
         # scrub is required so a model/provider echo of ephemeral recalled memory
         # cannot become durable session history or Responses API replay state.
         if isinstance(_san_content, str) and _san_content:
-            _san_content = sanitize_context(
-                self._strip_think_blocks(_san_content)
-            ).strip()
+            _stripped_content = self._strip_think_blocks(_san_content)
+            if isinstance(_stripped_content, str):
+                _san_content = sanitize_context(_stripped_content).strip()
+            else:
+                _san_content = sanitize_context(_san_content).strip()
 
         msg = {
             "role": "assistant",
@@ -10248,8 +10251,14 @@ class AIAgent:
             # and get recovered by retrying on main?  Surface that so users
             # know their auxiliary.compression.model setting is broken even
             # though compression succeeded.
-            _aux_fail_model = getattr(self.context_compressor, "_last_aux_model_failure_model", None)
-            _aux_fail_err = getattr(self.context_compressor, "_last_aux_model_failure_error", None)
+            _aux_fail_model = redact_sensitive_text(
+                getattr(self.context_compressor, "_last_aux_model_failure_model", None),
+                force=True,
+            )
+            _aux_fail_err = redact_sensitive_text(
+                getattr(self.context_compressor, "_last_aux_model_failure_error", None),
+                force=True,
+            )
             if _aux_fail_model:
                 # Dedup on (model, error) so we don't spam on every compaction
                 _aux_key = (_aux_fail_model, _aux_fail_err)
