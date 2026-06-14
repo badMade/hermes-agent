@@ -33,6 +33,13 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+import tempfile
+import threading
+import uuid
+import zipfile
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 from urllib.request import url2pathname
 
 from agent.memory_provider import MemoryProvider
@@ -97,16 +104,19 @@ class _VikingClient:
             raise ImportError("httpx is required for OpenViking: pip install httpx")
 
     def _headers(self) -> dict:
-        # Do not send legacy implicit tenant defaults with API-key auth.
-        # Remote OpenViking servers may derive tenancy from the Bearer key;
-        # an explicit "default" header can override that derived scope.
+        # Always send tenant headers when account/user are configured.
+        # OpenViking 0.3.x requires X-OpenViking-Account and X-OpenViking-User
+        # for ROOT API key requests to tenant-scoped APIs — omitting them
+        # causes INVALID_ARGUMENT errors even when account="default".
+        # User-level keys can omit them (server derives tenancy from the key),
+        # but ROOT keys must always include them explicitly.
         h = {
             "Content-Type": "application/json",
             "X-OpenViking-Agent": self._agent,
         }
-        if self._account and self._account != "default":
+        if self._account:
             h["X-OpenViking-Account"] = self._account
-        if self._user and self._user != "default":
+        if self._user:
             h["X-OpenViking-User"] = self._user
         if self._api_key:
             h["X-API-Key"] = self._api_key
@@ -328,6 +338,16 @@ ADD_RESOURCE_SCHEMA = {
 }
 
 
+def _zip_directory(dir_path: Path) -> Path:
+    """Create a temporary zip file containing a directory tree."""
+    zip_path = Path(tempfile.gettempdir()) / f"openviking_upload_{uuid.uuid4().hex}.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for file_path in dir_path.rglob("*"):
+            if file_path.is_file():
+                arcname = str(file_path.relative_to(dir_path)).replace("\\", "/")
+                zipf.write(file_path, arcname=arcname)
+    return zip_path
+
 
 def _is_windows_absolute_path(value: str) -> bool:
     return (
@@ -339,7 +359,7 @@ def _is_windows_absolute_path(value: str) -> bool:
 
 
 def _is_remote_resource_source(value: str) -> bool:
-    return value.lower().startswith(_REMOTE_RESOURCE_PREFIXES)
+    return value.startswith(_REMOTE_RESOURCE_PREFIXES)
 
 
 def _is_local_path_reference(value: str) -> bool:
@@ -361,7 +381,6 @@ def _path_from_file_uri(uri: str) -> Path | str:
     if parsed.netloc not in ("", "localhost"):
         return f"Unsupported non-local file URI: {uri}"
     return Path(url2pathname(parsed.path)).expanduser()
-
 
 
 # ---------------------------------------------------------------------------
