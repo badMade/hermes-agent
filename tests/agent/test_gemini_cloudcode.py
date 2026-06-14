@@ -441,6 +441,22 @@ class TestLoadCodeAssist:
         assert info.cloudaicompanion_project == "corp-proj"
 
 
+class TestProjectIdRequiredError:
+    def test_init_default_message(self):
+        from agent.google_code_assist import ProjectIdRequiredError
+
+        err = ProjectIdRequiredError()
+        assert str(err) == "GCP project id required for this tier"
+        assert err.code == "code_assist_project_id_required"
+
+    def test_init_custom_message(self):
+        from agent.google_code_assist import ProjectIdRequiredError
+
+        err = ProjectIdRequiredError("Custom message")
+        assert str(err) == "Custom message"
+        assert err.code == "code_assist_project_id_required"
+
+
 class TestOnboardUser:
     def test_paid_tier_requires_project_id(self):
         from agent import google_code_assist
