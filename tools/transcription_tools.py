@@ -501,8 +501,8 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
-            from tools.environments.local import _sanitize_subprocess_env
-            subprocess.run(command, shell=True, check=True, capture_output=True, text=True, env=_sanitize_subprocess_env(os.environ.copy()))
+            command_args = shlex.split(command)
+            subprocess.run(command_args, check=True, capture_output=True, text=True)
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
             if not txt_files:
