@@ -39,14 +39,6 @@ from urllib.parse import urljoin
 from utils import is_truthy_value
 from tools.managed_tool_gateway import resolve_managed_tool_gateway
 from tools.tool_backend_helpers import managed_nous_tools_enabled, resolve_openai_audio_api_key
-@@ -39,7 +39,6 @@
- from utils import is_truthy_value
- from tools.managed_tool_gateway import resolve_managed_tool_gateway
- from tools.tool_backend_helpers import managed_nous_tools_enabled, resolve_openai_audio_api_key
--from tools.environments.local import _sanitize_subprocess_env
- 
- logger = logging.getLogger(__name__)
-
 logger = logging.getLogger(__name__)
 
 def get_env_value(name, default=None):
