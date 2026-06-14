@@ -388,7 +388,7 @@ class TestTranscribeLocalCommand:
             return _TempDir()
 
         def fake_run(cmd, *args, **kwargs):
-            if isinstance(cmd, list):
+            if isinstance(cmd, list) and cmd[0].endswith("ffmpeg"):
                 output_path = cmd[-1]
                 with open(output_path, "wb") as handle:
                     handle.write(b"RIFF....WAVEfmt ")
