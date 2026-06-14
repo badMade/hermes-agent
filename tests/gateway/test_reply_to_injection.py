@@ -31,7 +31,7 @@ def _source() -> SessionSource:
         platform=Platform.TELEGRAM,
         chat_id="123",
         chat_name="DM",
-        chat_type="private",
+        chat_type="dm",
         user_name="Alice",
     )
 
