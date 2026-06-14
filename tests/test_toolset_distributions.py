@@ -22,27 +22,31 @@ class TestGetDistribution:
     def test_unknown_returns_none(self):
         assert get_distribution("nonexistent") is None
 
+    def test_missing_json_file_returns_none(self, tmp_path):
+        missing_file = tmp_path / "missing_distribution.json"
+        assert get_distribution(str(missing_file)) is None
 
-    def test_file_not_found_error(self):
-        # The file does not exist, so it should handle FileNotFoundError and return None
-        assert get_distribution("nonexistent_distribution_file.json") is None
-
-    def test_loads_from_valid_json_file(self, tmp_path):
-        import json
-        file_path = tmp_path / "test_dist.json"
-        data = {"description": "A test dist", "toolsets": {"web": 100}}
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f)
+    def test_loads_valid_json_distribution(self, tmp_path):
+        file_path = tmp_path / "valid_distribution.json"
+        file_path.write_text(
+            '{"description":"A test distribution","toolsets":{"web":100}}',
+            encoding="utf-8",
+        )
 
         dist = get_distribution(str(file_path))
         assert dist is not None
-        assert dist["description"] == "A test dist"
+        assert dist["description"] == "A test distribution"
         assert dist["toolsets"]["web"] == 100
 
-    def test_invalid_json_file(self, tmp_path):
-        file_path = tmp_path / "invalid_dist.json"
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write("{invalid json")
+    def test_invalid_json_distribution_returns_none(self, tmp_path):
+        file_path = tmp_path / "invalid_distribution.json"
+        file_path.write_text("{invalid-json", encoding="utf-8")
+
+        assert get_distribution(str(file_path)) is None
+
+    def test_invalid_json_distribution_structure_returns_none(self, tmp_path):
+        file_path = tmp_path / "invalid_distribution_shape.json"
+        file_path.write_text('{"description":"bad","toolsets":[]}', encoding="utf-8")
 
         assert get_distribution(str(file_path)) is None
 
@@ -77,6 +81,14 @@ class TestValidateDistribution:
     def test_invalid(self):
         assert validate_distribution("nonexistent") is False
         assert validate_distribution("") is False
+
+    def test_valid_json_distribution_file(self, tmp_path):
+        file_path = tmp_path / "file_distribution.json"
+        file_path.write_text(
+            '{"description":"File distribution","toolsets":{"web":50}}',
+            encoding="utf-8",
+        )
+        assert validate_distribution(str(file_path)) is True
 
 
 class TestSampleToolsetsFromDistribution:

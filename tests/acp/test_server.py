@@ -537,7 +537,6 @@ class TestSessionConfiguration:
 
         def fake_resolve_runtime_provider(requested=None, **kwargs):
             runtime_calls.append(requested)
-            print(f"fake_resolve_runtime_provider called with {requested}")
             provider = requested or "openrouter"
             return {
                 "provider": provider,
@@ -577,7 +576,7 @@ class TestSessionConfiguration:
         assert state.model == "claude-sonnet-4-6"
         assert state.agent.provider == "anthropic"
         assert state.agent.base_url == "https://anthropic.example/v1"
-        assert "anthropic" in runtime_calls
+        assert runtime_calls[-1] == "anthropic"
 
 
 # ---------------------------------------------------------------------------
@@ -994,7 +993,6 @@ class TestSlashCommands:
 
         def fake_resolve_runtime_provider(requested=None, **kwargs):
             runtime_calls.append(requested)
-            print(f"fake_resolve_runtime_provider called with {requested}")
             provider = requested or "openrouter"
             return {
                 "provider": provider,
@@ -1030,7 +1028,7 @@ class TestSlashCommands:
         assert "Provider: anthropic" in result
         assert state.agent.provider == "anthropic"
         assert state.agent.base_url == "https://anthropic.example/v1"
-        assert "anthropic" in runtime_calls
+        assert runtime_calls[-1] == "anthropic"
 
 
 # ---------------------------------------------------------------------------
