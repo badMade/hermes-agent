@@ -291,7 +291,7 @@ jobs:
 
             // ── 5. Guard: failing checks ───────────────────────────────────────
             const acceptable = new Set(['success', 'skipped', 'neutral']);
-            const failing = externalRuns.filter(r => !acceptable.has(r.conclusion));
+            const failing = externalRuns.filter(r => r.status === 'completed' && !acceptable.has(r.conclusion));
             if (failing.length > 0) {
               core.warning(`${failing.length} check(s) failing.`);
               await setStatus(headSha, 'failure',
