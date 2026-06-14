@@ -17,7 +17,7 @@ import logging
 import socket as _socket
 import time
 from typing import Any, Dict, List, Optional
-import defusedxml.ElementTree as ET
+from xml.etree import ElementTree as ET
 
 try:
     from aiohttp import web
