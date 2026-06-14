@@ -91,39 +91,23 @@ class TestIsContainer:
     def test_detects_cgroup_docker(self, monkeypatch, tmp_path):
         """/proc/1/cgroup containing 'docker' triggers detection."""
         import builtins
-
         self._reset_cache(monkeypatch)
         monkeypatch.setattr(os.path, "exists", lambda p: False)
         cgroup_file = tmp_path / "cgroup"
         cgroup_file.write_text("12:memory:/docker/abc123\n")
         _real_open = builtins.open
-        monkeypatch.setattr(
-            "builtins.open",
-            lambda p, *a, **kw: (
-                _real_open(str(cgroup_file), *a, **kw)
-                if p == "/proc/1/cgroup"
-                else _real_open(p, *a, **kw)
-            ),
-        )
+        monkeypatch.setattr("builtins.open", lambda p, *a, **kw: _real_open(str(cgroup_file), *a, **kw) if p == "/proc/1/cgroup" else _real_open(p, *a, **kw))
         assert is_container() is True
 
     def test_negative_case(self, monkeypatch, tmp_path):
         """Returns False on a regular Linux host."""
         import builtins
-
         self._reset_cache(monkeypatch)
         monkeypatch.setattr(os.path, "exists", lambda p: False)
         cgroup_file = tmp_path / "cgroup"
         cgroup_file.write_text("12:memory:/\n")
         _real_open = builtins.open
-        monkeypatch.setattr(
-            "builtins.open",
-            lambda p, *a, **kw: (
-                _real_open(str(cgroup_file), *a, **kw)
-                if p == "/proc/1/cgroup"
-                else _real_open(p, *a, **kw)
-            ),
-        )
+        monkeypatch.setattr("builtins.open", lambda p, *a, **kw: _real_open(str(cgroup_file), *a, **kw) if p == "/proc/1/cgroup" else _real_open(p, *a, **kw))
         assert is_container() is False
 
     def test_caches_result(self, monkeypatch):
@@ -246,10 +230,12 @@ class TestIsWsl:
 
         self._reset_cache(monkeypatch)
 
+        _real_open = builtins.open
+
         def _mock_open(p, *a, **kw):
             if p == "/proc/version":
                 raise FileNotFoundError("No such file or directory: '/proc/version'")
-            return builtins.open(p, *a, **kw)
+            return _real_open(p, *a, **kw)
 
         monkeypatch.setattr("builtins.open", _mock_open)
 
