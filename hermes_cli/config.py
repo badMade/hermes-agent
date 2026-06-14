@@ -93,19 +93,6 @@ _RAW_CONFIG_CACHE: Dict[str, Tuple[int, int, Dict[str, Any]]] = {}
 # calls read_raw_config. Also covers mutation of the module-level cache
 # dicts above.
 _CONFIG_LOCK = threading.RLock()
-
-
-def _ignore_user_config_enabled() -> bool:
-    """Return whether runtime config loading should skip user config.yaml."""
-    return os.environ.get("HERMES_IGNORE_USER_CONFIG") == "1"
-
-
-def _default_runtime_config() -> Dict[str, Any]:
-    """Return normalized defaults without reading user config.yaml."""
-    config = copy.deepcopy(DEFAULT_CONFIG)
-    normalized = _normalize_root_model_keys(_normalize_max_turns_config(config))
-    return _expand_env_vars(normalized)
-
 # Env var names written to .env that aren't in OPTIONAL_ENV_VARS
 # (managed by setup/provider flows directly).
 _EXTRA_ENV_KEYS = frozenset({
@@ -557,11 +544,6 @@ DEFAULT_CONFIG = {
         # default is 1800s) plus runtime slack.  Set to 0 to disable the
         # gate and restore pre-fix behaviour (always inject).
         "gateway_auto_continue_freshness": 3600,
-        # Maximum number of pending /queue turns retained per gateway
-        # session. This bounds memory retention and downstream LLM/tool cost
-        # from repeated authorized queue requests while preserving FIFO
-        # behavior for normal use. Values below 1 are clamped to 1.
-        "gateway_queue_max_depth": 25,
         # How user-attached images are presented to the main model on each turn.
         #   "auto"   — attach natively when the active model reports
         #              supports_vision=True AND the user hasn't explicitly
@@ -1246,9 +1228,6 @@ DEFAULT_CONFIG = {
         # Archive a skill (move to skills/.archive/) after this many days
         # without use. Archived skills are recoverable — no auto-deletion.
         "archive_after_days": 90,
-        # Maximum LLM/tool turns for the background review fork. Values above
-        # the built-in hard cap are clamped to keep background spend bounded.
-        "review_max_iterations": 100,
         # Pre-run backup: before every real curator pass (dry-run is
         # skipped), snapshot ~/.hermes/skills/ into
         # ~/.hermes/skills/.curator_backups/<utc-iso>/skills.tar.gz so the
@@ -4148,12 +4127,6 @@ def read_raw_config() -> Dict[str, Any]:
 def load_config() -> Dict[str, Any]:
     """Load configuration from ~/.hermes/config.yaml.
 
-    When ``HERMES_IGNORE_USER_CONFIG=1`` is set (by ``hermes chat
-    --ignore-user-config``), return built-in defaults without reading or
-    merging the user's config file. This keeps runtime config consumers
-    such as MCP and plugin discovery inside the same isolation boundary as
-    CLI startup.
-
     Cached on the config file's (mtime_ns, size). Returns a deepcopy of
     the cached value when unchanged, since most call sites mutate the
     result (e.g. ``cfg["model"]["default"] = ...`` before ``save_config``).
@@ -4165,10 +4138,6 @@ def load_config() -> Dict[str, Any]:
         ensure_hermes_home()
         config_path = get_config_path()
         path_key = str(config_path)
-
-        if _ignore_user_config_enabled():
-            _LOAD_CONFIG_CACHE.pop(path_key, None)
-            return _default_runtime_config()
 
         try:
             st = config_path.stat()

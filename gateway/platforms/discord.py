@@ -3551,14 +3551,12 @@ class DiscordAdapter(BasePlatformAdapter):
 
     def _discord_require_mention(self) -> bool:
         """Return whether Discord channel messages require a bot mention."""
-        configured = os.getenv("DISCORD_REQUIRE_MENTION")
-        if configured is None:
-            configured = self.config.extra.get("require_mention")
+        configured = self.config.extra.get("require_mention")
         if configured is not None:
             if isinstance(configured, str):
                 return configured.lower() not in {"false", "0", "no", "off"}
             return bool(configured)
-        return True
+        return os.getenv("DISCORD_REQUIRE_MENTION", "true").lower() not in {"false", "0", "no", "off"}
 
     def _discord_free_response_channels(self) -> set:
         """Return Discord channel IDs where no bot mention is required.
@@ -3567,9 +3565,9 @@ class DiscordAdapter(BasePlatformAdapter):
         string) is preserved in the returned set so callers can short-circuit
         on wildcard membership, consistent with ``allowed_channels``.
         """
-        raw = os.getenv("DISCORD_FREE_RESPONSE_CHANNELS")
+        raw = self.config.extra.get("free_response_channels")
         if raw is None:
-            raw = self.config.extra.get("free_response_channels")
+            raw = os.getenv("DISCORD_FREE_RESPONSE_CHANNELS", "")
         if isinstance(raw, list):
             return {str(part).strip() for part in raw if str(part).strip()}
         # Coerce non-list scalars (str/int/float) to str before splitting.
@@ -4229,10 +4227,7 @@ class DiscordAdapter(BasePlatformAdapter):
         if not is_thread and not isinstance(message.channel, discord.DMChannel):
             no_thread_channels_raw = os.getenv("DISCORD_NO_THREAD_CHANNELS", "")
             no_thread_channels = {ch.strip() for ch in no_thread_channels_raw.split(",") if ch.strip()}
-            # Free-response channels accept ordinary chat without a bot mention.
-            # Keep those messages in the channel session by default so a burst of
-            # unmentioned messages cannot fan out into one agent run per thread.
-            skip_thread = is_free_channel or bool(channel_ids & no_thread_channels)
+            skip_thread = bool(channel_ids & no_thread_channels)
             auto_thread = os.getenv("DISCORD_AUTO_THREAD", "true").lower() in {"true", "1", "yes"}
             is_reply_message = getattr(message, "type", None) == discord.MessageType.reply
             if auto_thread and not skip_thread and not is_voice_linked_channel and not is_reply_message:
