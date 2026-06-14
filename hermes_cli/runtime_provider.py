@@ -58,8 +58,6 @@ def _is_azure_endpoint(base_url: str) -> bool:
         base_url_host_matches(base_url, domain)
         for domain in _AZURE_ENDPOINT_DOMAINS
     )
-
-
 def _config_base_url_trustworthy_for_bare_custom(cfg_base_url: str, cfg_provider: str) -> bool:
     """Decide whether ``model.base_url`` may back bare ``custom`` runtime resolution.
 
@@ -960,7 +958,7 @@ def resolve_runtime_provider(
     # return provider="custom" with chat_completions api_mode and no valid key).
     # Instead, use the Azure key directly with anthropic_messages api_mode.
     _eff_base = (explicit_base_url or "").strip()
-    if requested_provider == "anthropic" and _is_azure_endpoint(_eff_base):
+    if requested_provider == "anthropic" and _is_azure_endpoint_url(_eff_base):
         _azure_key = (
             (explicit_api_key or "").strip()
             or os.getenv("AZURE_ANTHROPIC_KEY", "").strip()
@@ -1197,8 +1195,8 @@ def resolve_runtime_provider(
         # would find the Claude Code OAuth token first (priority 3) and return
         # that instead, causing 401s. Detect Azure endpoints and use the env
         # key directly to bypass the OAuth priority chain.
-        is_azure_endpoint = _is_azure_endpoint(base_url) or (
-            bool(cfg_base_url) and _is_azure_endpoint(cfg_base_url)
+        is_azure_endpoint = _is_azure_endpoint_url(base_url) or (
+            bool(cfg_base_url) and _is_azure_endpoint_url(cfg_base_url)
         )
         if is_azure_endpoint:
             # Honor user-specified env var hints on the model config before
