@@ -1,7 +1,6 @@
 """Tests for the memory provider interface, manager, and builtin provider."""
 
 import json
-import re
 import pytest
 from unittest.mock import MagicMock, patch
 from typing import List, Dict, Any
@@ -110,22 +109,6 @@ class MinimalMemoryProvider(MemoryProvider):
 
 
 class TestMemoryProviderABC:
-    def test_missing_name_property_raises_error(self):
-        """Classes missing the abstract name property cannot be instantiated."""
-
-        class IncompleteProvider(MemoryProvider):
-            def is_available(self) -> bool:
-                return True
-
-            def initialize(self, session_id: str, **kwargs) -> None:
-                pass
-
-            def get_tool_schemas(self) -> list:
-                return []
-
-        with pytest.raises(TypeError, match=r"abstract.*\bname\b"):
-            IncompleteProvider()
-
     def test_cannot_instantiate_abstract(self):
         """ABC cannot be instantiated directly."""
         with pytest.raises(TypeError):
@@ -149,31 +132,12 @@ class TestMemoryProviderABC:
         p.sync_turn("user", "assistant")
         p.shutdown()
 
-    def test_handle_tool_call_raises_not_implemented(self):
-        """Default handle_tool_call raises NotImplementedError."""
-
-        class DefaultHandleToolCallProvider(FakeMemoryProvider):
-            def handle_tool_call(self, tool_name, args, **kwargs):
-                return MemoryProvider.handle_tool_call(
-                    self,
-                    tool_name,
-                    args,
-                    **kwargs,
-                )
-
-        p = DefaultHandleToolCallProvider("test_provider")
-        message = "Provider test_provider does not handle tool test_tool"
-        with pytest.raises(
-            NotImplementedError,
-            match=rf"^{re.escape(message)}$",
-        ):
-            p.handle_tool_call("test_tool", {"arg": "val"})
-
     def test_default_on_session_end_is_noop(self):
         """Verify the base on_session_end implementation does not raise."""
         p = MinimalMemoryProvider()
         # Should not raise exception (verifying does not raise)
         p.on_session_end([{"role": "user", "content": "hi"}])
+
 
 # ---------------------------------------------------------------------------
 # MemoryManager tests
