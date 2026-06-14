@@ -7,9 +7,13 @@
 **Vulnerability:** SQL Injection via string-interpolated subqueries with LIMIT. The `query` function in `optional-skills/mcp/fastmcp/templates/database_server.py` wrapped user SQL in a subquery: `SELECT * FROM ({sql}) LIMIT N`. This allowed malicious users to bypass simple checks (e.g. ensuring it starts with SELECT) and inject additional clauses or statements by manipulating the closing parenthesis.
 **Learning:** SQLite does not natively support parameterization for the FROM clause (e.g., subqueries or table names). Attempting to string-interpolate user input into a subquery creates an injection vector, especially when trying to enforce a LIMIT clause on user-provided queries.
 **Prevention:** To prevent SQL injection when applying limits to user-provided SQL queries, execute the raw user query directly and restrict the output rows in Python using `cursor.fetchmany(limit)` instead of trying to wrap the query in another SELECT with a LIMIT clause.
+## 2024-05-24 - Security Enhancement: Shell Injection Prevention
+**Vulnerability:** Use of `subprocess.run(shell=True)` in `hermes_cli/tools_config.py` for cua-driver installation.
+**Learning:** Using `shell=True` can introduce shell injection vulnerabilities, especially if any parts of the command are dynamic. Although this specific case was a hardcoded URL string, it's best practice to replace `shell=True` with an argument list for defense in depth.
+**Prevention:** Avoid `shell=True` in `subprocess.run` and pass the command and its arguments as a list. When using `bash -c`, pass the script content as an argument to `-c` rather than interpolating it into a single string with `shell=True`.
 
 ## 2024-05-26 - Security Enhancement: Shell Injection Prevention
 **Vulnerability:** Shell injection via `subprocess.run(..., shell=True)` using unquoted string templates in `tests/tools/test_search_hidden_dirs.py`.
 
 **Learning:** `shell=True` allows shell metacharacters and logic operators (`|`, `&&`, `;`) to alter intended execution paths or escalate privileges.
-**Prevention:** Avoid `shell=True` in `subprocess`. Always pass a list of strings instead, using `.split()` or `shlex.split()` on string templates if necessary, bypassing the system shell entirely. Update test frameworks to ensure the modified command forms execute successfully without regressions.
+**Prevention:** Avoid `shell=True` in `subprocess`. Always pass a list of arguments directly instead of a command string. If a trusted shell-style string must be parsed, use `shlex.split()` (not `.split()`, which breaks on quoted args and paths with spaces), bypassing the system shell entirely. Update test frameworks to ensure the modified command forms execute successfully without regressions.
