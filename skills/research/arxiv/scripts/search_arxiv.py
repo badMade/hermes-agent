@@ -14,7 +14,6 @@ import sys
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
-from defusedxml.ElementTree import fromstring as safe_fromstring
 
 NS = {'a': 'http://www.w3.org/2005/Atom'}
 
@@ -48,7 +47,7 @@ def search(query=None, author=None, category=None, ids=None, max_results=5, sort
     with urllib.request.urlopen(req, timeout=15) as resp:
         data = resp.read()
     
-    root = safe_fromstring(data)
+    root = ET.fromstring(data)
     entries = root.findall('a:entry', NS)
     
     if not entries:
