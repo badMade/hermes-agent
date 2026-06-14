@@ -568,11 +568,6 @@ def _derive_chat_session_id(
     return f"api-{digest}"
 
 
-def _new_chat_session_id() -> str:
-    """Return a fresh, random API session identifier in the api-<hex16> format."""
-    return f"api-{uuid.uuid4().hex[:16]}"
-
-
 _CRON_AVAILABLE = False
 try:
     from cron.jobs import (
@@ -718,15 +713,6 @@ class APIServerAdapter(BasePlatformAdapter):
         """
         if not self._api_key:
             return None  # No key configured — allow all (local-only use)
-        try:
-            from hermes_cli.auth import has_usable_secret
-            if not has_usable_secret(self._api_key, min_length=4):
-                return web.json_response(
-                    {"error": {"message": "Invalid API key", "type": "invalid_request_error", "code": "invalid_api_key"}},
-                    status=401,
-                )
-        except ImportError:
-            pass
 
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -1157,7 +1143,16 @@ class APIServerAdapter(BasePlatformAdapter):
                 logger.warning("Failed to load session history for %s: %s", session_id, e)
                 history = []
         else:
-            session_id = _new_chat_session_id()
+            # Derive a stable session ID from the conversation fingerprint so
+            # that consecutive messages from the same Open WebUI (or similar)
+            # conversation map to the same Hermes session.  The first user
+            # message + system prompt are constant across all turns.
+            first_user = ""
+            for cm in conversation_messages:
+                if cm.get("role") == "user":
+                    first_user = cm.get("content", "")
+                    break
+            session_id = _derive_chat_session_id(system_prompt, first_user)
             # history already set from request body above
 
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:29]}"

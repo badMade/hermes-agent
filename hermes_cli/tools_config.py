@@ -134,24 +134,15 @@ def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
 
 
 def _implicit_default_off_toolsets(platform: str) -> Set[str]:
-    """Default-off toolsets that should be suppressed for ``platform``.
+    """Toolsets treated as opt-in when inferring enabled sets.
 
-    This only applies to configurable toolsets that are valid on the target
-    platform.
+    ``homeassistant`` is the only default-off toolset that remains on by
+    default for its own dedicated platform.
     """
-    configurable_keys = {ts_key for ts_key, _, _ in CONFIGURABLE_TOOLSETS}
-    # Dedicated Home Assistant sessions should keep the homeassistant toolset
-    # enabled by default on that platform.
-    platform_defaults = {"homeassistant"} if platform == "homeassistant" else set()
-    return {
-        ts_key
-        for ts_key in _DEFAULT_OFF_TOOLSETS
-        if (
-            ts_key in configurable_keys
-            and _toolset_allowed_for_platform(ts_key, platform)
-            and ts_key not in platform_defaults
-        )
-    }
+    default_off = set(_DEFAULT_OFF_TOOLSETS)
+    if platform == "homeassistant":
+        default_off.discard("homeassistant")
+    return default_off
 
 
 def _get_effective_configurable_toolsets():
@@ -962,13 +953,15 @@ def _run_post_setup(post_setup_key: str):
         try:
             from tools.environments.local import _sanitize_subprocess_env
 
-            install_cmd = [
-                "/bin/bash",
-                "-c",
-                "curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash",
-            ]
+            install_cmd = (
+                "curl -fsSL "
+                "https://raw.githubusercontent.com/trycua/cua/main/"
+                "libs/cua-driver/scripts/install.sh | /bin/bash"
+            )
             sanitized_env = _sanitize_subprocess_env(os.environ.copy())
-            result = subprocess.run(install_cmd, timeout=300, env=sanitized_env)
+            result = subprocess.run(
+                ["/bin/bash", "-c", install_cmd], timeout=300, env=sanitized_env
+            )
             if result.returncode == 0 and shutil.which("cua-driver"):
                 _print_success("    cua-driver installed.")
                 _print_info("    IMPORTANT — grant macOS permissions now:")
