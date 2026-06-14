@@ -490,7 +490,6 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
     normalized_model = _normalize_local_command_model(model_name)
 
     try:
-        from tools.environments.local import _sanitize_subprocess_env
         with tempfile.TemporaryDirectory(prefix="hermes-local-stt-") as output_dir:
             prepared_input, prep_error = _prepare_local_audio(file_path, output_dir)
             if prep_error:
@@ -502,15 +501,7 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
-            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
-            command_args = shlex.split(command)
-            subprocess.run(
-                command_args,
-                check=True,
-                capture_output=True,
-                text=True,
-                env=sanitized_env,
-            )
+            subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
             if not txt_files:
