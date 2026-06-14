@@ -958,6 +958,27 @@ class TestMattermostSendUrlAsFile:
         text_arg = adapter.send.call_args[0][1]
         assert "http://cdn.example.com/img.png" in text_arg
 
+    def test_non_retryable_client_error_falls_back_immediately(self, _mock_safe):
+        """Invalid URL errors fall back immediately without retrying."""
+        import aiohttp
+
+        adapter = _make_mm_adapter()
+        adapter._session.get = MagicMock(side_effect=aiohttp.InvalidURL("bad url"))
+
+        mock_sleep = AsyncMock()
+
+        async def run():
+            with patch("asyncio.sleep", mock_sleep):
+                return await adapter._send_url_as_file(
+                    "C123", "http://cdn.example.com/img.png", None, None
+                )
+
+        asyncio.run(run())
+
+        adapter.send.assert_called_once()
+        mock_sleep.assert_not_called()
+        assert adapter._session.get.call_count == 1
+
     def test_non_retryable_404_falls_back_immediately(self, _mock_safe):
         """404 is non-retryable (< 500, != 429); send() is called right away."""
         adapter = _make_mm_adapter()
