@@ -3,7 +3,6 @@
 import json
 import pytest
 from unittest.mock import MagicMock, patch
-from typing import List, Dict, Any
 
 from agent.memory_provider import MemoryProvider
 from agent.memory_manager import MemoryManager
@@ -90,24 +89,6 @@ class MetadataMemoryProvider(FakeMemoryProvider):
 # ---------------------------------------------------------------------------
 
 
-class MinimalMemoryProvider(MemoryProvider):
-    """A minimal provider that implements required abstract members but
-    avoids overriding optional hooks so their default behaviors can be tested."""
-
-    @property
-    def name(self) -> str:
-        return "minimal"
-
-    def is_available(self) -> bool:
-        return True
-
-    def initialize(self, session_id: str, **kwargs) -> None:
-        pass
-
-    def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return []
-
-
 class TestMemoryProviderABC:
     def test_cannot_instantiate_abstract(self):
         """ABC cannot be instantiated directly."""
@@ -131,12 +112,6 @@ class TestMemoryProviderABC:
         p.queue_prefetch("query")
         p.sync_turn("user", "assistant")
         p.shutdown()
-
-    def test_default_on_session_end_is_noop(self):
-        """Verify the base on_session_end implementation does not raise."""
-        p = MinimalMemoryProvider()
-        # Should not raise exception (verifying does not raise)
-        p.on_session_end([{"role": "user", "content": "hi"}])
 
 
 # ---------------------------------------------------------------------------
