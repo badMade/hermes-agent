@@ -123,6 +123,7 @@ jobs:
         with:
           name: lint-reports
           path: .lint-reports/
+          include-hidden-files: true
           retention-days: 14
 
 
