@@ -372,7 +372,7 @@ jobs:
               owner, repo, issue_number: prNumber,
             });
             const botIssueComments = issueComments.filter(c => REVIEW_BOTS.has(c.user.login));
-            const botReviews       = reviewList.filter(r => REVIEW_BOTS.has(r.user.login));
+            const botReviews       = allReviews.filter(r => REVIEW_BOTS.has(r.user.login));
             const reviewBotActivity = botIssueComments.length + botReviews.length;
             const botNames = Array.from(new Set([
               ...botIssueComments.map(c => c.user.login),
