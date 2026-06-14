@@ -50,6 +50,7 @@ _VOICE_EXTS = {".ogg", ".opus"}
 # formats either route through sendVoice (Opus/OGG) or fall back to
 # document delivery.
 _TELEGRAM_SEND_AUDIO_EXTS = {".mp3", ".m4a"}
+_TELEGRAM_MAX_RETRY_AFTER_SECONDS = 10.0
 _MATRIX_MEDIA_MAX_BYTES = 50 * 1024 * 1024
 _SENSITIVE_MEDIA_DIR_NAMES = frozenset({".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure"})
 _SENSITIVE_MEDIA_FILE_NAMES = frozenset({".env", ".netrc", ".pgpass", ".npmrc", ".pypirc", "id_rsa", "id_ed25519"})
@@ -192,9 +193,17 @@ def _telegram_retry_delay(exc: Exception, attempt: int) -> float | None:
     retry_after = getattr(exc, "retry_after", None)
     if retry_after is not None:
         try:
-            return max(float(retry_after), 0.0)
+            delay = max(float(retry_after), 0.0)
         except (TypeError, ValueError):
             return 1.0
+        if delay > _TELEGRAM_MAX_RETRY_AFTER_SECONDS:
+            logger.warning(
+                "Telegram retry_after %.1fs exceeds %.1fs cap; failing without sleep",
+                delay,
+                _TELEGRAM_MAX_RETRY_AFTER_SECONDS,
+            )
+            return None
+        return delay
 
     text = str(exc).lower()
     if "timed out" in text or "timeout" in text:
