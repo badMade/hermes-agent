@@ -155,53 +155,63 @@ class TestCmdStatus:
         assert "FAILED (Invalid API key)" in out
         assert "Connection... OK" not in out
 
-
-class TestCmdSetup:
-    def test_workspace_default_uses_active_host_key_for_new_profile(self, monkeypatch, tmp_path):
+class TestProfileWorkspaceIsolation:
+    def test_clone_honcho_for_profile_uses_profile_workspace(self, monkeypatch):
         import plugins.memory.honcho.cli as honcho_cli
 
-        cfg = {}
-        prompts = []
-        cfg_path = tmp_path / "honcho.json"
+        cfg = {
+            "workspace": "hermes",
+            "hosts": {
+                "hermes": {
+                    "workspace": "hermes",
+                    "enabled": True,
+                    "peerName": "user",
+                }
+            },
+        }
+
+        written = {}
+        monkeypatch.setattr(honcho_cli, "_read_config", lambda: cfg)
+        monkeypatch.setattr(honcho_cli, "_write_config", lambda data: written.setdefault("cfg", data))
+        monkeypatch.setattr(honcho_cli, "_ensure_peer_exists", lambda host_key=None: True)
+
+        assert honcho_cli.clone_honcho_for_profile("private") is True
+        block = written["cfg"]["hosts"]["hermes.private"]
+        assert block["workspace"] == "hermes-private"
+
+    def test_cmd_enable_new_profile_defaults_workspace_to_profile_host(self, monkeypatch):
+        import plugins.memory.honcho.cli as honcho_cli
+
+        cfg = {
+            "workspace": "hermes",
+            "hosts": {
+                "hermes": {
+                    "workspace": "hermes",
+                    "enabled": True,
+                    "peerName": "user",
+                }
+            },
+        }
 
         monkeypatch.setattr(honcho_cli, "_read_config", lambda: cfg)
-        monkeypatch.setattr(honcho_cli, "_local_config_path", lambda: cfg_path)
-        monkeypatch.setattr(honcho_cli, "_config_path", lambda: cfg_path)
-        monkeypatch.setattr(honcho_cli, "_ensure_sdk_installed", lambda: True)
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes.coder")
-        monkeypatch.setattr(honcho_cli, "_write_config", lambda new_cfg: None)
-        monkeypatch.setattr("hermes_cli.config.load_config", lambda: {})
-        monkeypatch.setattr("hermes_cli.config.save_config", lambda _cfg: None)
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes.gateway")
+        monkeypatch.setattr(honcho_cli, "_config_path", lambda: "honcho.json")
+        monkeypatch.setattr(honcho_cli, "_write_config", lambda data: None)
+        monkeypatch.setattr(honcho_cli, "_ensure_peer_exists", lambda host_key=None: True)
 
-        class FakeConfig:
-            workspace_id = "hermes.coder"
-            peer_name = "user"
-            ai_peer = "hermes"
-            observation_mode = "directional"
-            write_frequency = "async"
-            recall_mode = "hybrid"
-            session_strategy = "per-session"
+        honcho_cli.cmd_enable(SimpleNamespace())
+        assert cfg["hosts"]["hermes.gateway"]["workspace"] == "hermes-gateway"
 
-            def resolve_session_name(self):
-                return "hermes"
+    def test_cmd_enable_default_host_keeps_root_workspace(self, monkeypatch):
+        import plugins.memory.honcho.cli as honcho_cli
 
-        monkeypatch.setattr(
-            "plugins.memory.honcho.client.HonchoClientConfig.from_global_config",
-            lambda host=None: FakeConfig(),
-        )
-        monkeypatch.setattr("plugins.memory.honcho.client.reset_honcho_client", lambda: None)
-        monkeypatch.setattr("plugins.memory.honcho.client.get_honcho_client", lambda _cfg: object())
+        cfg = {"workspace": "custom", "hosts": {"hermes": {}}}
 
-        def _prompt(label, default="", secret=False):
-            prompts.append((label, default))
-            if label == "Cloud or local?":
-                return "cloud"
-            if label == "Honcho API key (leave blank to keep current)":
-                return "test-key"
-            return default
+        monkeypatch.setattr(honcho_cli, "_read_config", lambda: cfg)
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_config_path", lambda: "honcho.json")
+        monkeypatch.setattr(honcho_cli, "_write_config", lambda data: None)
+        monkeypatch.setattr(honcho_cli, "_ensure_peer_exists", lambda host_key=None: True)
 
-        monkeypatch.setattr(honcho_cli, "_prompt", _prompt)
-
-        honcho_cli.cmd_setup(SimpleNamespace())
-
-        assert ("Workspace ID", "hermes.coder") in prompts
+        honcho_cli.cmd_enable(SimpleNamespace())
+        assert cfg["hosts"]["hermes"]["workspace"] == "custom"

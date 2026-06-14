@@ -503,13 +503,13 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 model=shlex.quote(normalized_model),
             )
             sanitized_env = _sanitize_subprocess_env(os.environ.copy())
+            command_args = shlex.split(command)
             subprocess.run(
-                command,
-                shell=True,
+                command_args,
                 check=True,
                 capture_output=True,
                 text=True,
-                env=sanitized_env
+                env=sanitized_env,
             )
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
