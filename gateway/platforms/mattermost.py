@@ -465,7 +465,7 @@ class MattermostAdapter(BasePlatformAdapter):
                 )
             except aiohttp.ClientError as exc:
                 logger.warning(
-                    "Mattermost: failed to download %s: %s",
+                    "Mattermost: invalid URL or client error for %s: %s",
                     url,
                     exc,
                 )
