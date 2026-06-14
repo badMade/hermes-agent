@@ -1,14 +1,14 @@
 ---
-title: "Automated Pr Reviewer — Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews"
+title: "Automated Pr Reviewer"
 sidebar_label: "Automated Pr Reviewer"
-description: "Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews"
+description: "Automated PR reviewer: scans for authorized '@jules' PR comments and triggers static code reviews"
 ---
 
 {/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
 
 # Automated Pr Reviewer
 
-Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews.
+Automated PR reviewer: scans for authorized '@jules' PR comments and triggers static code reviews.
 
 ## Skill metadata
 
@@ -20,7 +20,7 @@ Automated PR reviewer: scans for '@jules code review' comments and triggers code
 | Author | Hermes Agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
-| Tags | `GitHub`, `Code-Review`, `Automation`, `Pull-Requests`, `Cron`, `Review` |
+| Tags | `GitHub`, `Code-Review`, `Automation`, `Pull-Requests`, `Cron`, `review` |
 | Related skills | [`github-code-review`](/docs/user-guide/skills/bundled/github/github-github-code-review), `cronjob` |
 
 ## Reference: full SKILL.md
@@ -78,7 +78,7 @@ main() {
   # Ensure GH CLI is installed and authenticated
   if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
     echo "GitHub CLI (gh) is not installed or not authenticated."
-    return 1 2>/dev/null || true
+    return 1
   fi
 
   REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
@@ -122,7 +122,7 @@ main() {
 
   if [ ! -s "$PRS_TO_REVIEW" ]; then
     echo "No authorized PRs to review."
-    return 0 2>/dev/null || true
+    return 0
   fi
 
   # Ensure the jules-reviewed label exists before we attempt to apply it.

@@ -1,13 +1,13 @@
 ---
 name: automated-pr-reviewer
-description: "Automated PR reviewer: scans for '@jules code review' comments and triggers code reviews."
+description: "Automated PR reviewer: scans for authorized '@jules' PR comments and triggers static code reviews."
 version: 1.0.2
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, Review]
+    tags: [GitHub, Code-Review, Automation, Pull-Requests, Cron, review]
     related_skills: [github-code-review, cronjob]
 ---
 
@@ -60,7 +60,7 @@ main() {
   # Ensure GH CLI is installed and authenticated
   if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
     echo "GitHub CLI (gh) is not installed or not authenticated."
-    return 1 2>/dev/null || true
+    return 1
   fi
 
   REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
@@ -104,7 +104,7 @@ main() {
 
   if [ ! -s "$PRS_TO_REVIEW" ]; then
     echo "No authorized PRs to review."
-    return 0 2>/dev/null || true
+    return 0
   fi
 
   # Ensure the jules-reviewed label exists before we attempt to apply it.
