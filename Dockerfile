@@ -51,7 +51,7 @@ ENV npm_config_install_links=false
 
 RUN npm install --prefer-offline --no-audit && \
     npx playwright install --with-deps chromium --only-shell && \
-    (cd web && npm install --prefer-offline --no-audit) && \
+    (cd web && npm install --prefer-offline --no-audit --ignore-scripts) && \
     (cd ui-tui && npm install --prefer-offline --no-audit) && \
     npm cache clean --force
 

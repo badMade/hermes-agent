@@ -90,6 +90,23 @@ class MetadataMemoryProvider(FakeMemoryProvider):
 # ---------------------------------------------------------------------------
 
 
+class MinimalMemoryProvider(MemoryProvider):
+    """Bare-minimum concrete provider used for ABC default-method tests."""
+
+    @property
+    def name(self) -> str:
+        return "minimal"
+
+    def is_available(self) -> bool:
+        return True
+
+    def initialize(self, session_id, **kwargs):
+        pass
+
+    def get_tool_schemas(self):
+        return []
+
+
 class TestMemoryProviderABC:
     def test_missing_name_property_raises_error(self):
         """Classes missing the abstract name property cannot be instantiated."""
