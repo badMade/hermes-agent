@@ -12,8 +12,9 @@ from agent.memory_manager import StreamingContextScrubber, sanitize_context
 class TestStreamingContextScrubberBasics:
     def test_init_state(self):
         s = StreamingContextScrubber()
-        assert s._in_span is False
-        assert s._buf == ""
+        assert s.flush() == ""
+        assert s.feed("hello world") == "hello world"
+        assert s.flush() == ""
 
     def test_empty_input_returns_empty(self):
         s = StreamingContextScrubber()
