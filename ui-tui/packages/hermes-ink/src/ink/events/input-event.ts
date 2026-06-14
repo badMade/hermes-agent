@@ -48,7 +48,11 @@ function parseKey(keypress: ParsedKey): [Key, string] {
     tab: keypress.name === 'tab',
     backspace: keypress.name === 'backspace',
     delete: keypress.name === 'delete',
-    meta: Boolean(keypress.meta),
+    // `parseKeypress` parses \u001B\u001B[A (meta + up arrow) as meta = false
+    // but with option = true, so we need to take this into account here
+    // to avoid breaking changes in Ink.
+    // TODO(vadimdemedes): consider removing this in the next major version.
+    meta: keypress.meta || keypress.name === 'escape' || keypress.option,
     // Super (Cmd on macOS / Win key) — only arrives via kitty keyboard
     // protocol CSI u sequences. Distinct from meta (Alt/Option) so
     // bindings like cmd+c can be expressed separately from opt+c.
