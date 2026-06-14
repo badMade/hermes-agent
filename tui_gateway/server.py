@@ -4473,8 +4473,9 @@ def _(rid, params: dict) -> dict:
         qc = qcmds[name]
         if qc.get("type") == "exec":
             import shlex
+            cmd_str = qc.get("command", "")
             r = subprocess.run(
-                shlex.split(qc.get("command", "")),
+                shlex.split(cmd_str) if cmd_str else [],
                 shell=False,
                 capture_output=True,
                 text=True,
@@ -6558,7 +6559,7 @@ def _(rid, params: dict) -> dict:
     try:
         import shlex
         r = subprocess.run(
-            shlex.split(cmd), shell=False, capture_output=True, text=True, timeout=30, cwd=os.getcwd()
+            shlex.split(cmd) if cmd else [], shell=False, capture_output=True, text=True, timeout=30, cwd=os.getcwd()
         )
         return _ok(
             rid,
