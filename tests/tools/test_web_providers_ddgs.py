@@ -180,7 +180,7 @@ class TestDDGSProviderSearch:
 
 
 class TestDDGSBackendWiring:
-    def test_is_backend_available_true_when_package_importable(self, monkeypatch):
+    def test_is_backend_available_true_when_package_available(self, monkeypatch):
         from tools import web_tools
 
         monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: True)

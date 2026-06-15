@@ -175,7 +175,6 @@ def get_session_env(name: str, default: str = "") -> str:
     # Fall back to os.environ for CLI, cron, and test compatibility
     return os.getenv(name, default)
 
-
 def set_terminal_cwd(cwd: str):
     """Set the session-scoped terminal cwd and return a reset token."""
     return _TERMINAL_CWD.set(cwd)

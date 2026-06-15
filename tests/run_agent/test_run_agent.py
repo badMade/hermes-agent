@@ -1843,6 +1843,15 @@ class TestFormatToolsForSystemMessage:
 # ===================================================================
 
 
+class _FakeProviderMemoryManager:
+    def __init__(self):
+        self.calls = []
+        self.providers = []
+
+    def handle_tool_call(self, name, args):
+        self.calls.append((name, args))
+        return "success"
+
 class TestExecuteToolCalls:
     def test_single_tool_executed(self, agent):
         tc = _mock_tool_call(name="web_search", arguments='{"q":"test"}', call_id="c1")

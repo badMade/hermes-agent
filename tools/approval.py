@@ -1534,3 +1534,20 @@ def check_all_command_guards(command: str, env_type: str,
 
 # Load permanent allowlist from config on module import
 load_permanent_allowlist()
+
+_approval_run_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "approval_run_id",
+    default="",
+)
+
+def set_current_run_id(run_id: str) -> contextvars.Token[str]:
+    """Bind the active run ID to the current context."""
+    return _approval_run_id.set(run_id or "")
+
+def reset_current_run_id(token: contextvars.Token[str]) -> None:
+    """Restore the prior run ID context."""
+    _approval_run_id.reset(token)
+
+def get_current_run_id() -> str:
+    """Return the active run ID from contextvars."""
+    return _approval_run_id.get()
