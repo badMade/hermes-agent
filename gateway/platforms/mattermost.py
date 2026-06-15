@@ -448,9 +448,6 @@ class MattermostAdapter(BasePlatformAdapter):
                     url,
                     exc,
                 )
-                if attempt < 2:
-                    await asyncio.sleep(1.5 * (attempt + 1))
-                    continue
                 return await self.send(
                     chat_id, f"{caption or ''}\n{url}".strip(), reply_to
                 )
