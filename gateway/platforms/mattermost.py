@@ -429,7 +429,11 @@ class MattermostAdapter(BasePlatformAdapter):
                 )
                 fname = final_url.rsplit("/", 1)[-1].split("?")[0] or f"{kind}.png"
                 break
-            except (aiohttp.ClientError, PublicUrlDownloadHTTPError) as exc:
+            except (
+                aiohttp.ClientConnectionError,
+                aiohttp.ServerTimeoutError,
+                PublicUrlDownloadHTTPError,
+            ) as exc:
                 should_retry = (
                     isinstance(
                         exc,
