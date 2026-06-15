@@ -501,18 +501,18 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
+            command_args = shlex.split(command)
 
-            # Security: Sanitize the environment to prevent leaking secrets to child processes
+            # Security: sanitize env to avoid leaking credentials to local STT commands.
             from tools.environments.local import _sanitize_subprocess_env
-            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
 
+            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
             subprocess.run(
-                command,
-                shell=True,
+                command_args,
                 check=True,
                 capture_output=True,
                 text=True,
-                env=sanitized_env
+                env=sanitized_env,
             )
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
