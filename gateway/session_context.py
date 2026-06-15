@@ -38,7 +38,6 @@ needs to replace the import + call site:
 
 from contextvars import ContextVar
 from typing import Any
-import os
 
 # Sentinel to distinguish "never set in this context" from "explicitly set to empty".
 # When a contextvar holds _UNSET, we fall back to os.environ (CLI/cron compat).
@@ -58,15 +57,13 @@ _SESSION_USER_NAME: ContextVar = ContextVar("HERMES_SESSION_USER_NAME", default=
 _SESSION_KEY: ContextVar = ContextVar("HERMES_SESSION_KEY", default=_UNSET)
 _SESSION_ID: ContextVar = ContextVar("HERMES_SESSION_ID", default=_UNSET)
 
-# Per-task terminal working directory — overrides TERMINAL_CWD env var in
-# gateway/cron mode so concurrent sessions don't share a process-global path.
-_TERMINAL_CWD: ContextVar = ContextVar("TERMINAL_CWD", default=_UNSET)
-
 # Cron auto-delivery vars — set per-job in run_job() so concurrent jobs
 # don't clobber each other's delivery targets.
 _CRON_AUTO_DELIVER_PLATFORM: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_PLATFORM", default=_UNSET)
 _CRON_AUTO_DELIVER_CHAT_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_CHAT_ID", default=_UNSET)
 _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_THREAD_ID", default=_UNSET)
+_CRON_SESSION: ContextVar = ContextVar("HERMES_CRON_SESSION", default=_UNSET)
+_TERMINAL_CWD: ContextVar = ContextVar("TERMINAL_CWD", default=_UNSET)
 
 _VAR_MAP = {
     "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
@@ -80,6 +77,8 @@ _VAR_MAP = {
     "HERMES_CRON_AUTO_DELIVER_PLATFORM": _CRON_AUTO_DELIVER_PLATFORM,
     "HERMES_CRON_AUTO_DELIVER_CHAT_ID": _CRON_AUTO_DELIVER_CHAT_ID,
     "HERMES_CRON_AUTO_DELIVER_THREAD_ID": _CRON_AUTO_DELIVER_THREAD_ID,
+    "HERMES_CRON_SESSION": _CRON_SESSION,
+    "TERMINAL_CWD": _TERMINAL_CWD,
 }
 
 
@@ -135,6 +134,22 @@ def clear_session_vars(tokens: list) -> None:
         var.set("")
 
 
+def get_explicit_session_env(name: str) -> str | None:
+    """Return a context-local session value, or ``None`` if unset.
+
+    Unlike ``get_session_env()``, this never falls back to ``os.environ``.
+    Use it when process-global compatibility flags must not override a
+    live task-local gateway or cron context.
+    """
+    var = _VAR_MAP.get(name)
+    if var is None:
+        return None
+    value = var.get()
+    if value is _UNSET:
+        return None
+    return value
+
+
 def get_session_env(name: str, default: str = "") -> str:
     """Read a session context variable by its legacy ``HERMES_SESSION_*`` name.
 
@@ -150,6 +165,8 @@ def get_session_env(name: str, default: str = "") -> str:
        don't use ``set_session_vars`` at all).
     3. *default*
     """
+    import os
+
     var = _VAR_MAP.get(name)
     if var is not None:
         value = var.get()
@@ -159,17 +176,26 @@ def get_session_env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
 
-def get_terminal_cwd(default: str = "") -> str:
-    """Return the session-scoped terminal working directory.
+def set_terminal_cwd(cwd: str):
+    """Set the session-scoped terminal cwd and return a reset token."""
+    return _TERMINAL_CWD.set(cwd)
 
-    Resolution order:
-    1. ``_TERMINAL_CWD`` context variable (set per-session in gateway/cron
-       mode for concurrency-safe access).
-    2. ``TERMINAL_CWD`` environment variable (CLI and test compatibility).
-    3. *default* (typically ``""`` or ``os.getcwd()`` at the call site).
+
+def reset_terminal_cwd(token) -> None:
+    """Restore the previous session-scoped terminal cwd value."""
+    _TERMINAL_CWD.reset(token)
+
+
+def get_terminal_cwd(default: str | None = None) -> str | None:
+    """Return the session-scoped terminal cwd, falling back to ``os.environ``.
+
+    ``TERMINAL_CWD`` is historically configured through the process
+    environment. Runtime per-session overrides must use this ContextVar-backed
+    helper so concurrent gateway/cron sessions cannot clobber each other.
     """
+    import os
+
     value = _TERMINAL_CWD.get()
     if value is not _UNSET:
         return value
     return os.getenv("TERMINAL_CWD", default)
-
