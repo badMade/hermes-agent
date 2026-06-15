@@ -286,12 +286,7 @@ class HermesAgentLoop:
                             len(parsed_calls),
                         )
                 except Exception:
-                    logger.exception(
-                        "[%s] turn %d: Fallback parser failed",
-                        self.task_id[:8],
-                        turn + 1,
-                    )
-                    # Fall through to no tool calls
+                    pass  # Fall through to no tool calls
 
             if assistant_msg.tool_calls:
                 # Normalize tool calls to dicts — they may come as objects
