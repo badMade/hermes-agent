@@ -210,19 +210,15 @@ def _is_backend_available(backend: str) -> bool:
     return False
 
 
-def _ddgs_package_importable() -> bool:
-    """Return True when the ``ddgs`` Python package can be imported.
+def _ddgs_package_available() -> bool:
+    """Return True when explicit ddgs configuration can use the installed package.
 
-    ddgs is the only backend whose availability is driven by a package
-    presence rather than an env var / config entry.  Wrapped in a helper
-    so auto-detect and ``_is_backend_available`` share the same check
-    (and tests can monkeypatch a single symbol).
+    This delegates to the provider's metadata-based check and deliberately does
+    not import ``ddgs`` so local files cannot execute during tool discovery.
     """
-    try:
-        import ddgs  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    from tools.web_providers.ddgs import ddgs_package_available
+
+    return ddgs_package_available()
 
 
 def _ddgs_package_available() -> bool:
@@ -1345,9 +1341,11 @@ async def web_extract_tool(
         Exception: If extraction fails or API key is not set
     """
     # Block URLs containing embedded secrets (exfiltration prevention).
-    from agent.redact import url_contains_secret
+    # URL-decode first so percent-encoded secrets (%73k- = sk-) are caught.
+    from agent.redact import _PREFIX_RE
+    from urllib.parse import unquote
     for _url in urls:
-        if url_contains_secret(_url):
+        if _PREFIX_RE.search(_url) or _PREFIX_RE.search(unquote(_url)):
             return json.dumps({
                 "success": False,
                 "error": "Blocked: URL contains what appears to be an API key or token. "
@@ -2094,7 +2092,7 @@ def check_web_api_key() -> bool:
         return _is_backend_available(configured)
     return any(
         _is_backend_available(backend)
-        for backend in ("exa", "parallel", "firecrawl", "tavily", "searxng", "brave-free", "ddgs")
+        for backend in ("exa", "parallel", "firecrawl", "tavily", "searxng", "brave-free")
     )
 
 
