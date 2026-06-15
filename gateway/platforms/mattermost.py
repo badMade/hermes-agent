@@ -435,9 +435,10 @@ class MattermostAdapter(BasePlatformAdapter):
                 asyncio.TimeoutError,
                 PublicUrlDownloadHTTPError,
             ) as exc:
-                should_retry = not isinstance(exc, PublicUrlDownloadHTTPError) or (
-                    exc.status == 429 or exc.status >= 500
-                )
+                if isinstance(exc, PublicUrlDownloadHTTPError):
+                    should_retry = exc.status == 429 or exc.status >= 500
+                else:
+                    should_retry = True
                 if should_retry and attempt < 2:
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
