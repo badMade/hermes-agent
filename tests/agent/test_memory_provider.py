@@ -85,6 +85,27 @@ class MetadataMemoryProvider(FakeMemoryProvider):
         self.memory_writes.append((action, target, content, metadata or {}))
 
 
+class MinimalMemoryProvider(MemoryProvider):
+    """Provider implementing only the abstract surface.
+
+    Leaves every optional hook (including ``on_session_end``) at the base
+    ``MemoryProvider`` default so those defaults can be exercised directly.
+    """
+
+    @property
+    def name(self) -> str:
+        return "minimal"
+
+    def is_available(self) -> bool:
+        return True
+
+    def initialize(self, session_id, **kwargs):
+        pass
+
+    def get_tool_schemas(self):
+        return []
+
+
 # ---------------------------------------------------------------------------
 # MemoryProvider ABC tests
 # ---------------------------------------------------------------------------
