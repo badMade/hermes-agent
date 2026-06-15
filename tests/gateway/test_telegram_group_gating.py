@@ -86,13 +86,9 @@ def _dm_message(text="hello", *, from_user_id=111):
     )
 
 
-def _utf16_code_units(text):
-    return len(text.encode("utf-16-le")) // 2
-
-
 def _mention_entity(text, mention="@hermes_bot"):
-    offset = _utf16_code_units(text[: text.index(mention)])
-    return SimpleNamespace(type="mention", offset=offset, length=_utf16_code_units(mention))
+    offset = text.index(mention)
+    return SimpleNamespace(type="mention", offset=offset, length=len(mention))
 
 
 def _bot_command_entity(text, command):
@@ -102,8 +98,8 @@ def _bot_command_entity(text, command):
     client does NOT emit a separate ``mention`` entity — the whole span
     is a single ``bot_command`` entity.
     """
-    offset = _utf16_code_units(text[: text.index(command)])
-    return SimpleNamespace(type="bot_command", offset=offset, length=_utf16_code_units(command))
+    offset = text.index(command)
+    return SimpleNamespace(type="bot_command", offset=offset, length=len(command))
 
 
 def test_group_messages_can_be_opened_via_config():
@@ -183,8 +179,6 @@ def test_mention_entities_use_telegram_utf16_offsets():
     assert adapter._message_mentions_bot(
         _group_message(text, entities=[_mention_entity(text)])
     ) is True
-
-
 def test_free_response_chats_bypass_mention_requirement():
     adapter = _make_adapter(require_mention=True, free_response_chats=["-200"])
 
