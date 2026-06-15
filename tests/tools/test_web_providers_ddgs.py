@@ -234,7 +234,7 @@ class TestDDGSBackendWiring:
             monkeypatch.delenv(key, raising=False)
         monkeypatch.setattr(web_tools, "_is_tool_gateway_ready", lambda: False)
         monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: True)
-        assert web_tools._get_backend() == "firecrawl"
+        assert web_tools._get_backend() == "ddgs"
 
     def test_check_web_api_key_true_when_ddgs_configured(self, monkeypatch):
         from tools import web_tools

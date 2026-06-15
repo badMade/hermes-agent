@@ -1583,8 +1583,8 @@ class AIAgent:
                         self._bedrock_guardrail_config["streamProcessingMode"] = _gr["stream_processing_mode"]
                     if _gr.get("trace"):
                         self._bedrock_guardrail_config["trace"] = _gr["trace"]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to load AWS Bedrock guardrail configuration: %s", e, exc_info=True)
             self.client = None
             self._client_kwargs = {}
             if not self.quiet_mode:
@@ -5336,6 +5336,11 @@ class AIAgent:
             self._pending_steer = None
         return text
 
+    @staticmethod
+    def _format_steer_marker(steer_text: str) -> str:
+        """Format a /steer payload with explicit in-band provenance."""
+        return f"\n\nUser guidance: {steer_text}"
+
     def _apply_pending_steer_to_tool_results(self, messages: list, num_tool_msgs: int) -> None:
         """Append any pending /steer text to the last tool result in this turn.
 
@@ -5379,7 +5384,7 @@ class AIAgent:
                 existing = getattr(self, "_pending_steer", None)
                 self._pending_steer = (existing + "\n" + steer_text) if existing else steer_text
             return
-        marker = f"\n\nUser guidance: {steer_text}"
+        marker = self._format_steer_marker(steer_text)
         existing_content = messages[target_idx].get("content", "")
         if not isinstance(existing_content, str):
             # Anthropic multimodal content blocks — preserve them and append
@@ -12130,7 +12135,7 @@ class AIAgent:
                 for _si in range(len(messages) - 1, -1, -1):
                     _sm = messages[_si]
                     if isinstance(_sm, dict) and _sm.get("role") == "tool":
-                        marker = f"\n\nUser guidance: {_pre_api_steer}"
+                        marker = self._format_steer_marker(_pre_api_steer)
                         existing = _sm.get("content", "")
                         if isinstance(existing, str):
                             _sm["content"] = existing + marker
@@ -14328,12 +14333,26 @@ class AIAgent:
                 continue
 
             if restart_with_length_continuation:
-                # Progressively boost the output token budget on each retry.
-                # Retry 1 → 2× base, retry 2 → 3× base, capped at 32 768.
-                # Applies to all providers via _ephemeral_max_output_tokens.
-                _boost_base = self.max_tokens if self.max_tokens else 4096
-                _boost = _boost_base * (length_continue_retries + 1)
-                self._ephemeral_max_output_tokens = min(_boost, 32768)
+                # Respect explicit operator caps: when max_tokens is configured,
+                # never boost above that value during length continuation.
+                if self.max_tokens is not None:
+                    self._ephemeral_max_output_tokens = self.max_tokens
+                else:
+                    # Progressively boost the output token budget on each retry.
+                    # Retry 1 → 2× base, retry 2 → 3× base.
+                    #
+                    # Base should mirror provider defaults so continuations don't
+                    # accidentally lower the default output budget on the retry.
+                    if "integrate.api.nvidia.com" in self._base_url_lower:
+                        _boost_base = 16384
+                    elif self._is_qwen_portal():
+                        _boost_base = 65536
+                    else:
+                        _boost_base = 4096
+                    _boost = _boost_base * (length_continue_retries + 1)
+                    # Keep legacy 32k ceiling, but never below provider default.
+                    _boost_cap = max(32768, _boost_base)
+                    self._ephemeral_max_output_tokens = min(_boost, _boost_cap)
                 continue
 
             # Guard: if all retries exhausted without a successful response
