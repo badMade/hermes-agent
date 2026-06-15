@@ -242,11 +242,11 @@ def managed_error(action: str = "modify configuration"):
 # =============================================================================
 
 _CONTAINER_MODE_SYSTEM_FILE = Path("/etc/hermes-agent/container-mode")
-_ALLOWED_CONTAINER_BACKENDS = {"docker", "podman"}
+_CONTAINER_MODE_ALLOWED_BACKENDS = frozenset({"docker", "podman"})
 
 
-def _container_mode_candidates() -> list[tuple[Path, bool]]:
-    """Return container metadata candidates and whether runtime_path is trusted."""
+def _container_mode_candidates() -> List[Tuple[Path, bool]]:
+    """Return (metadata path, trusts runtime_path) in preferred order."""
     override = os.environ.get("HERMES_CONTAINER_MODE_FILE")
     if override:
         return [(Path(override), True)]
@@ -256,16 +256,45 @@ def _container_mode_candidates() -> list[tuple[Path, bool]]:
     ]
 
 
-def _read_container_mode_file(container_mode_file: Path) -> dict:
-    """Parse a container mode metadata file as simple key=value pairs."""
-    info = {}
-    with open(container_mode_file, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if "=" in line and not line.startswith("#"):
-                key, _, value = line.partition("=")
-                info[key.strip()] = value.strip()
-    return info
+def _read_container_mode_file(
+    container_mode_file: Path,
+    *,
+    allow_runtime_path: bool,
+) -> Optional[dict]:
+    """Parse and validate one container-mode metadata file."""
+    try:
+        info = {}
+        with open(container_mode_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if "=" in line and not line.startswith("#"):
+                    key, _, value = line.partition("=")
+                    info[key.strip()] = value.strip()
+    except FileNotFoundError:
+        return None
+    # All other exceptions (PermissionError, malformed data, etc.) propagate
+
+    backend = info.get("backend", "docker")
+    if backend not in _CONTAINER_MODE_ALLOWED_BACKENDS:
+        if allow_runtime_path:
+            raise ValueError(
+                f"Invalid container backend {backend!r}; expected 'docker' or 'podman'."
+            )
+        backend = "docker"
+
+    container_info = {
+        "backend": backend,
+        "container_name": info.get("container_name", "hermes-agent"),
+        "exec_user": info.get("exec_user", "hermes"),
+        "hermes_bin": info.get("hermes_bin", "/data/current-package/bin/hermes"),
+    }
+    runtime_path = info.get("runtime_path") if allow_runtime_path else None
+    if runtime_path:
+        runtime = Path(runtime_path)
+        if not runtime.is_absolute():
+            raise ValueError("container runtime_path must be absolute")
+        container_info["runtime_path"] = runtime_path
+    return container_info
 
 
 def get_container_exec_info() -> Optional[dict]:
@@ -289,29 +318,13 @@ def get_container_exec_info() -> Optional[dict]:
         return None
 
     for container_mode_file, allow_runtime_path in _container_mode_candidates():
-        try:
-            info = _read_container_mode_file(container_mode_file)
-            break
-        except FileNotFoundError:
-            continue
-    else:
-        return None
-    # All other exceptions (PermissionError, malformed data, etc.) propagate
-
-    backend = info.get("backend", "docker")
-    if backend not in _ALLOWED_CONTAINER_BACKENDS:
-        backend = "docker"
-
-    result = {
-        "backend": backend,
-        "container_name": info.get("container_name", "hermes-agent"),
-        "exec_user": info.get("exec_user", "hermes"),
-        "hermes_bin": info.get("hermes_bin", "/data/current-package/bin/hermes"),
-    }
-    runtime_path = info.get("runtime_path")
-    if allow_runtime_path and runtime_path:
-        result["runtime_path"] = runtime_path
-    return result
+        info = _read_container_mode_file(
+            container_mode_file,
+            allow_runtime_path=allow_runtime_path,
+        )
+        if info is not None:
+            return info
+    return None
 
 
 # =============================================================================
@@ -385,16 +398,17 @@ def _is_container() -> bool:
     return False
 
 
-def _secure_file(path):
+def _secure_file(path, *, allow_container_skip: bool = True):
     """Set file to owner-only read/write (0600). No-op on Windows.
 
     Skipped in managed mode — the NixOS activation script sets
     group-readable permissions (0640) on config files.
 
-    Skipped in containers — Docker/Podman volume mounts often need broader
-    permissions.  Set HERMES_SKIP_CHMOD=1 to force-skip on other systems.
+    Container chmod skipping is allowed for non-secret config files only.
+    Credential files such as ``.env`` must pass ``allow_container_skip=False``
+    so existing permissive volume modes are not preserved for secrets.
     """
-    if is_managed() or _is_container():
+    if is_managed() or (allow_container_skip and _is_container()):
         return
     try:
         if os.path.exists(str(path)):
@@ -465,6 +479,11 @@ def _ensure_hermes_home_managed(home: Path):
 DEFAULT_CONFIG = {
     "model": "",
     "providers": {},
+    "acp": {
+        # ACP clients can provide MCP server definitions per session. Stdio
+        # transports execute local commands, so only operator config can opt in.
+        "allow_client_stdio_mcp_servers": False,
+    },
     "fallback_providers": [],
     "credential_pool_strategies": {},
     "toolsets": ["hermes-cli"],
@@ -620,9 +639,9 @@ DEFAULT_CONFIG = {
         "docker_run_as_host_user": False,
         # Persistent shell — keep a long-lived bash shell across execute() calls
         # so cwd/env vars/shell variables survive between commands.
-        # Disabled by default because approval checks are per command and cannot
-        # model shell state staged in earlier calls. Opt in explicitly when needed.
-        "persistent_shell": False,
+        # Enabled by default for non-local backends (SSH); local is always opt-in
+        # via TERMINAL_LOCAL_PERSISTENT env var.
+        "persistent_shell": True,
     },
 
     "web": {
@@ -1393,6 +1412,10 @@ DEFAULT_CONFIG = {
         # same task/profile (spawn_failed, timed_out, or crashed). Reassignment
         # resets the streak for the new profile.
         "failure_limit": 2,
+        # Cross-profile dispatch policy for profile-global kanban tools.
+        # Example: {"techlead": ["researcher", "coder"]}. Dispatcher-spawned
+        # workers keep their existing task-scoped fan-out behavior.
+        "allowed_assignees": {},
     },
 
     # execute_code settings — controls the tool used for programmatic tool calls.
@@ -2091,6 +2114,16 @@ OPTIONAL_ENV_VARS = {
         "password": True,
         "category": "tool",
     },
+    "VOICE_TOOLS_OPENAI_CUSTOM_KEY": {
+        "description": (
+            "Endpoint-specific API key for custom OpenAI-compatible TTS base_url values"
+        ),
+        "prompt": "Custom OpenAI-compatible TTS API key",
+        "url": "",
+        "tools": ["openai_tts"],
+        "password": True,
+        "category": "tool",
+    },
     "ELEVENLABS_API_KEY": {
         "description": "ElevenLabs API key for premium text-to-speech voices",
         "prompt": "ElevenLabs API key",
@@ -2374,14 +2407,6 @@ OPTIONAL_ENV_VARS = {
         "url": None,
         "password": True,
         "category": "messaging",
-    },
-    "BLUEBUBBLES_WEBHOOK_TOKEN": {
-        "description": "Optional dedicated token for authenticating BlueBubbles webhooks",
-        "prompt": "BlueBubbles webhook token",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-        "advanced": True,
     },
     "BLUEBUBBLES_ALLOWED_USERS": {
         "description": "Comma-separated iMessage addresses (email or phone) allowed to use the bot",
@@ -4408,8 +4433,15 @@ def sanitize_env_file() -> int:
     return fixes
 
 
+def _should_sanitize_non_ascii_credential(key: str) -> bool:
+    """Return True for outbound credentials that are safe to ASCII-strip."""
+    from hermes_cli.env_loader import should_sanitize_non_ascii_credential
+
+    return should_sanitize_non_ascii_credential(key)
+
+
 def _check_non_ascii_credential(key: str, value: str) -> str:
-    """Warn and strip non-ASCII characters from credential values.
+    """Warn and strip non-ASCII characters from outbound credential values.
 
     API keys and tokens must be pure ASCII — they are sent as HTTP header
     values which httpx/httpcore encode as ASCII.  Non-ASCII characters
@@ -4456,8 +4488,10 @@ def save_env_value(key: str, value: str):
     if not _ENV_VAR_NAME_RE.match(key):
         raise ValueError(f"Invalid environment variable name: {key!r}")
     value = value.replace("\n", "").replace("\r", "")
-    # API keys / tokens must be ASCII — strip non-ASCII with a warning.
-    value = _check_non_ascii_credential(key, value)
+    # Outbound API keys / tokens must be ASCII for HTTP headers.  Do not
+    # lossy-normalize inbound auth secrets (for example WEBHOOK_SECRET).
+    if _should_sanitize_non_ascii_credential(key):
+        value = _check_non_ascii_credential(key, value)
     ensure_hermes_home()
     env_path = get_env_path()
 
@@ -4513,7 +4547,7 @@ def save_env_value(key: str, value: str):
         except OSError:
             pass
         raise
-    _secure_file(env_path)
+    _secure_file(env_path, allow_container_skip=False)
 
     os.environ[key] = value
 
@@ -4568,7 +4602,7 @@ def remove_env_value(key: str) -> bool:
             except OSError:
                 pass
             raise
-        _secure_file(env_path)
+        _secure_file(env_path, allow_container_skip=False)
 
     os.environ.pop(key, None)
     return found
@@ -4844,21 +4878,12 @@ def edit_config():
         import shutil
         import sys as _sys
         if _sys.platform == "win32":
-            import ntpath
-
-            from hermes_cli.stdio import _trusted_system_notepad_path
-
-            candidates = [_trusted_system_notepad_path(), 'code', 'vim', 'vi', 'nano']
-            is_abs_editor = ntpath.isabs
+            candidates = ['notepad', 'code', 'vim', 'vi', 'nano']
         else:
             candidates = ['nano', 'vim', 'vi', 'code', 'notepad']
-            is_abs_editor = os.path.isabs
         for cmd in candidates:
-            if not cmd:
-                continue
-            resolved = cmd if is_abs_editor(cmd) else shutil.which(cmd)
-            if resolved:
-                editor = resolved
+            if shutil.which(cmd):
+                editor = cmd
                 break
     
     if not editor:
@@ -4886,7 +4911,7 @@ def set_config_value(key: str, value: str):
         'TERMINAL_SSH_HOST', 'TERMINAL_SSH_USER', 'TERMINAL_SSH_KEY',
         'SUDO_PASSWORD', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN',
         'GITHUB_TOKEN', 'HONCHO_API_KEY', 'WANDB_API_KEY',
-        'TINKER_API_KEY',
+        'TINKER_API_KEY', 'API_SERVER_KEY', 'GATEWAY_PROXY_KEY', 'WEBHOOK_SECRET',
     ]
     
     if key.upper() in api_keys or key.upper().endswith(('_API_KEY', '_TOKEN')) or key.upper().startswith('TERMINAL_SSH'):
