@@ -132,7 +132,7 @@ class TestOrphanedPipeReconciliation:
             ["sh", "-c", "exec 1>&2; ( sleep 30 ) & disown; exit 0"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            preexec_fn=os.setsid,  # windows-footgun: ok — POSIX-only test (setsid creates session for orphan simulation)
+            preexec_fn=os.setsid,
         )
 
         s = _make_session(sid="proc_orphan_test")
@@ -162,7 +162,7 @@ class TestOrphanedPipeReconciliation:
 
         # Clean up the orphaned descendant.
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # windows-footgun: ok — POSIX-only cleanup
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
 
@@ -206,7 +206,7 @@ class TestOrphanedPipeReconciliation:
             ["sh", "-c", "( sleep 30 ) & disown; exit 0"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            preexec_fn=os.setsid,  # windows-footgun: ok — POSIX-only test (setsid creates session for orphan simulation)
+            preexec_fn=os.setsid,
         )
 
         s = _make_session(sid="proc_wait_orphan")
@@ -226,7 +226,7 @@ class TestOrphanedPipeReconciliation:
         )
 
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # windows-footgun: ok — POSIX-only cleanup
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
 
@@ -579,8 +579,8 @@ class TestPopenLeakOnSetupFailure:
     """Regression for issue #2749: subprocess orphaned when post-Popen setup raises."""
 
     def test_popen_killed_when_thread_creation_fails(self, registry):
-        """If Thread() raises after Popen, proc must be torn down — not orphaned."""
-        terminated = []
+        """If Thread() raises after Popen, proc must be killed — not orphaned."""
+        killed = []
 
         proc = MagicMock()
         proc.pid = 9999
@@ -588,8 +588,11 @@ class TestPopenLeakOnSetupFailure:
         proc.stdin = MagicMock()
         proc.poll.return_value = None
 
+        def fake_kill():
+            killed.append(True)
+
+        proc.kill = fake_kill
         proc.wait = MagicMock()
-        registry._terminate_host_pid = lambda pid: terminated.append(pid)
 
         def boom(*args, **kwargs):
             raise RuntimeError("Thread creation failed")
@@ -601,13 +604,11 @@ class TestPopenLeakOnSetupFailure:
             with pytest.raises(RuntimeError, match="Thread creation failed"):
                 registry.spawn_local("echo hello", cwd="/tmp")
 
-        assert terminated == [9999], (
-            "_terminate_host_pid() must be called when post-Popen setup raises"
-        )
+        assert killed, "proc.kill() must be called when post-Popen setup raises"
 
     def test_popen_killed_when_write_checkpoint_fails(self, registry):
-        """If _write_checkpoint raises after Popen, proc must still be torn down."""
-        terminated = []
+        """If _write_checkpoint raises after Popen, proc must still be killed."""
+        killed = []
 
         proc = MagicMock()
         proc.pid = 8888
@@ -615,8 +616,11 @@ class TestPopenLeakOnSetupFailure:
         proc.stdin = MagicMock()
         proc.poll.return_value = None
 
+        def fake_kill():
+            killed.append(True)
+
+        proc.kill = fake_kill
         proc.wait = MagicMock()
-        registry._terminate_host_pid = lambda pid: terminated.append(pid)
 
         fake_thread = MagicMock()
 
@@ -627,9 +631,7 @@ class TestPopenLeakOnSetupFailure:
             with pytest.raises(OSError, match="disk full"):
                 registry.spawn_local("echo hello", cwd="/tmp")
 
-        assert terminated == [8888], (
-            "_terminate_host_pid() must be called when _write_checkpoint raises"
-        )
+        assert killed, "proc.kill() must be called when _write_checkpoint raises"
 
     def test_popen_not_killed_on_success(self, registry):
         """Successful spawn must NOT kill the process."""
