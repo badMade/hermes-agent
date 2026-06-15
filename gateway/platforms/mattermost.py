@@ -434,18 +434,8 @@ class MattermostAdapter(BasePlatformAdapter):
                 aiohttp.ServerTimeoutError,
                 PublicUrlDownloadHTTPError,
             ) as exc:
-                should_retry = (
-                    isinstance(
-                        exc,
-                        (
-                            aiohttp.ClientConnectionError,
-                            aiohttp.ServerTimeoutError,
-                        ),
-                    )
-                    or (
-                        isinstance(exc, PublicUrlDownloadHTTPError)
-                        and (exc.status == 429 or exc.status >= 500)
-                    )
+                should_retry = not isinstance(exc, PublicUrlDownloadHTTPError) or (
+                    exc.status == 429 or exc.status >= 500
                 )
                 if should_retry and attempt < 2:
                     await asyncio.sleep(1.5 * (attempt + 1))
