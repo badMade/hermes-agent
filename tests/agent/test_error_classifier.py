@@ -14,8 +14,10 @@ from agent.error_classifier import (
 
 # ── Helper: mock API errors ────────────────────────────────────────────
 
+
 class MockAPIError(Exception):
     """Simulates an OpenAI SDK APIStatusError."""
+
     def __init__(self, message, status_code=None, body=None):
         super().__init__(message)
         self.status_code = status_code
@@ -24,6 +26,7 @@ class MockAPIError(Exception):
 
 class MockTransportError(Exception):
     """Simulates a transport-level error with a specific type name."""
+
     pass
 
 
@@ -45,6 +48,7 @@ class ServerDisconnectedError(MockTransportError):
 
 # ── Test: FailoverReason enum ──────────────────────────────────────────
 
+
 class TestFailoverReason:
     def test_all_reasons_have_string_values(self):
         for reason in FailoverReason:
@@ -52,12 +56,21 @@ class TestFailoverReason:
 
     def test_enum_members_exist(self):
         expected = {
-            "auth", "auth_permanent", "billing", "rate_limit",
-            "overloaded", "server_error", "timeout",
-            "context_overflow", "payload_too_large", "image_too_large",
-            "model_not_found", "format_error",
+            "auth",
+            "auth_permanent",
+            "billing",
+            "rate_limit",
+            "overloaded",
+            "server_error",
+            "timeout",
+            "context_overflow",
+            "payload_too_large",
+            "image_too_large",
+            "model_not_found",
+            "format_error",
             "provider_policy_blocked",
-            "thinking_signature", "long_context_tier",
+            "thinking_signature",
+            "long_context_tier",
             "oauth_long_context_beta_forbidden",
             "llama_cpp_grammar_pattern",
             "unknown",
@@ -68,10 +81,10 @@ class TestFailoverReason:
 
 # ── Test: ClassifiedError ──────────────────────────────────────────────
 
+
 class TestClassifiedError:
     def test_is_auth_property(self):
         for reason in FailoverReason:
-
             e = ClassifiedError(reason=reason)
             if reason in {FailoverReason.auth, FailoverReason.auth_permanent}:
                 assert e.is_auth is True, f"Expected is_auth=True for {reason}"
@@ -90,6 +103,7 @@ class TestClassifiedError:
 
 # ── Test: Status code extraction ───────────────────────────────────────
 
+
 class TestExtractStatusCode:
     def test_from_status_code_attr(self):
         e = MockAPIError("fail", status_code=429)
@@ -98,6 +112,7 @@ class TestExtractStatusCode:
     def test_from_status_attr(self):
         class ErrWithStatus(Exception):
             status = 503
+
         assert _extract_status_code(ErrWithStatus()) == 503
 
     def test_from_cause_chain(self):
@@ -111,12 +126,15 @@ class TestExtractStatusCode:
 
     def test_rejects_non_http_status(self):
         """Integers outside 100-599 on .status should be ignored."""
+
         class ErrWeirdStatus(Exception):
             status = 42
+
         assert _extract_status_code(ErrWeirdStatus()) is None
 
 
 # ── Test: Error body extraction ────────────────────────────────────────
+
 
 class TestExtractErrorBody:
     def test_from_body_attr(self):
@@ -128,6 +146,7 @@ class TestExtractErrorBody:
 
 
 # ── Test: Error code extraction ────────────────────────────────────────
+
 
 class TestExtractErrorCode:
     def test_from_nested_error_code(self):
@@ -148,6 +167,7 @@ class TestExtractErrorCode:
 
 
 # ── Test: 402 disambiguation ───────────────────────────────────────────
+
 
 class TestClassify402:
     """The critical 402 billing vs rate_limit disambiguation."""
@@ -195,6 +215,7 @@ class TestClassify402:
 
 
 # ── Test: Full classification pipeline ─────────────────────────────────
+
 
 class TestClassifyApiError:
     """End-to-end classification tests."""
@@ -381,12 +402,17 @@ class TestClassifyApiError:
         assert result.should_compress is True
 
     def test_400_too_many_tokens(self):
-        e = MockAPIError("This model's maximum context is 128000 tokens, too many tokens", status_code=400)
+        e = MockAPIError(
+            "This model's maximum context is 128000 tokens, too many tokens",
+            status_code=400,
+        )
         result = classify_api_error(e)
         assert result.reason == FailoverReason.context_overflow
 
     def test_400_prompt_too_long(self):
-        e = MockAPIError("prompt is too long: 300000 tokens > 200000 maximum", status_code=400)
+        e = MockAPIError(
+            "prompt is too long: 300000 tokens > 200000 maximum", status_code=400
+        )
         result = classify_api_error(e)
         assert result.reason == FailoverReason.context_overflow
 
@@ -410,7 +436,9 @@ class TestClassifyApiError:
         result = classify_api_error(e, approx_tokens=1000, context_length=200000)
         assert result.reason == FailoverReason.format_error
 
-    def test_400_generic_many_messages_below_large_context_pressure_is_format_error(self):
+    def test_400_generic_many_messages_below_large_context_pressure_is_format_error(
+        self,
+    ):
         """Large-context sessions should not overflow solely due to message count."""
         e = MockAPIError(
             "Error",
@@ -613,7 +641,9 @@ class TestClassifyApiError:
     def test_error_code_resource_exhausted(self):
         e = MockAPIError(
             "Resource exhausted",
-            body={"error": {"code": "resource_exhausted", "message": "Too many requests"}},
+            body={
+                "error": {"code": "resource_exhausted", "message": "Too many requests"}
+            },
         )
         result = classify_api_error(e)
         assert result.reason == FailoverReason.rate_limit
@@ -709,7 +739,11 @@ class TestClassifyApiError:
         e = MockAPIError(
             "Invalid value for parameter 'temperature': must be between 0 and 2",
             status_code=400,
-            body={"error": {"message": "Invalid value for parameter 'temperature': must be between 0 and 2"}},
+            body={
+                "error": {
+                    "message": "Invalid value for parameter 'temperature': must be between 0 and 2"
+                }
+            },
         )
         result = classify_api_error(e, approx_tokens=1000)
         assert result.reason == FailoverReason.format_error
@@ -732,10 +766,14 @@ class TestClassifyApiError:
         e = MockAPIError(
             "Invalid 'input[index].name': string does not match pattern.",
             status_code=400,
-            body={"message": "Invalid 'input[index].name': string does not match pattern.",
-                  "type": "invalid_request_error"},
+            body={
+                "message": "Invalid 'input[index].name': string does not match pattern.",
+                "type": "invalid_request_error",
+            },
         )
-        result = classify_api_error(e, approx_tokens=200000, context_length=400000, num_messages=500)
+        result = classify_api_error(
+            e, approx_tokens=200000, context_length=400000, num_messages=500
+        )
         assert result.reason == FailoverReason.format_error
         assert result.retryable is False
 
@@ -830,6 +868,7 @@ class TestClassifyApiError:
 
 # ── Test: Adversarial / edge cases (from live testing) ─────────────────
 
+
 class TestAdversarialEdgeCases:
     """Edge cases discovered during live testing with real SDK objects."""
 
@@ -845,9 +884,11 @@ class TestAdversarialEdgeCases:
 
     def test_non_dict_body(self):
         """Some providers return strings instead of JSON."""
+
         class StringBodyError(Exception):
             status_code = 400
             body = "just a string"
+
         result = classify_api_error(StringBodyError("bad"))
         assert result.reason == FailoverReason.format_error
 
@@ -855,6 +896,7 @@ class TestAdversarialEdgeCases:
         class ListBodyError(Exception):
             status_code = 500
             body = [{"error": "something"}]
+
         result = classify_api_error(ListBodyError("server error"))
         assert result.reason == FailoverReason.server_error
 
@@ -897,9 +939,11 @@ class TestAdversarialEdgeCases:
 
     def test_200_with_error_body(self):
         """200 status with error in body — should be unknown, not crash."""
+
         class WeirdSuccess(Exception):
             status_code = 200
             body = {"error": {"message": "loading"}}
+
         result = classify_api_error(WeirdSuccess("model loading"))
         assert result.reason == FailoverReason.unknown
 
@@ -931,8 +975,10 @@ class TestAdversarialEdgeCases:
 
     def test_disconnect_pattern_ordering(self):
         """Disconnect + large session must beat generic transport catch."""
+
         class FakeRemoteProtocol(Exception):
             pass
+
         # Type name isn't in _TRANSPORT_ERROR_TYPES but message has disconnect pattern
         e = Exception("peer closed connection without sending complete message")
         result = classify_api_error(e, approx_tokens=150000, context_length=200000)
@@ -966,7 +1012,7 @@ class TestAdversarialEdgeCases:
                     "code": 400,
                     "metadata": {
                         "raw": '{"error":{"message":"context length exceeded: 50000 > 32768"}}'
-                    }
+                    },
                 }
             },
         )
@@ -983,7 +1029,7 @@ class TestAdversarialEdgeCases:
                     "message": "Provider returned error",
                     "metadata": {
                         "raw": '{"error":{"message":"Rate limit exceeded. Please retry after 30s."}}'
-                    }
+                    },
                 }
             },
         )
@@ -997,7 +1043,9 @@ class TestAdversarialEdgeCases:
             status_code=400,
         )
         # provider is openrouter, not anthropic — old code missed this
-        result = classify_api_error(e, provider="openrouter", model="anthropic/claude-sonnet-4")
+        result = classify_api_error(
+            e, provider="openrouter", model="anthropic/claude-sonnet-4"
+        )
         assert result.reason == FailoverReason.thinking_signature
 
     def test_generic_400_large_by_message_count(self):
@@ -1009,7 +1057,10 @@ class TestAdversarialEdgeCases:
         )
         # Low token count but high message count
         result = classify_api_error(
-            e, approx_tokens=5000, context_length=200000, num_messages=100,
+            e,
+            approx_tokens=5000,
+            context_length=200000,
+            num_messages=100,
         )
         assert result.reason == FailoverReason.context_overflow
 
@@ -1017,7 +1068,10 @@ class TestAdversarialEdgeCases:
         """Server disconnect with 200+ messages should trigger context overflow."""
         e = Exception("server disconnected without sending complete message")
         result = classify_api_error(
-            e, approx_tokens=5000, context_length=200000, num_messages=250,
+            e,
+            approx_tokens=5000,
+            context_length=200000,
+            num_messages=250,
         )
         assert result.reason == FailoverReason.context_overflow
 
@@ -1030,7 +1084,7 @@ class TestAdversarialEdgeCases:
                     "message": "Provider returned error",
                     "metadata": {
                         "raw": '{"error":{"message":"The model gpt-99 does not exist"}}'
-                    }
+                    },
                 }
             },
         )
@@ -1079,9 +1133,7 @@ class TestAdversarialEdgeCases:
             body={
                 "error": {
                     "message": {
-                        "detail": [
-                            {"type": "missing", "loc": ["body", "required"]}
-                        ]
+                        "detail": [{"type": "missing", "loc": ["body", "required"]}]
                     }
                 }
             },
@@ -1100,7 +1152,7 @@ class TestAdversarialEdgeCases:
                     "message": "Provider error",
                     "metadata": {
                         "raw": '{"error":{"message":{"detail":[{"type":"invalid"}]}}}'
-                    }
+                    },
                 }
             },
         )
@@ -1133,6 +1185,7 @@ class TestAdversarialEdgeCases:
 
 
 # ── Test: SSL/TLS transient errors ─────────────────────────────────────
+
 
 class TestSSLTransientPatterns:
     """SSL/TLS alerts mid-stream should retry as timeout, not unknown, and
@@ -1177,7 +1230,9 @@ class TestSSLTransientPatterns:
 
     def test_ssl_prefix_classifies_as_timeout(self):
         """Python's generic '[SSL: XYZ]' prefix from the ssl module."""
-        e = Exception("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol")
+        e = Exception(
+            "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol"
+        )
         result = classify_api_error(e)
         assert result.reason == FailoverReason.timeout
         assert result.retryable is True
@@ -1191,7 +1246,7 @@ class TestSSLTransientPatterns:
         e = Exception("[SSL: BAD_RECORD_MAC] sslv3 alert bad record mac")
         result = classify_api_error(
             e,
-            approx_tokens=180000,      # 90% of a 200k-context window
+            approx_tokens=180000,  # 90% of a 200k-context window
             context_length=200000,
             num_messages=300,
         )
@@ -1217,12 +1272,15 @@ class TestSSLTransientPatterns:
         """Real ssl.SSLError instance — the type name alone (not message)
         should route to the transport bucket."""
         import ssl
+
         e = ssl.SSLError("arbitrary ssl error")
         result = classify_api_error(e)
         assert result.reason == FailoverReason.timeout
         assert result.retryable is True
 
+
 # ── Test: RateLimitError without status_code (Copilot/GitHub Models) ──────────
+
 
 class TestRateLimitErrorWithoutStatusCode:
     """Regression tests for the Copilot/GitHub Models edge case where the
