@@ -83,6 +83,7 @@ _VAR_MAP = {
 
 
 def set_session_vars(
+    *,
     platform: str = "",
     chat_id: str = "",
     chat_name: str = "",
@@ -90,37 +91,37 @@ def set_session_vars(
     user_id: str = "",
     user_name: str = "",
     session_key: str = "",
-) -> list:
+    terminal_cwd: str | None = None,
+) -> dict:
     """Set all session context variables and return reset tokens.
 
-    Call ``clear_session_vars(tokens)`` in a ``finally`` block to restore
-    the previous values when the handler exits.
+    Callers should typically call ``clear_session_vars(tokens)`` in a
+    ``finally`` block to mark the session as explicitly ended (suppressing
+    environment fallbacks).
 
-    Returns a list of ``Token`` objects (one per variable) that can be
-    passed to ``clear_session_vars``.
+    Returns a dict of tokens keyed by contextvar.
     """
-    tokens = [
-        _SESSION_PLATFORM.set(platform),
-        _SESSION_CHAT_ID.set(chat_id),
-        _SESSION_CHAT_NAME.set(chat_name),
-        _SESSION_THREAD_ID.set(thread_id),
-        _SESSION_USER_ID.set(user_id),
-        _SESSION_USER_NAME.set(user_name),
-        _SESSION_KEY.set(session_key),
-    ]
+    tokens = {
+        _SESSION_PLATFORM: _SESSION_PLATFORM.set(str(platform or "")),
+        _SESSION_CHAT_ID: _SESSION_CHAT_ID.set(str(chat_id or "")),
+        _SESSION_CHAT_NAME: _SESSION_CHAT_NAME.set(str(chat_name or "")),
+        _SESSION_THREAD_ID: _SESSION_THREAD_ID.set(str(thread_id or "")),
+        _SESSION_USER_ID: _SESSION_USER_ID.set(str(user_id or "")),
+        _SESSION_USER_NAME: _SESSION_USER_NAME.set(str(user_name or "")),
+        _SESSION_KEY: _SESSION_KEY.set(str(session_key or "")),
+    }
+    if terminal_cwd is not None:
+        tokens[_TERMINAL_CWD] = _TERMINAL_CWD.set(str(terminal_cwd))
     return tokens
 
 
-def clear_session_vars(tokens: list) -> None:
+def clear_session_vars(tokens: dict | list | None = None) -> None:
     """Mark session context variables as explicitly cleared.
 
     Sets all variables to ``""`` so that ``get_session_env`` returns an empty
     string instead of falling back to (potentially stale) ``os.environ``
     values.  The *tokens* argument is accepted for API compatibility with
-    callers that saved the return value of ``set_session_vars``, but the
-    actual clearing uses ``var.set("")`` rather than ``var.reset(token)``
-    to ensure the "explicitly cleared" state is distinguishable from
-    "never set" (which holds the ``_UNSET`` sentinel).
+    callers that saved the return value of ``set_session_vars``.
     """
     for var in (
         _SESSION_PLATFORM,
@@ -132,6 +133,8 @@ def clear_session_vars(tokens: list) -> None:
         _SESSION_KEY,
     ):
         var.set("")
+    if tokens and _TERMINAL_CWD in tokens:
+        _TERMINAL_CWD.set("")
 
 
 def get_explicit_session_env(name: str) -> str | None:

@@ -133,9 +133,8 @@ def _get_backend() -> str:
     # Fallback for manual / legacy config — pick the highest-priority
     # available backend. Firecrawl also counts as available when the managed
     # tool gateway is configured for Nous subscribers.
-    # Free-tier API backends trail the paid ones so existing paid setups are
-    # unaffected. ddgs requires explicit configuration because availability
-    # probing must not import a module name that local files can shadow.
+    # Free-tier backends (searxng / brave-free / ddgs) trail the paid ones so
+    # existing paid setups are unaffected.
     backend_candidates = (
         ("firecrawl", _has_env("FIRECRAWL_API_KEY") or _has_env("FIRECRAWL_API_URL") or _is_tool_gateway_ready()),
         ("parallel", _has_env("PARALLEL_API_KEY")),
@@ -209,14 +208,21 @@ def _is_backend_available(backend: str) -> bool:
 
 
 def _ddgs_package_available() -> bool:
-    """Return True when explicit ddgs configuration can use the installed package.
+    """Backward-compatible alias for _ddgs_package_importable."""
+    return _ddgs_package_importable()
 
-    This delegates to the provider's metadata-based check and deliberately does
-    not import ``ddgs`` so local files cannot execute during tool discovery.
+
+def _ddgs_package_importable() -> bool:
+    """Return True when the ``ddgs`` Python package is available.
+
+    Uses a metadata-based check to avoid executing module-level code or
+    being shadowed by a local ``ddgs.py`` on ``sys.path``.
     """
-    from tools.web_providers.ddgs import ddgs_package_available
-
-    return ddgs_package_available()
+    try:
+        from tools.web_providers.ddgs import ddgs_package_available
+        return ddgs_package_available()
+    except (ImportError, Exception):
+        return False
 
 # ─── Firecrawl Client ────────────────────────────────────────────────────────
 
@@ -1235,6 +1241,8 @@ def web_search_tool(query: str, limit: int = 5) -> str:
             return result_json
 
         if backend == "ddgs":
+            if not _ddgs_package_available():
+                return tool_error("DuckDuckGo backend requires the 'ddgs' package. Install it with 'uv add ddgs'.")
             from tools.web_providers.ddgs import DDGSSearchProvider
             response_data = DDGSSearchProvider().search(query, limit)
             debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
@@ -1334,11 +1342,9 @@ async def web_extract_tool(
         Exception: If extraction fails or API key is not set
     """
     # Block URLs containing embedded secrets (exfiltration prevention).
-    # URL-decode first so percent-encoded secrets (%73k- = sk-) are caught.
-    from agent.redact import _PREFIX_RE
-    from urllib.parse import unquote
+    from agent.redact import url_contains_secret
     for _url in urls:
-        if _PREFIX_RE.search(_url) or _PREFIX_RE.search(unquote(_url)):
+        if url_contains_secret(_url):
             return json.dumps({
                 "success": False,
                 "error": "Blocked: URL contains what appears to be an API key or token. "
@@ -2085,7 +2091,7 @@ def check_web_api_key() -> bool:
         return _is_backend_available(configured)
     return any(
         _is_backend_available(backend)
-        for backend in ("exa", "parallel", "firecrawl", "tavily", "searxng", "brave-free")
+        for backend in ("exa", "parallel", "firecrawl", "tavily", "searxng", "brave-free", "ddgs")
     )
 
 
