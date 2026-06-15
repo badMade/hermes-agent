@@ -183,20 +183,20 @@ class TestDDGSBackendWiring:
     def test_is_backend_available_true_when_package_importable(self, monkeypatch):
         from tools import web_tools
 
-        monkeypatch.setattr(web_tools, "_ddgs_package_importable", lambda: True)
+        monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: True)
         assert web_tools._is_backend_available("ddgs") is True
 
     def test_is_backend_available_false_when_package_missing(self, monkeypatch):
         from tools import web_tools
 
-        monkeypatch.setattr(web_tools, "_ddgs_package_importable", lambda: False)
+        monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: False)
         assert web_tools._is_backend_available("ddgs") is False
 
     def test_configured_backend_accepted(self, monkeypatch):
         from tools import web_tools
 
         monkeypatch.setattr(web_tools, "_load_web_config", lambda: {"backend": "ddgs"})
-        monkeypatch.setattr(web_tools, "_ddgs_package_importable", lambda: True)
+        monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: True)
         assert web_tools._get_backend() == "ddgs"
 
     def test_ddgs_trails_paid_providers_in_auto_detect(self, monkeypatch):
@@ -215,7 +215,7 @@ class TestDDGSBackendWiring:
             monkeypatch.delenv(key, raising=False)
         monkeypatch.setenv("EXA_API_KEY", "exa-key")
         monkeypatch.setattr(web_tools, "_is_tool_gateway_ready", lambda: False)
-        monkeypatch.setattr(web_tools, "_ddgs_package_importable", lambda: True)
+        monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: True)
         assert web_tools._get_backend() == "exa"
 
     def test_auto_detect_does_not_pick_ddgs_as_last_resort(self, monkeypatch):
@@ -233,14 +233,14 @@ class TestDDGSBackendWiring:
         ):
             monkeypatch.delenv(key, raising=False)
         monkeypatch.setattr(web_tools, "_is_tool_gateway_ready", lambda: False)
-        monkeypatch.setattr(web_tools, "_ddgs_package_importable", lambda: True)
+        monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: True)
         assert web_tools._get_backend() == "ddgs"
 
     def test_check_web_api_key_true_when_ddgs_configured(self, monkeypatch):
         from tools import web_tools
 
         monkeypatch.setattr(web_tools, "_load_web_config", lambda: {"backend": "ddgs"})
-        monkeypatch.setattr(web_tools, "_ddgs_package_importable", lambda: True)
+        monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: True)
         assert web_tools.check_web_api_key() is True
 
 
@@ -255,7 +255,7 @@ class TestDDGSSearchOnlyErrors:
         from tools import web_tools
 
         monkeypatch.setattr(web_tools, "_load_web_config", lambda: {"backend": "ddgs"})
-        monkeypatch.setattr(web_tools, "_ddgs_package_importable", lambda: True)
+        monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: True)
         monkeypatch.setattr(web_tools, "_is_tool_gateway_ready", lambda: False)
         monkeypatch.setattr(web_tools, "is_safe_url", lambda url: True)
         monkeypatch.setattr(
@@ -277,7 +277,7 @@ class TestDDGSSearchOnlyErrors:
         from tools import web_tools
 
         monkeypatch.setattr(web_tools, "_load_web_config", lambda: {"backend": "ddgs"})
-        monkeypatch.setattr(web_tools, "_ddgs_package_importable", lambda: True)
+        monkeypatch.setattr(web_tools, "_ddgs_package_available", lambda: True)
         monkeypatch.setattr(web_tools, "_is_tool_gateway_ready", lambda: False)
         monkeypatch.setattr(web_tools, "check_firecrawl_api_key", lambda: False)
         monkeypatch.setattr(web_tools, "is_safe_url", lambda url: True)
