@@ -432,6 +432,7 @@ class MattermostAdapter(BasePlatformAdapter):
             except (
                 aiohttp.ClientConnectionError,
                 aiohttp.ServerTimeoutError,
+                asyncio.TimeoutError,
                 PublicUrlDownloadHTTPError,
             ) as exc:
                 should_retry = not isinstance(exc, PublicUrlDownloadHTTPError) or (
