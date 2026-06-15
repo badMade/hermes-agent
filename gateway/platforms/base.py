@@ -573,10 +573,10 @@ async def download_public_url_bytes_aiohttp(
             allow_redirects=False,
             **request_kwargs,
         ) as resp:
-            if 300 <= resp.status < 400:
-                location = (
-                    resp.headers.get("Location") if hasattr(resp, "headers") else None
-                )
+            headers = getattr(resp, "headers", None)
+
+            if resp.status in {301, 302, 303, 307, 308}:
+                location = headers.get("Location") if hasattr(headers, "get") else None
                 if not location:
                     raise ValueError(
                         "Redirect without Location header: "
@@ -585,14 +585,9 @@ async def download_public_url_bytes_aiohttp(
                 current_url = urljoin(current_url, location)
                 continue
 
-            if resp.status >= 400:
+            if resp.status >= 300:
                 raise PublicUrlDownloadHTTPError(resp.status, current_url)
-
-            length = (
-                resp.headers.get("Content-Length")
-                if hasattr(resp, "headers")
-                else None
-            )
+            length = headers.get("Content-Length") if hasattr(headers, "get") else None
             if inspect.isawaitable(length):
                 length = await length
             if length is not None:
@@ -603,26 +598,26 @@ async def download_public_url_bytes_aiohttp(
                 if length_int is not None and length_int > max_bytes:
                     raise ValueError(f"Download exceeds {max_bytes} byte limit")
 
+            data = None
             chunks: list[bytes] = []
             total = 0
             content = getattr(resp, "content", None)
-            iter_chunked = getattr(content, "iter_chunked", None) if content is not None else None
+            iter_chunked = (
+                getattr(content, "iter_chunked", None) if content is not None else None
+            )
             if callable(iter_chunked):
-                chunk_iter = iter_chunked(64 * 1024)
-                if inspect.isawaitable(chunk_iter):
-                    chunk_iter = await chunk_iter
-                if hasattr(chunk_iter, "__aiter__"):
-                    async for chunk in chunk_iter:
+                stream = iter_chunked(64 * 1024)
+                if inspect.isawaitable(stream):
+                    stream = await stream
+                if hasattr(stream, "__aiter__"):
+                    async for chunk in stream:
                         total += len(chunk)
                         if total > max_bytes:
                             raise ValueError(f"Download exceeds {max_bytes} byte limit")
                         chunks.append(chunk)
                     data = b"".join(chunks)
-                else:
-                    data = await resp.read()
-                    if len(data) > max_bytes:
-                        raise ValueError(f"Download exceeds {max_bytes} byte limit")
-            else:
+
+            if data is None:
                 data = await resp.read()
                 if len(data) > max_bytes:
                     raise ValueError(f"Download exceeds {max_bytes} byte limit")
@@ -1186,6 +1181,23 @@ class EphemeralReply(str):
         return str.__str__(self)
 
 
+def _same_message_sender(first: MessageEvent, second: MessageEvent) -> bool:
+    """Return True when two message events came from the same platform sender."""
+    first_source = getattr(first, "source", None)
+    second_source = getattr(second, "source", None)
+    first_identity = (
+        getattr(first_source, "platform", None),
+        getattr(first_source, "user_id_alt", None),
+        getattr(first_source, "user_id", None),
+    )
+    second_identity = (
+        getattr(second_source, "platform", None),
+        getattr(second_source, "user_id_alt", None),
+        getattr(second_source, "user_id", None),
+    )
+    return first_identity == second_identity
+
+
 def merge_pending_message_event(
     pending_messages: Dict[str, MessageEvent],
     session_key: str,
@@ -1206,6 +1218,10 @@ def merge_pending_message_event(
     """
     existing = pending_messages.get(session_key)
     if existing:
+        if not _same_message_sender(existing, event):
+            pending_messages[session_key] = event
+            return
+
         existing_is_photo = getattr(existing, "message_type", None) == MessageType.PHOTO
         incoming_is_photo = event.message_type == MessageType.PHOTO
         existing_has_media = bool(existing.media_urls)
