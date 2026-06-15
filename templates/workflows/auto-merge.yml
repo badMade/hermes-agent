@@ -197,6 +197,15 @@ jobs:
               return;
             }
 
+            // Defense-in-depth: never evaluate fork PRs. workflow_run events
+            // carry no same-repo assertion in the job-level if:, and a deleted
+            // fork leaves pr.head.repo null — treat either as a fork and skip.
+            // Same-repo PRs have matching head/base repo full_name.
+            if (pr.head.repo?.full_name !== pr.base.repo.full_name) {
+              core.info(`PR #${prNumber} head is a fork or deleted repo — skipping.`);
+              return;
+            }
+
             const headSha = pr.head.sha;
 
             // Brief settle delay for human-action triggers.
@@ -330,20 +339,23 @@ jobs:
               if (review.state === 'APPROVED' ||
                   review.state === 'CHANGES_REQUESTED' ||
                   review.state === 'DISMISSED') {
-                latestByReviewer[review.user.login] = review;
+                // review.user can be null for deleted ("ghost") accounts.
+                if (review.user?.login) {
+                  latestByReviewer[review.user.login] = review;
+                }
               }
             }
             const reviewList       = Object.values(latestByReviewer);
             const changesRequested = reviewList.filter(r => r.state === 'CHANGES_REQUESTED');
             const approvedReviews  = reviewList.filter(r => r.state === 'APPROVED');
-            const approvedNames    = approvedReviews.map(r => r.user.login);
+            const approvedNames    = approvedReviews.map(r => r.user?.login).filter(Boolean);
             const reviewerStats    = approvedReviews.length > 0
               ? `${approvedReviews.length} approved review(s): ${approvedNames.join(', ')}`
               : 'no approvals yet';
 
             // ── 8. Guard: CHANGES_REQUESTED blocks merge ───────────────────────
             if (changesRequested.length > 0) {
-              const blockers = changesRequested.map(r => r.user.login).join(', ');
+              const blockers = changesRequested.map(r => r.user?.login).filter(Boolean).join(', ');
               core.warning(`Changes requested by: ${blockers}`);
               await setStatus(headSha, 'failure',
                 `Changes requested by ${blockers}.`);
@@ -361,19 +373,19 @@ jobs:
             const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
               owner, repo, pull_number: prNumber,
             });
-            const nonAuthorComments = reviewComments.filter(c => c.user.login !== freshPr.user.login);
+            const nonAuthorComments = reviewComments.filter(c => c.user?.login && c.user.login !== freshPr.user?.login);
 
             const issueComments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number: prNumber,
             });
-            const botIssueComments = issueComments.filter(c => REVIEW_BOTS.has(c.user.login));
+            const botIssueComments = issueComments.filter(c => REVIEW_BOTS.has(c.user?.login));
             // Count bot reviews from the full review list (not the state-filtered
             // one) so a bot's COMMENTED review still registers as review activity.
-            const botReviews       = allReviews.filter(r => REVIEW_BOTS.has(r.user.login));
+            const botReviews       = allReviews.filter(r => REVIEW_BOTS.has(r.user?.login));
             const reviewBotActivity = botIssueComments.length + botReviews.length;
             const botNames = Array.from(new Set([
-              ...botIssueComments.map(c => c.user.login),
-              ...botReviews.map(r => r.user.login),
+              ...botIssueComments.map(c => c.user?.login).filter(Boolean),
+              ...botReviews.map(r => r.user?.login).filter(Boolean),
             ]));
 
             const reviewDetected = approvedReviews.length > 0
