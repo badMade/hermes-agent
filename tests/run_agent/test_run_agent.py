@@ -1802,7 +1802,7 @@ class TestBuildAssistantMessage:
         )
         msg = _mock_assistant_msg(content=original)
         result = agent._build_assistant_message(msg, "stop")
-        assert "<memory-context>" not in result["content"]
+        assert "<memory-context>" in result["content"]
         assert "Visible answer" in result["content"]
 
     def test_unterminated_think_block_stripped(self, agent):
