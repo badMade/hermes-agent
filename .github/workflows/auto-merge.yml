@@ -225,11 +225,26 @@ jobs:
                 });
                 all = all.concat(rd.check_runs);
               }
-              return all.filter(run => {
+              const filtered = all.filter(run => {
                 const url = run.details_url || run.html_url || '';
                 return !url.includes(`/runs/${currentRunId}`)
                   && run.name !== AUTO_MERGE_JOB_NAME;
               });
+              // De-duplicate across check suites: a re-run leaves older runs
+              // (commonly 'cancelled') on the same ref, which would otherwise be
+              // read as failing CI and block merge. Keep only the most recent run
+              // per (app id, check name) — latest started_at, then highest id.
+              const runTime = r => Date.parse(r.started_at || r.completed_at) || 0;
+              const newestByKey = new Map();
+              for (const run of filtered) {
+                const key = `${run.app?.id ?? 'noapp'}:${run.name}`;
+                const prev = newestByKey.get(key);
+                if (!prev || runTime(run) > runTime(prev) ||
+                    (runTime(run) === runTime(prev) && (run.id || 0) > (prev.id || 0))) {
+                  newestByKey.set(key, run);
+                }
+              }
+              return Array.from(newestByKey.values());
             }
 
             let externalRuns = await fetchExternalRuns();
