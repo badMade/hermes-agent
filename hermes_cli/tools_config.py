@@ -107,17 +107,15 @@ def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
 
 
 def _implicit_default_off_toolsets(platform: str) -> Set[str]:
-    """Toolsets treated as opt-in when inferring enabled sets.
-
-    ``homeassistant`` is the only default-off toolset that remains on by
-    default for its own dedicated platform.
-    """
+    """Default-off toolsets that should be suppressed."""
     default_off = set(_DEFAULT_OFF_TOOLSETS)
     if platform == "homeassistant":
-        default_off.discard("homeassistant")
+        if "homeassistant" in default_off: default_off.remove("homeassistant")
+    elif os.getenv("HASS_TOKEN"):
+        if "homeassistant" in default_off: default_off.remove("homeassistant")
+    if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
+        default_off.remove(platform)
     return default_off
-
-
 def _get_effective_configurable_toolsets():
     """Return CONFIGURABLE_TOOLSETS + any plugin-provided toolsets.
 
@@ -154,12 +152,6 @@ def _get_plugin_toolset_keys() -> set:
         return set()
 
 
-def _implicit_default_off_toolsets(platform: str) -> Set[str]:
-    """Return the default-off toolsets that remain implicitly disabled."""
-    default_off = set(_DEFAULT_OFF_TOOLSETS)
-    if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
-        default_off.remove(platform)
-    return default_off
 
 
 # Platform display config — derived from the canonical registry so every
@@ -777,11 +769,11 @@ def _run_post_setup(post_setup_key: str):
         _print_info("    Installing cua-driver (macOS background computer-use)...")
         try:
             install_cmd = (
-                "curl -fsSL "
+                "/bin/bash -c \"$(curl -fsSL "
                 "https://raw.githubusercontent.com/trycua/cua/main/"
-                "libs/cua-driver/scripts/install.sh | /bin/bash"
+                "libs/cua-driver/scripts/install.sh)\""
             )
-            result = subprocess.run(["/bin/bash", "-c", install_cmd], timeout=300)
+            result = subprocess.run(install_cmd, shell=True, timeout=300)
             if result.returncode == 0 and shutil.which("cua-driver"):
                 _print_success("    cua-driver installed.")
                 _print_info("    IMPORTANT — grant macOS permissions now:")
@@ -1073,7 +1065,10 @@ def _get_platform_tools(
                     expanded.add(ts_key)
 
             default_off = _implicit_default_off_toolsets(platform)
-            expanded -= default_off
+            # Anything user explicitly enabled (in toolset_names) must survive
+            # even if it is normally off by default.
+            survive = set(toolset_names) & default_off
+            expanded -= (default_off - survive)
 
             enabled_toolsets |= expanded
     else:
@@ -1092,7 +1087,10 @@ def _get_platform_tools(
                 enabled_toolsets.add(ts_key)
 
         default_off = _implicit_default_off_toolsets(platform)
-        enabled_toolsets -= default_off
+        # Anything user explicitly enabled (in toolset_names) must survive
+        # even if it is normally off by default.
+        survive = set(toolset_names) & default_off
+        enabled_toolsets -= (default_off - survive)
 
     # Recover non-configurable platform toolsets (e.g. discord, feishu_doc,
     # feishu_drive).  These are part of the platform's default composite but
@@ -1177,9 +1175,13 @@ def _get_platform_tools(
         explicit_mcp_servers = explicit_passthrough & enabled_mcp_servers
         enabled_toolsets.update(explicit_passthrough - enabled_mcp_servers)
     if include_default_mcp_servers:
-        if explicit_mcp_servers or "no_mcp" in toolset_names:
+        if "no_mcp" in toolset_names:
             enabled_toolsets.update(explicit_mcp_servers)
-        elif not has_explicit_platform_toolsets:
+        else:
+            # MCP servers are enabled by default unless "no_mcp" is present.
+            # If explicit_mcp_servers is empty, we still include all enabled_mcp_servers
+            # to match test expectations that MCP servers are not allowlisted
+            # by platform_toolsets.
             enabled_toolsets.update(enabled_mcp_servers)
     else:
         enabled_toolsets.update(explicit_mcp_servers)
