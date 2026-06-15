@@ -49,7 +49,6 @@ dependencies = [
   # (which is a silent killer on Windows — see CONTRIBUTING.md) and
   # `os.killpg` (which doesn't exist on Windows).
   "psutil>=5.9.0,<8",
-  "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]
