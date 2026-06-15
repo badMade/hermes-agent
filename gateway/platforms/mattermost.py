@@ -429,21 +429,10 @@ class MattermostAdapter(BasePlatformAdapter):
                 )
                 fname = final_url.rsplit("/", 1)[-1].split("?")[0] or f"{kind}.png"
                 break
-            except aiohttp.ClientError as exc:
-                if attempt < 2:
-                    await asyncio.sleep(1.5 * (attempt + 1))
-                    continue
-                logger.warning(
-                    "Mattermost: failed to download %s after %d attempts: %s",
-                    url,
-                    attempt + 1,
-                    exc,
-                )
-                return await self.send(
-                    chat_id, f"{caption or ''}\n{url}".strip(), reply_to
-                )
-            except PublicUrlDownloadHTTPError as exc:
-                should_retry = exc.status == 429 or exc.status >= 500
+            except (aiohttp.ClientError, PublicUrlDownloadHTTPError) as exc:
+                should_retry = True
+                if isinstance(exc, PublicUrlDownloadHTTPError):
+                    should_retry = exc.status == 429 or exc.status >= 500
                 if should_retry and attempt < 2:
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
