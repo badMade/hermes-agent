@@ -17,7 +17,7 @@ import subprocess
 import sys
 import uuid
 from abc import ABC, abstractmethod
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from utils import normalize_proxy_url
 
@@ -54,14 +54,11 @@ def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) 
     if thread_id is None:
         return None
     metadata = {"thread_id": thread_id}
-    platform = _platform_name(getattr(source, "platform", None))
-    if platform == "telegram" and getattr(source, "chat_type", None) == "dm":
+    if _platform_name(getattr(source, "platform", None)) == "telegram" and getattr(source, "chat_type", None) == "dm":
         metadata["telegram_dm_topic_reply_fallback"] = True
         anchor = reply_to_message_id or getattr(source, "message_id", None)
         if anchor is not None:
             metadata["telegram_reply_to_message_id"] = str(anchor)
-    if platform == "feishu" and reply_to_message_id is not None:
-        metadata["reply_to_message_id"] = str(reply_to_message_id)
     return metadata
 
 
@@ -536,6 +533,104 @@ async def _ssrf_redirect_guard(response):
             )
 
 
+MAX_GATEWAY_MEDIA_DOWNLOAD_BYTES = 20 * 1024 * 1024
+
+
+class PublicUrlDownloadHTTPError(RuntimeError):
+    """HTTP status error raised by download_public_url_bytes_aiohttp."""
+
+    def __init__(self, status: int, url: str):
+        self.status = status
+        self.url = url
+        super().__init__(
+            f"HTTP {status} while downloading {safe_url_for_log(url)}"
+        )
+
+
+async def download_public_url_bytes_aiohttp(
+    session,
+    url: str,
+    *,
+    timeout,
+    request_kwargs: dict | None = None,
+    max_bytes: int = MAX_GATEWAY_MEDIA_DOWNLOAD_BYTES,
+    max_redirects: int = 5,
+) -> tuple[bytes, str, str]:
+    """Download a public URL with SSRF-safe redirects and a hard size cap."""
+    from tools.url_safety import is_safe_url
+
+    current_url = url
+    request_kwargs = request_kwargs or {}
+    for _redirect_count in range(max_redirects + 1):
+        if not is_safe_url(current_url):
+            raise ValueError(
+                f"Blocked unsafe URL (SSRF protection): {safe_url_for_log(current_url)}"
+            )
+
+        async with session.get(
+            current_url,
+            timeout=timeout,
+            allow_redirects=False,
+            **request_kwargs,
+        ) as resp:
+            headers = getattr(resp, "headers", None)
+
+            if resp.status in {301, 302, 303, 307, 308}:
+                location = headers.get("Location") if hasattr(headers, "get") else None
+                if not location:
+                    raise ValueError(
+                        "Redirect without Location header: "
+                        f"{safe_url_for_log(current_url)}"
+                    )
+                current_url = urljoin(current_url, location)
+                continue
+
+            if resp.status >= 300:
+                raise PublicUrlDownloadHTTPError(resp.status, current_url)
+            length = headers.get("Content-Length") if hasattr(headers, "get") else None
+            if inspect.isawaitable(length):
+                length = await length
+            if length is not None:
+                try:
+                    length_int = int(length)
+                except (TypeError, ValueError):
+                    length_int = None
+                if length_int is not None and length_int > max_bytes:
+                    raise ValueError(f"Download exceeds {max_bytes} byte limit")
+
+            data = None
+            chunks: list[bytes] = []
+            total = 0
+            content = getattr(resp, "content", None)
+            iter_chunked = (
+                getattr(content, "iter_chunked", None) if content is not None else None
+            )
+            if callable(iter_chunked):
+                stream = iter_chunked(64 * 1024)
+                if inspect.isawaitable(stream):
+                    stream = await stream
+                if hasattr(stream, "__aiter__"):
+                    async for chunk in stream:
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise ValueError(f"Download exceeds {max_bytes} byte limit")
+                        chunks.append(chunk)
+                    data = b"".join(chunks)
+
+            if data is None:
+                data = await resp.read()
+                if len(data) > max_bytes:
+                    raise ValueError(f"Download exceeds {max_bytes} byte limit")
+
+            return (
+                data,
+                getattr(resp, "content_type", None) or "application/octet-stream",
+                current_url,
+            )
+
+    raise ValueError(f"Too many redirects while downloading {safe_url_for_log(url)}")
+
+
 # ---------------------------------------------------------------------------
 # Image cache utilities
 #
@@ -781,7 +876,6 @@ async def cache_audio_from_url(url: str, ext: str = ".ogg", retries: int = 2) ->
 # ---------------------------------------------------------------------------
 
 VIDEO_CACHE_DIR = get_hermes_dir("cache/videos", "video_cache")
-MAX_VIDEO_BYTES = 20 * 1024 * 1024
 
 SUPPORTED_VIDEO_TYPES = {
     ".mp4": "video/mp4",
@@ -792,36 +886,6 @@ SUPPORTED_VIDEO_TYPES = {
 }
 
 
-def _trusted_media_directories() -> Tuple[Path, ...]:
-    """Return local directories allowed for model-emitted media delivery."""
-    return (
-        get_hermes_dir("cache/images", "image_cache"),
-        get_hermes_dir("cache/audio", "audio_cache"),
-        get_hermes_dir("cache/videos", "video_cache"),
-        get_hermes_dir("cache/documents", "document_cache"),
-        get_hermes_dir("cache/screenshots", "browser_screenshots"),
-    )
-
-
-def _is_trusted_media_path(path: str) -> bool:
-    """Return True when *path* resolves inside a Hermes-managed media cache."""
-    try:
-        resolved = Path(path).expanduser().resolve(strict=True)
-    except (OSError, RuntimeError, ValueError):
-        return False
-
-    if not resolved.is_file():
-        return False
-
-    for directory in _trusted_media_directories():
-        try:
-            resolved.relative_to(directory.expanduser().resolve(strict=False))
-            return True
-        except (OSError, RuntimeError, ValueError):
-            continue
-    return False
-
-
 def get_video_cache_dir() -> Path:
     """Return the video cache directory, creating it if it doesn't exist."""
     VIDEO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -830,34 +894,12 @@ def get_video_cache_dir() -> Path:
 
 def cache_video_from_bytes(data: bytes, ext: str = ".mp4") -> str:
     """Save raw video bytes to the cache and return the absolute file path."""
-    if len(data) > MAX_VIDEO_BYTES:
-        raise ValueError("Video exceeds maximum cache size of 20 MB")
     cache_dir = get_video_cache_dir()
     filename = f"video_{uuid.uuid4().hex[:12]}{ext}"
     filepath = cache_dir / filename
     filepath.write_bytes(data)
     return str(filepath)
 
-
-def cleanup_video_cache(max_age_hours: int = 24) -> int:
-    """
-    Delete cached videos older than *max_age_hours*.
-
-    Returns the number of files removed.
-    """
-    import time
-
-    cache_dir = get_video_cache_dir()
-    cutoff = time.time() - (max_age_hours * 3600)
-    removed = 0
-    for f in cache_dir.iterdir():
-        if f.is_file() and f.stat().st_mtime < cutoff:
-            try:
-                f.unlink()
-                removed += 1
-            except OSError:
-                pass
-    return removed
 
 # ---------------------------------------------------------------------------
 # Document cache utilities
@@ -3056,21 +3098,8 @@ class BasePlatformAdapter(ABC):
                 # where Telegram's sendPhoto recompression destroys legibility.
                 force_document_attachments = "[[as_document]]" in response
 
-                # Extract MEDIA:<path> tags (from TTS tool) before other processing.
-                # Model-visible response text is untrusted, so only deliver local
-                # files that resolve inside Hermes-managed media cache directories.
-                extracted_media_files, response = self.extract_media(response)
-                media_files = []
-                for path, is_voice in extracted_media_files:
-                    if _is_trusted_media_path(path):
-                        media_files.append((path, is_voice))
-                blocked_media_count = len(extracted_media_files) - len(media_files)
-                if blocked_media_count:
-                    logger.warning(
-                        "[%s] Blocked %d untrusted MEDIA file path(s) from response",
-                        self.name,
-                        blocked_media_count,
-                    )
+                # Extract MEDIA:<path> tags (from TTS tool) before other processing
+                media_files, response = self.extract_media(response)
 
                 # Extract image URLs and send them as native platform attachments
                 images, text_content = self.extract_images(response)
@@ -3086,18 +3115,6 @@ class BasePlatformAdapter(ABC):
                 local_files, text_content = self.extract_local_files(text_content)
                 if local_files:
                     logger.info("[%s] extract_local_files found %d file(s) in response", self.name, len(local_files))
-                    extracted_local_files = local_files
-                    local_files = [
-                        path for path in extracted_local_files
-                        if _is_trusted_media_path(path)
-                    ]
-                    blocked_local_count = len(extracted_local_files) - len(local_files)
-                    if blocked_local_count:
-                        logger.warning(
-                            "[%s] Blocked %d untrusted local file path(s) from response",
-                            self.name,
-                            blocked_local_count,
-                        )
 
                 # Auto-TTS: if voice message, generate audio FIRST (before sending text)
                 # Gated via ``_should_auto_tts_for_chat``: fires when the chat has
@@ -3408,16 +3425,18 @@ class BasePlatformAdapter(ABC):
             if late_pending is not None:
                 current_task = asyncio.current_task()
                 existing_task = self._session_tasks.get(session_key)
-                current_guard = self._active_sessions.get(session_key)
                 if (
-                    (existing_task is not None and existing_task is not current_task)
-                    or (current_guard is not None and current_guard is not interrupt_event)
+                    existing_task is not None
+                    and existing_task is not current_task
                 ):
-                    # Another owner already controls this session: either a
-                    # follow-up task recorded in _session_tasks, or a
-                    # command-scoped guard installed by /stop, /new, or /reset
-                    # while this task is being cancelled. Re-queue the event
-                    # so that owner performs the single authorized drain.
+                    # The in-band drain (or an earlier late-arrival drain)
+                    # already spawned a follow-up task that owns this
+                    # session.  Re-queue the late-arrival event so that
+                    # task picks it up — avoids spawning two concurrent
+                    # _process_message_background tasks for the same key
+                    # (#17758 follow-up: prevents the create_task path
+                    # from racing with itself across the in-band/finally
+                    # boundary).
                     self._pending_messages[session_key] = late_pending
                 else:
                     logger.debug(
