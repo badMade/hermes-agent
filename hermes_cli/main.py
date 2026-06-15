@@ -6877,7 +6877,15 @@ def _install_psutil_android_compat(
         archive = tmp_path / "psutil.tar.gz"
         urllib.request.urlretrieve(psutil_url, archive)
         with tarfile.open(archive) as tar:
-            tar.extractall(tmp_path)
+            for member in tar.getmembers():
+                if member.name.startswith("/") or ".." in member.name.split("/"):
+                    raise tarfile.TarError(
+                        f"refusing to extract unsafe path: {member.name!r}"
+                    )
+            try:
+                tar.extractall(tmp_path, filter="data")
+            except TypeError:
+                tar.extractall(tmp_path)
 
         src_root = next(
             p for p in tmp_path.iterdir() if p.is_dir() and p.name.startswith("psutil-")

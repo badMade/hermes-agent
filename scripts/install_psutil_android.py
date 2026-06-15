@@ -83,7 +83,16 @@ def main() -> int:
         archive = tmp_path / "psutil.tar.gz"
         urllib.request.urlretrieve(PSUTIL_URL, archive)
         with tarfile.open(archive) as tar:
-            tar.extractall(tmp_path)
+            for member in tar.getmembers():
+                if member.name.startswith("/") or ".." in member.name.split("/"):
+                    raise tarfile.TarError(
+                        f"refusing to extract unsafe path: {member.name!r}"
+                    )
+            try:
+                tar.extractall(tmp_path, filter="data")
+            except TypeError:
+                # Python < 3.12 — no filter kwarg
+                tar.extractall(tmp_path)
 
         try:
             src_root = next(

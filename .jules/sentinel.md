@@ -11,3 +11,7 @@
 **Vulnerability:** Use of `subprocess.run(shell=True)` in `hermes_cli/tools_config.py` for cua-driver installation.
 **Learning:** Using `shell=True` can introduce shell injection vulnerabilities, especially if any parts of the command are dynamic. Although this specific case was a hardcoded URL string, it's best practice to replace `shell=True` with an argument list for defense in depth.
 **Prevention:** Avoid `shell=True` in `subprocess.run` and pass the command and its arguments as a list. When using `bash -c`, pass the script content as an argument to `-c` rather than interpolating it into a single string with `shell=True`.
+## 2024-06-15 - Security Enhancement: Zip Slip Prevention in Tar Archives
+**Vulnerability:** Path Traversal (Zip Slip) vulnerability via `tarfile.extractall()`.
+**Learning:** Extracting untrusted tar archives without validating the names of the members allows attackers to craft filenames containing absolute paths (`/`) or directory traversal sequences (`..`). This allows arbitrary file overwrite.
+**Prevention:** Always validate `member.name` for each item in the archive using `tar.getmembers()` to ensure it doesn't contain absolute paths or `..` before extracting. Additionally, use `filter="data"` with `extractall` wrapped in a `try...except TypeError` fallback to support older Python versions while maintaining modern protection.
