@@ -208,21 +208,17 @@ def _is_backend_available(backend: str) -> bool:
 
 
 def _ddgs_package_available() -> bool:
-    """Backward-compatible alias for _ddgs_package_importable."""
-    return _ddgs_package_importable()
-
-
-def _ddgs_package_importable() -> bool:
-    """Return True when the ``ddgs`` Python package is available.
-
-    Uses a metadata-based check to avoid executing module-level code or
-    being shadowed by a local ``ddgs.py`` on ``sys.path``.
-    """
+    """Return True when ddgs is installed and safe to import."""
     try:
         from tools.web_providers.ddgs import ddgs_package_available
         return ddgs_package_available()
     except (ImportError, Exception):
         return False
+
+
+def _ddgs_package_importable() -> bool:
+    """Backward-compatible alias for ``_ddgs_package_available``."""
+    return _ddgs_package_available()
 
 # ─── Firecrawl Client ────────────────────────────────────────────────────────
 
