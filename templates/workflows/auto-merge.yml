@@ -196,6 +196,10 @@ jobs:
               core.info(`PR #${prNumber} is ${pr.state} — nothing to do.`);
               return;
             }
+            if (pr.head.repo.full_name !== pr.base.repo.full_name) {
+              core.info(`PR #${prNumber} is from a fork (${pr.head.repo.full_name}) — skipping.`);
+              return;
+            }
 
             // Defense-in-depth: never evaluate fork PRs. workflow_run events
             // carry no same-repo assertion in the job-level if:, and a deleted
