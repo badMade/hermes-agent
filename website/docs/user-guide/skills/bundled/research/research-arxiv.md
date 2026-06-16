@@ -56,7 +56,7 @@ curl -s "https://export.arxiv.org/api/query?search_query=all:GRPO+reinforcement+
 
 ```bash
 curl -s "https://export.arxiv.org/api/query?search_query=all:GRPO+reinforcement+learning&max_results=5&sortBy=submittedDate&sortOrder=descending" | python3 -c "
-import sys, defusedxml.ElementTree as ET
+import sys, xml.etree.ElementTree as ET
 ns = {'a': 'http://www.w3.org/2005/Atom'}
 root = ET.parse(sys.stdin).getroot()
 for i, entry in enumerate(root.findall('a:entry', ns)):
