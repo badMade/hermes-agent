@@ -89,7 +89,7 @@ def main() -> int:
             for member in members:
                 if member.issym() or member.islnk() or not (member.isdir() or member.isreg()):
                     raise tarfile.TarError(
-                        f"refusing to extract non-file member: {member.name!r}"
+                        f"refusing to extract link or special member: {member.name!r}"
                     )
                 try:
                     target_path = os.path.realpath(os.path.join(base_path, member.name))
