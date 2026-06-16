@@ -136,7 +136,7 @@ After fetching metadata for a paper, generate a BibTeX entry:
 &#123;% raw %&#125;
 ```bash
 curl -s "https://export.arxiv.org/api/query?id_list=1706.03762" | python3 -c "
-import sys, defusedxml.ElementTree as ET
+import sys, xml.etree.ElementTree as ET
 ns = {'a': 'http://www.w3.org/2005/Atom', 'arxiv': 'http://arxiv.org/schemas/atom'}
 root = ET.parse(sys.stdin).getroot()
 entry = root.find('a:entry', ns)
