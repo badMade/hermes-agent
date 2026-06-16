@@ -102,9 +102,8 @@ from gateway.platforms.base import (
     MessageType,
     ProcessingOutcome,
     SendResult,
-    download_public_url_bytes_aiohttp,
-    proxy_kwargs_for_aiohttp,
     resolve_proxy_url,
+    proxy_kwargs_for_aiohttp,
 )
 from gateway.platforms.helpers import ThreadParticipationTracker
 
@@ -1114,20 +1113,34 @@ class MatrixAdapter(BasePlatformAdapter):
                 chat_id, image_url, caption, reply_to, metadata=metadata
             )
 
-        import aiohttp as _aiohttp
-
         try:
-            _sess_kw, _req_kw = proxy_kwargs_for_aiohttp(self._proxy_url)
-            async with _aiohttp.ClientSession(**_sess_kw) as http:
-                data, ct, final_url = await download_public_url_bytes_aiohttp(
-                    http,
-                    image_url,
-                    timeout=_aiohttp.ClientTimeout(total=30),
-                    request_kwargs=_req_kw,
-                )
-                if ct == "application/octet-stream":
-                    ct = "image/png"
-                fname = final_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
+            # Try aiohttp first (always available), fall back to httpx
+            try:
+                import aiohttp as _aiohttp
+                _sess_kw, _req_kw = proxy_kwargs_for_aiohttp(self._proxy_url)
+                async with _aiohttp.ClientSession(**_sess_kw) as http:
+                    async with http.get(
+                        image_url,
+                        timeout=_aiohttp.ClientTimeout(total=30),
+                        **_req_kw,
+                    ) as resp:
+                        resp.raise_for_status()
+                        data = await resp.read()
+                        ct = resp.content_type or "image/png"
+                        fname = (
+                            image_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
+                        )
+            except ImportError:
+                import httpx
+                _httpx_kw: dict = {}
+                if self._proxy_url:
+                    _httpx_kw["proxy"] = self._proxy_url
+                async with httpx.AsyncClient(**_httpx_kw) as http:
+                    resp = await http.get(image_url, follow_redirects=True, timeout=30)
+                    resp.raise_for_status()
+                    data = resp.content
+                    ct = resp.headers.get("content-type", "image/png")
+                    fname = image_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
         except Exception as exc:
             logger.warning("Matrix: failed to download image %s: %s", image_url, exc)
             return await self.send(
@@ -2163,10 +2176,10 @@ class MatrixAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     def _text_batch_key(self, event: MessageEvent) -> str:
-        """Session-scoped key for text message batching."""
+        """Session- and sender-scoped key for text message batching."""
         from gateway.session import build_session_key
 
-        return build_session_key(
+        session_key = build_session_key(
             event.source,
             group_sessions_per_user=self.config.extra.get(
                 "group_sessions_per_user", True
@@ -2175,6 +2188,12 @@ class MatrixAdapter(BasePlatformAdapter):
                 "thread_sessions_per_user", False
             ),
         )
+        sender_id = getattr(event.source, "user_id", None) or getattr(
+            event.source, "user_id_alt", None
+        )
+        if not sender_id:
+            return session_key
+        return f"{session_key}:sender:{sender_id}"
 
     def _enqueue_text_event(self, event: MessageEvent) -> None:
         """Buffer a text event and reset the flush timer."""
