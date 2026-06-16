@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: supply-chain-audit-${{ github.event.pull_request.number }}
+  group: supply-chain-audit-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 # Narrow, high-signal scanner. Only fires on critical indicators of supply
