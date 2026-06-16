@@ -13,7 +13,7 @@ metadata:
 
 # arXiv Research
 
-Search and retrieve academic papers from arXiv via their free REST API. No API key, no dependencies — just curl.
+Search and retrieve academic papers from arXiv via their free REST API. No API key required — just curl.
 
 ## Quick Reference
 
