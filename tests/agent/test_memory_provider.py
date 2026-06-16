@@ -1,6 +1,9 @@
 """Tests for the memory provider interface, manager, and builtin provider."""
 
 import json
+import re
+from typing import Any, Dict, List
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -89,7 +92,41 @@ class MetadataMemoryProvider(FakeMemoryProvider):
 # ---------------------------------------------------------------------------
 
 
+class MinimalMemoryProvider(MemoryProvider):
+    """A minimal provider that implements required abstract members but
+    avoids overriding optional hooks so their default behaviors can be tested."""
+
+    @property
+    def name(self) -> str:
+        return "minimal"
+
+    def is_available(self) -> bool:
+        return True
+
+    def initialize(self, session_id: str, **kwargs) -> None:
+        pass
+
+    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+        return []
+
+
 class TestMemoryProviderABC:
+    def test_missing_name_property_raises_error(self):
+        """Classes missing the abstract name property cannot be instantiated."""
+
+        class IncompleteProvider(MemoryProvider):
+            def is_available(self) -> bool:
+                return True
+
+            def initialize(self, session_id: str, **kwargs) -> None:
+                pass
+
+            def get_tool_schemas(self) -> list:
+                return []
+
+        with pytest.raises(TypeError, match=r"abstract.*\bname\b"):
+            IncompleteProvider()
+
     def test_cannot_instantiate_abstract(self):
         """ABC cannot be instantiated directly."""
         with pytest.raises(TypeError):
@@ -113,6 +150,31 @@ class TestMemoryProviderABC:
         p.sync_turn("user", "assistant")
         p.shutdown()
 
+    def test_handle_tool_call_raises_not_implemented(self):
+        """Default handle_tool_call raises NotImplementedError."""
+
+        class DefaultHandleToolCallProvider(FakeMemoryProvider):
+            def handle_tool_call(self, tool_name, args, **kwargs):
+                return MemoryProvider.handle_tool_call(
+                    self,
+                    tool_name,
+                    args,
+                    **kwargs,
+                )
+
+        p = DefaultHandleToolCallProvider("test_provider")
+        message = "Provider test_provider does not handle tool test_tool"
+        with pytest.raises(
+            NotImplementedError,
+            match=rf"^{re.escape(message)}$",
+        ):
+            p.handle_tool_call("test_tool", {"arg": "val"})
+
+    def test_default_on_session_end_is_noop(self):
+        """Verify the base on_session_end implementation does not raise."""
+        p = MinimalMemoryProvider()
+        # Should not raise exception (verifying does not raise)
+        p.on_session_end([{"role": "user", "content": "hi"}])
 
 # ---------------------------------------------------------------------------
 # MemoryManager tests
@@ -503,6 +565,54 @@ class TestUserInstalledProviderDiscovery:
         providers = discover_memory_providers()
         names = [n for n, _, _ in providers]
         assert "notmemory" not in names
+
+    def test_discover_user_plugin_does_not_execute_code(self, tmp_path, monkeypatch):
+        """Discovery must not import unselected user-installed providers."""
+        from plugins.memory import discover_memory_providers
+
+        marker = tmp_path / "executed.txt"
+        plugin_dir = tmp_path / "plugins" / "evilmarker"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "__init__.py").write_text(
+            "# Looks like a MemoryProvider candidate.\n"
+            f"from pathlib import Path\nPath({str(marker)!r}).write_text('init')\n"
+        )
+        (plugin_dir / "sidecar.py").write_text(
+            f"from pathlib import Path\nPath({str(marker)!r}).write_text('sidecar')\n"
+        )
+        monkeypatch.setattr(
+            "plugins.memory._get_user_plugins_dir",
+            lambda: tmp_path / "plugins",
+        )
+
+        providers = discover_memory_providers()
+
+        assert "evilmarker" in [n for n, _, _ in providers]
+        assert not marker.exists()
+
+    def test_memory_setup_listing_does_not_execute_user_plugin(self, tmp_path, monkeypatch):
+        """Setup/status provider listing must not load unselected user plugins."""
+        from hermes_cli.memory_setup import _get_available_providers
+
+        marker = tmp_path / "setup_executed.txt"
+        plugin_dir = tmp_path / "plugins" / "setupevil"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "__init__.py").write_text(
+            "# MemoryProvider appears in a comment only.\n"
+            f"from pathlib import Path\nPath({str(marker)!r}).write_text('loaded')\n"
+        )
+        (plugin_dir / "plugin.yaml").write_text(
+            "name: setupevil\ndescription: Setup Evil\n"
+        )
+        monkeypatch.setattr(
+            "plugins.memory._get_user_plugins_dir",
+            lambda: tmp_path / "plugins",
+        )
+
+        providers = _get_available_providers()
+
+        assert "setupevil" in [n for n, _, _ in providers]
+        assert not marker.exists()
 
 
 # ---------------------------------------------------------------------------
