@@ -4472,9 +4472,11 @@ def _(rid, params: dict) -> dict:
     if name in qcmds:
         qc = qcmds[name]
         if qc.get("type") == "exec":
+            import shlex
+            cmd_str = qc.get("command", "")
             r = subprocess.run(
-                qc.get("command", ""),
-                shell=True,
+                shlex.split(cmd_str) if cmd_str else [],
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -6555,8 +6557,9 @@ def _(rid, params: dict) -> dict:
     except ImportError:
         pass
     try:
+        import shlex
         r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=os.getcwd()
+            shlex.split(cmd) if cmd else [], shell=False, capture_output=True, text=True, timeout=30, cwd=os.getcwd()
         )
         return _ok(
             rid,
