@@ -1185,6 +1185,8 @@ def _same_message_sender(first: MessageEvent, second: MessageEvent) -> bool:
     """Return True when two message events came from the same platform sender."""
     first_source = getattr(first, "source", None)
     second_source = getattr(second, "source", None)
+    if first_source is None or second_source is None:
+        return False
     first_identity = (
         getattr(first_source, "platform", None),
         getattr(first_source, "user_id_alt", None),
