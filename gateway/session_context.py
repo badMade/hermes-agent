@@ -179,8 +179,6 @@ def get_terminal_cwd(default=None):
     take precedence so concurrent gateway/cron sessions cannot clobber
     each other.
     """
-    import os
-
     value = _TERMINAL_CWD.get()
     if value is not _UNSET:
         return value
