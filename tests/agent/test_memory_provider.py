@@ -87,11 +87,6 @@ class MetadataMemoryProvider(FakeMemoryProvider):
         self.memory_writes.append((action, target, content, metadata or {}))
 
 
-# ---------------------------------------------------------------------------
-# MemoryProvider ABC tests
-# ---------------------------------------------------------------------------
-
-
 class MinimalMemoryProvider(MemoryProvider):
     """A minimal provider that implements required abstract members but
     avoids overriding optional hooks so their default behaviors can be tested."""
@@ -108,6 +103,11 @@ class MinimalMemoryProvider(MemoryProvider):
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return []
+
+
+# ---------------------------------------------------------------------------
+# MemoryProvider ABC tests
+# ---------------------------------------------------------------------------
 
 
 class TestMemoryProviderABC:
