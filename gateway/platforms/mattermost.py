@@ -443,6 +443,8 @@ class MattermostAdapter(BasePlatformAdapter):
                     chat_id, f"{caption or ''}\n{url}".strip(), reply_to
                 )
             except aiohttp.ClientError as exc:
+                # Network-level failure (connection refused/reset, DNS, timeout).
+                # Retry a couple of times, then fall back to posting the URL.
                 if attempt < 2:
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
