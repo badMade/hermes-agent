@@ -2,6 +2,8 @@
 
 import json
 import re
+from typing import Any, Dict, List
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -85,8 +87,14 @@ class MetadataMemoryProvider(FakeMemoryProvider):
         self.memory_writes.append((action, target, content, metadata or {}))
 
 
+# ---------------------------------------------------------------------------
+# MemoryProvider ABC tests
+# ---------------------------------------------------------------------------
+
+
 class MinimalMemoryProvider(MemoryProvider):
-    """Concrete provider that relies on all base-class defaults (no overrides)."""
+    """A minimal provider that implements required abstract members but
+    avoids overriding optional hooks so their default behaviors can be tested."""
 
     @property
     def name(self) -> str:
@@ -98,13 +106,8 @@ class MinimalMemoryProvider(MemoryProvider):
     def initialize(self, session_id: str, **kwargs) -> None:
         pass
 
-    def get_tool_schemas(self) -> list:
+    def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return []
-
-
-# ---------------------------------------------------------------------------
-# MemoryProvider ABC tests
-# ---------------------------------------------------------------------------
 
 
 class TestMemoryProviderABC:
