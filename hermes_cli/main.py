@@ -6877,9 +6877,13 @@ def _install_psutil_android_compat(
         archive = tmp_path / "psutil.tar.gz"
         urllib.request.urlretrieve(psutil_url, archive)
         with tarfile.open(archive) as tar:
-            import os
             base_path = os.path.realpath(tmp_path)
-            for member in tar.getmembers():
+            members = tar.getmembers()
+            for member in members:
+                if member.issym() or member.islnk() or not (member.isdir() or member.isreg()):
+                    raise tarfile.TarError(
+                        f"refusing to extract non-file member: {member.name!r}"
+                    )
                 try:
                     target_path = os.path.realpath(os.path.join(base_path, member.name))
                     if os.path.commonpath([base_path, target_path]) != base_path:
@@ -6893,7 +6897,8 @@ def _install_psutil_android_compat(
             try:
                 tar.extractall(tmp_path, filter="data")
             except TypeError:
-                tar.extractall(tmp_path)
+                for member in members:
+                    tar.extract(member, tmp_path)
 
         src_root = next(
             p for p in tmp_path.iterdir() if p.is_dir() and p.name.startswith("psutil-")
