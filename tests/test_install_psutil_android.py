@@ -62,7 +62,10 @@ def test_rejects_symlink_members(tmp_path, monkeypatch):
     _mock_download(monkeypatch, archive)
     monkeypatch.setattr(sys, "argv", ["install_psutil_android.py"])
 
-    with pytest.raises(tarfile.TarError, match="refusing to extract non-file member"):
+    with pytest.raises(
+        tarfile.TarError,
+        match="refusing to extract link or special member",
+    ):
         install_psutil_android.main()
 
 
