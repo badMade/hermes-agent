@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: contributor-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   check-attribution:
     runs-on: ubuntu-latest
