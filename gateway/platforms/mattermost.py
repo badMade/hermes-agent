@@ -442,30 +442,22 @@ class MattermostAdapter(BasePlatformAdapter):
                 return await self.send(
                     chat_id, f"{caption or ''}\n{url}".strip(), reply_to
                 )
-            except ValueError as exc:
-                logger.warning(
-                    "Mattermost: failed to download %s: %s",
-                    url,
-                    exc,
-                )
-                return await self.send(
-                    chat_id, f"{caption or ''}\n{url}".strip(), reply_to
-                )
-            except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as exc:
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
                 if attempt < 2:
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
                 logger.warning(
-                    "Mattermost: failed to download %s: %s",
+                    "Mattermost: failed to download %s after %d attempts: %s",
                     url,
+                    attempt + 1,
                     exc,
                 )
                 return await self.send(
                     chat_id, f"{caption or ''}\n{url}".strip(), reply_to
                 )
-            except aiohttp.ClientError as exc:
+            except ValueError as exc:
                 logger.warning(
-                    "Mattermost: invalid URL or client error for %s: %s",
+                    "Mattermost: failed to download %s: %s",
                     url,
                     exc,
                 )
