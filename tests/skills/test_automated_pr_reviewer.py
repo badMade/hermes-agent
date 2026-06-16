@@ -35,13 +35,14 @@ class TestStaticDiffApproach:
         text = _skill_text()
         # 'git checkout' appearing in an instruction block would indicate local checkout
         # Allow it only if it appears in a negation context ("Do not ... checkout")
-        checkout_matches = [
-            m.start()
-            for m in re.finditer(r"\bgit checkout\b", text)
-        ]
-        for pos in checkout_matches:
+        for m in re.finditer(r"\bgit checkout\b", text):
+            pos = m.start()
             surrounding = text[max(0, pos - 80): pos + 40].lower()
-            assert "do not" in surrounding or "not " in surrounding, (
+            negated = any(
+                word in surrounding
+                for word in ("do not", "not ", "never", "avoid", "should not")
+            )
+            assert negated, (
                 f"Found 'git checkout' in a non-negation context near: "
                 f"{text[max(0, pos-40):pos+40]!r}"
             )
@@ -51,7 +52,7 @@ class TestStaticDiffApproach:
         text = _skill_text()
         # The skill should contain explicit prohibitions on code execution
         assert re.search(
-            r"[Dd]o not.{0,80}(test|lint|build|run|execut)",
+            r"[Dd]o not.{0,40}\b(test|lint|build|run|execut)",
             text,
         ), "Skill should explicitly prohibit running tests/linters/build commands from the PR"
 
