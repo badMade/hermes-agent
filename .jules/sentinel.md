@@ -11,3 +11,9 @@
 **Vulnerability:** Use of `subprocess.run(shell=True)` in `hermes_cli/tools_config.py` for cua-driver installation.
 **Learning:** Using `shell=True` can introduce shell injection vulnerabilities, especially if any parts of the command are dynamic. Although this specific case was a hardcoded URL string, it's best practice to replace `shell=True` with an argument list for defense in depth.
 **Prevention:** Avoid `shell=True` in `subprocess.run` and pass the command and its arguments as a list. When using `bash -c`, pass the script content as an argument to `-c` rather than interpolating it into a single string with `shell=True`.
+
+## 2024-05-26 - Security Enhancement: Shell Injection Prevention
+**Vulnerability:** Shell injection via `subprocess.run(..., shell=True)` using unquoted string templates in `tests/tools/test_search_hidden_dirs.py`.
+
+**Learning:** `shell=True` allows shell metacharacters and logic operators (`|`, `&&`, `;`) to alter intended execution paths or escalate privileges.
+**Prevention:** Avoid `shell=True` in `subprocess`. Always pass a list of arguments directly instead of a command string. If a trusted shell-style string must be parsed, use `shlex.split()` (not `.split()`, which breaks on quoted args and paths with spaces), bypassing the system shell entirely. Update test frameworks to ensure the modified command forms execute successfully without regressions.
