@@ -39,6 +39,7 @@ from urllib.parse import urljoin
 from utils import is_truthy_value
 from tools.managed_tool_gateway import resolve_managed_tool_gateway
 from tools.tool_backend_helpers import managed_nous_tools_enabled, resolve_openai_audio_api_key
+from tools.environments.local import _sanitize_subprocess_env
 
 logger = logging.getLogger(__name__)
 
@@ -501,8 +502,8 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
-            command_args = shlex.split(command)
-            subprocess.run(command_args, check=True, capture_output=True, text=True)
+            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
+            subprocess.run(command, shell=True, check=True, capture_output=True, text=True, env=sanitized_env)
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
             if not txt_files:
