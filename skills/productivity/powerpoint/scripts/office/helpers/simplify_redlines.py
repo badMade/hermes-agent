@@ -10,7 +10,6 @@ Rules:
 - Only merges if truly adjacent (only whitespace between them)
 """
 
-import defusedxml
 import defusedxml.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -131,7 +130,7 @@ def get_tracked_change_authors(doc_xml_path: Path) -> dict[str, int]:
     try:
         tree = ET.parse(doc_xml_path)
         root = tree.getroot()
-    except (ET.ParseError, defusedxml.DefusedXmlException):
+    except ET.ParseError:
         return {}
 
     namespaces = {"w": WORD_NS}
@@ -166,7 +165,7 @@ def _get_authors_from_docx(docx_path: Path) -> dict[str, int]:
                         if author:
                             authors[author] = authors.get(author, 0) + 1
                 return authors
-    except (zipfile.BadZipFile, ET.ParseError, defusedxml.DefusedXmlException):
+    except (zipfile.BadZipFile, ET.ParseError):
         return {}
 
 
