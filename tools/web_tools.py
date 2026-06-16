@@ -1370,6 +1370,16 @@ async def web_extract_tool(
     
     try:
         logger.info("Extracting content from %d URL(s)", len(urls))
+        backend = _get_extract_backend()
+
+        if backend in {"searxng", "brave-free", "ddgs"}:
+            # These backends are search-only — they cannot extract URL content.
+            _label = {"searxng": "SearXNG", "brave-free": "Brave Search (free tier)", "ddgs": "DuckDuckGo (ddgs)"}[backend]
+            return json.dumps({
+                "success": False,
+                "error": f"{_label} is a search-only backend and cannot extract URL content. "
+                         "Set web.extract_backend to firecrawl, tavily, exa, or parallel.",
+            }, ensure_ascii=False)
 
         # ── SSRF protection — filter out private/internal URLs before any backend ──
         safe_urls = []
@@ -1387,8 +1397,6 @@ async def web_extract_tool(
         if not safe_urls:
             results = []
         else:
-            backend = _get_extract_backend()
-
             if backend == "parallel":
                 results = await _parallel_extract(safe_urls)
             elif backend == "exa":
@@ -1400,14 +1408,6 @@ async def web_extract_tool(
                     "include_images": False,
                 })
                 results = _normalize_tavily_documents(raw, fallback_url=safe_urls[0] if safe_urls else "")
-            elif backend in {"searxng", "brave-free", "ddgs"}:
-                # These backends are search-only — they cannot extract URL content
-                _label = {"searxng": "SearXNG", "brave-free": "Brave Search (free tier)", "ddgs": "DuckDuckGo (ddgs)"}[backend]
-                return json.dumps({
-                    "success": False,
-                    "error": f"{_label} is a search-only backend and cannot extract URL content. "
-                             "Set web.extract_backend to firecrawl, tavily, exa, or parallel.",
-                }, ensure_ascii=False)
             else:
                 # ── Firecrawl extraction ──
                 # Determine requested formats for Firecrawl v2
