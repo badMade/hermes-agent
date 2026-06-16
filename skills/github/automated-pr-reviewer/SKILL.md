@@ -13,13 +13,13 @@ metadata:
 
 # Automated PR Reviewer Workflow
 
-This skill sets up a scheduled workflow that monitors GitHub repository Pull Request comments for the exact phrase `@jules`. A matching comment is only a review request when it was posted by a trusted repository participant and the PR branch is from the same repository. Authorized requests are reviewed using a static diff approach, and the PR is labeled only after the review is safely completed.
+This skill sets up a scheduled workflow that monitors GitHub repository Pull Request comments for a standalone `@jules` trigger. A matching comment is only a review request when it was posted by a trusted repository participant and the PR branch is from the same repository. Authorized requests are reviewed using a static diff approach, and the PR is labeled only after the review is safely completed.
 
 ## How It Works
 
 1. **Trigger**: A scheduled job runs periodically (e.g., via cron).
 2. **Scan**: It queries GitHub for open PR comments mentioning `@jules` (all pages).
-3. **Authorize**: It confirms at least one matching comment was made by an `OWNER`, `MEMBER`, or `COLLABORATOR` and that the comment is a genuine trigger request (not just a mention of `@jules`).
+3. **Authorize**: It confirms at least one matching comment was made by an `OWNER`, `MEMBER`, or `COLLABORATOR` and that the comment contains `@jules` as a standalone token.
 4. **Trust Source**: It only reviews PRs whose head branch comes from the same repository, skipping forks by default.
 5. **Filter**: It filters out PRs that already have the `reviewed` label.
 6. **Action**: For each authorized PR, the agent performs a static code review from the diff.
