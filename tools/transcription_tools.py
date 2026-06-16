@@ -501,8 +501,7 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
-            command_args = shlex.split(command)
-            subprocess.run(command_args, check=True, capture_output=True, text=True)
+            subprocess.run(shlex.split(command), check=True, capture_output=True, text=True)
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
             if not txt_files:
@@ -526,12 +525,6 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
             "success": False,
             "transcript": "",
             "error": f"Invalid {LOCAL_STT_COMMAND_ENV} template, missing placeholder: {e}",
-        }
-    except ValueError as e:
-        return {
-            "success": False,
-            "transcript": "",
-            "error": f"Invalid {LOCAL_STT_COMMAND_ENV} template, could not parse command: {e}",
         }
     except subprocess.CalledProcessError as e:
         details = e.stderr.strip() or e.stdout.strip() or str(e)

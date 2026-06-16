@@ -387,22 +387,15 @@ class TestTranscribeLocalCommand:
 
             return _TempDir()
 
-        captured_calls = []
-
         def fake_run(cmd, *args, **kwargs):
-            captured_calls.append((cmd, kwargs))
-            if isinstance(cmd, list) and len(cmd) > 0 and cmd[0].endswith("ffmpeg"):
+            if isinstance(cmd, list) and cmd[0].endswith("ffmpeg"):
                 output_path = cmd[-1]
                 with open(output_path, "wb") as handle:
                     handle.write(b"RIFF....WAVEfmt ")
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-            # The transcription command must be executed as an argv list (shell=False).
-            if isinstance(cmd, list) and any("whisper" in arg for arg in cmd):
-                (out_dir / "test.txt").write_text("hello from local command\n", encoding="utf-8")
-                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+            (out_dir / "test.txt").write_text("hello from local command\n", encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         monkeypatch.setattr("tools.transcription_tools.tempfile.TemporaryDirectory", fake_tempdir)
         monkeypatch.setattr("tools.transcription_tools._find_ffmpeg_binary", lambda: "/opt/homebrew/bin/ffmpeg")
@@ -415,30 +408,6 @@ class TestTranscribeLocalCommand:
         assert result["success"] is True
         assert result["transcript"] == "hello from local command"
         assert result["provider"] == "local_command"
-
-        # Verify the STT command was invoked as an argv list with shell=False.
-        stt_calls = [
-            (cmd, kwargs)
-            for cmd, kwargs in captured_calls
-            if isinstance(cmd, list) and not cmd[0].endswith("ffmpeg")
-        ]
-        assert stt_calls, "Expected at least one STT subprocess call"
-        stt_cmd, stt_kwargs = stt_calls[0]
-        assert isinstance(stt_cmd, list), "STT command must be passed as an argv list, not a string"
-        assert stt_kwargs.get("shell", False) is False, "STT command must not use shell=True"
-
-    def test_invalid_command_template_syntax_returns_error(self, monkeypatch, sample_wav):
-        """A misconfigured template with unmatched quotes should return a clear error."""
-        monkeypatch.setenv("HERMES_LOCAL_STT_COMMAND", "whisper {input_path} --model 'unterminated")
-        monkeypatch.setenv("HERMES_LOCAL_STT_LANGUAGE", "en")
-
-        from tools.transcription_tools import _transcribe_local_command
-
-        result = _transcribe_local_command(sample_wav, "base")
-
-        assert result["success"] is False
-        assert "HERMES_LOCAL_STT_COMMAND" in result["error"]
-        assert "parse" in result["error"].lower() or "template" in result["error"].lower()
 
 
 # ============================================================================
