@@ -97,7 +97,7 @@ def set_session_vars(
 
     Callers should typically call ``clear_session_vars(tokens)`` in a
     ``finally`` block to mark the session as explicitly ended (suppressing
-    environment fallbacks).
+    environment fallbacks) rather than restoring prior contextvar values.
 
     Returns a dict of tokens keyed by contextvar.
     """
