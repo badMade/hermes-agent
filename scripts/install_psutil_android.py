@@ -106,7 +106,19 @@ def main() -> int:
             except TypeError:
                 # Python < 3.12 — no filter kwarg
                 for member in members:
-                    tar.extract(member, tmp_path)
+                    target_path = Path(os.path.realpath(os.path.join(base_path, member.name)))
+                    if member.isdir():
+                        target_path.mkdir(parents=True, exist_ok=True)
+                        continue
+
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    extracted = tar.extractfile(member)
+                    if extracted is None:
+                        raise tarfile.TarError(
+                            f"refusing to extract non-file member: {member.name!r}"
+                        )
+                    with extracted, target_path.open("wb") as dst:
+                        shutil.copyfileobj(extracted, dst)
 
         try:
             src_root = next(
