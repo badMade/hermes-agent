@@ -216,6 +216,7 @@ class SignalAdapter(BasePlatformAdapter):
 
         # HTTP client
         self.client: Optional[httpx.AsyncClient] = None
+        self._interaction_authorizer = None
 
         # Background tasks
         self._sse_task: Optional[asyncio.Task] = None
@@ -577,12 +578,28 @@ class SignalAdapter(BasePlatformAdapter):
         reply_to_id = str(quote_data.get("id")) if quote_data.get("id") else None
         reply_to_text = quote_data.get("text")
 
+        # Build session source early so DM authorization can run before any
+        # attachment fetch/cache side effects.
+        source = self.build_source(
+            chat_id=chat_id,
+            chat_name=group_info.get("groupName") if group_info else sender_name,
+            chat_type=chat_type,
+            user_id=sender,
+            user_name=sender_name or sender,
+            user_id_alt=sender_uuid if sender_uuid else None,
+            chat_id_alt=group_id if is_group else None,
+        )
+
         # Process attachments
         attachments_data = data_message.get("attachments", [])
         media_urls = []
         media_types = []
+        allow_attachment_fetch = True
+        if chat_type == "dm" and not self._is_dm_sender_authorized(source, sender):
+            allow_attachment_fetch = False
+            logger.debug("Signal: skipping attachment fetch for unauthorized sender %s", redact_phone(sender))
 
-        if attachments_data and not getattr(self, "ignore_attachments", False):
+        if attachments_data and allow_attachment_fetch and not getattr(self, "ignore_attachments", False):
             for att in attachments_data:
                 att_id = att.get("id")
                 att_size = att.get("size", 0)
@@ -615,17 +632,6 @@ class SignalAdapter(BasePlatformAdapter):
                 len(media_urls) if media_urls else 0,
             )
             return
-
-        # Build session source
-        source = self.build_source(
-            chat_id=chat_id,
-            chat_name=group_info.get("groupName") if group_info else sender_name,
-            chat_type=chat_type,
-            user_id=sender,
-            user_name=sender_name or sender,
-            user_id_alt=sender_uuid if sender_uuid else None,
-            chat_id_alt=group_id if is_group else None,
-        )
 
         # Determine message type from media
         msg_type = MessageType.TEXT
@@ -668,6 +674,45 @@ class SignalAdapter(BasePlatformAdapter):
         )
 
         await self.handle_message(event)
+
+    def set_interaction_authorizer(self, authorizer) -> None:
+        """Install a callback that returns True when a sender is authorized."""
+        self._interaction_authorizer = authorizer
+
+    def _is_dm_sender_authorized(self, source, sender: str) -> bool:
+        """Decide whether a DM sender is authorized for pre-auth side effects.
+
+        Gates are evaluated in the following order, mirroring
+        ``_reactions_enabled()``:
+
+        1. An injected ``_interaction_authorizer`` (if set via
+           ``set_interaction_authorizer``) takes precedence. Fails closed
+           on exceptions.
+        2. Gateway runner authorization (when the adapter is wired to a
+           runner) — mirrors the runner's full ``_is_user_authorized()``
+           decision. Fails closed on exceptions.
+        3. DM allowlist fallback — when neither of the above is wired,
+           compares ``sender`` against ``self.dm_allow_from``; a ``"*"``
+           entry allows all users (the default).
+        """
+        if callable(self._interaction_authorizer):
+            try:
+                return bool(self._interaction_authorizer(source))
+            except Exception as exc:
+                logger.warning("Signal: interaction authorization check failed: %s", exc, exc_info=True)
+                return False
+
+        auth_fn = getattr(getattr(self, "gateway_runner", None), "_is_user_authorized", None)
+        if callable(auth_fn):
+            try:
+                return bool(auth_fn(source))
+            except Exception as exc:
+                logger.warning("Signal: runner authorization check failed: %s", exc, exc_info=True)
+                return False
+
+        if "*" not in self.dm_allow_from and sender not in self.dm_allow_from:
+            return False
+        return True
 
     def _remember_recipient_identifiers(
         self, number: Optional[str], service_id: Optional[str]
