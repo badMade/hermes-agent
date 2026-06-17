@@ -37,6 +37,7 @@ import signal
 import tempfile
 import threading
 import time
+import weakref
 from collections import OrderedDict
 from contextvars import copy_context
 from pathlib import Path
@@ -2891,10 +2892,32 @@ class GatewayRunner:
                 agent.close()
         except Exception:
             pass
-        # Auxiliary async clients (session_search/web/vision/etc.) live in a
-        # process-global cache and are created inside worker threads. Clean up
-        # any entries whose event loop is now dead so their httpx transports do
-        # not accumulate across gateway turns.
+        self._cleanup_stale_auxiliary_clients()
+
+    def _cleanup_session_tool_resources(self, session_id: Optional[str]) -> None:
+        """Hard-clean tool state for a session whose cached agent was evicted."""
+        if not session_id:
+            return
+
+        try:
+            from tools.process_registry import process_registry
+            process_registry.kill_all(task_id=session_id)
+        except Exception:
+            pass
+        try:
+            from tools.terminal_tool import cleanup_vm
+            cleanup_vm(session_id)
+        except Exception:
+            pass
+        try:
+            from tools.browser_tool import cleanup_browser
+            cleanup_browser(session_id)
+        except Exception:
+            pass
+        self._cleanup_stale_auxiliary_clients()
+
+    def _cleanup_stale_auxiliary_clients(self) -> None:
+        """Drop stale process-global auxiliary async clients after teardown."""
         try:
             from agent.auxiliary_client import cleanup_stale_async_clients
             cleanup_stale_async_clients()
@@ -4002,8 +4025,15 @@ class GatewayRunner:
                         # still mid-turn when the expiry fires.
                         if _cached_agent is None:
                             _cached_agent = self._running_agents.get(key)
+                        if _cached_agent is None:
+                            _cached_agent = self._pop_soft_evicted_agent(key)
                         if _cached_agent and _cached_agent is not _AGENT_PENDING_SENTINEL:
                             self._cleanup_agent_resources(_cached_agent)
+                        else:
+                            # Cache eviction may have soft-released and removed
+                            # the AIAgent before the session boundary. Still
+                            # hard-clean per-task tool state by session_id.
+                            self._cleanup_session_tool_resources(entry.session_id)
                         # Drop the cache entry so the AIAgent (and its LLM
                         # clients, tool schemas, memory provider refs) can
                         # be garbage-collected.  Otherwise the cache grows
@@ -8130,6 +8160,7 @@ class GatewayRunner:
         # Close tool resources on the old agent (terminal sandboxes, browser
         # daemons, background processes) before evicting from cache.
         # Guard with getattr because test fixtures may skip __init__.
+        _old_agent = None
         _cache_lock = getattr(self, "_agent_cache_lock", None)
         if _cache_lock is not None:
             with _cache_lock:
@@ -8137,6 +8168,14 @@ class GatewayRunner:
                 _old_agent = _cached[0] if isinstance(_cached, tuple) else _cached if _cached else None
             if _old_agent is not None:
                 self._cleanup_agent_resources(_old_agent)
+        if _cache_lock is not None and _old_agent is None:
+            _old_agent = self._pop_soft_evicted_agent(session_key)
+            if _old_agent is not None:
+                self._cleanup_agent_resources(_old_agent)
+        if _cache_lock is not None and _old_agent is None and old_entry is not None:
+            # The agent may have been soft-evicted from _agent_cache for LRU/TTL
+            # memory management, leaving tool state alive under the session_id.
+            self._cleanup_session_tool_resources(old_entry.session_id)
         self._evict_cached_agent(session_key)
 
         # Discard any /queue overflow for this session — /new is a
@@ -13722,8 +13761,53 @@ class GatewayRunner:
         if release_running_state:
             self._release_running_agent_state(session_key)
 
-    def _evict_cached_agent(self, session_key: str) -> None:
-        """Remove a cached agent for a session (called on /new, /model, etc)."""
+    def _soft_evicted_agents(self) -> "weakref.WeakValueDictionary[str, Any]":
+        """Weak registry of cache-evicted agents that may still own resources."""
+        registry = getattr(self, "_agent_cache_soft_evicted", None)
+        if registry is None:
+            registry = weakref.WeakValueDictionary()
+            self._agent_cache_soft_evicted = registry
+        return registry
+
+    def _remember_soft_evicted_agent(self, session_key: str, agent: Any) -> None:
+        """Track a soft-evicted agent without extending its lifetime."""
+        if not session_key or agent is None:
+            return
+        try:
+            self._soft_evicted_agents()[session_key] = agent
+        except TypeError:
+            # Some test doubles may not support weak references. They do not
+            # own real tool state, so falling back to session_id cleanup is OK.
+            pass
+
+    def _pop_soft_evicted_agent(self, session_key: str) -> Any:
+        """Return and forget a live soft-evicted agent, if one still exists."""
+        registry = getattr(self, "_agent_cache_soft_evicted", None)
+        if registry is None:
+            return None
+        try:
+            return registry.pop(session_key, None)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _agent_from_cache_entry(entry: Any) -> Any:
+        """Return the agent object from a cache entry, if present."""
+        if isinstance(entry, tuple) and entry:
+            return entry[0]
+        return entry
+
+    def _evict_cached_agent(self, session_key: str) -> Any:
+        """Remove and return a cached agent for a session.
+
+        This is intentionally non-destructive: callers that invalidate a
+        session but need to preserve its tool state should only pop the cache.
+        Call ``_cleanup_evicted_cached_agent`` when the evicted instance is no
+        longer resumable and its resources must be closed.
+        """
+        _cache = getattr(self, "_agent_cache", None)
+        if _cache is None:
+            return None
         _lock = getattr(self, "_agent_cache_lock", None)
         if _lock:
             with _lock:
@@ -13839,6 +13923,7 @@ class GatewayRunner:
                 key, len(_cache),
             )
             if agent is not None:
+                self._remember_soft_evicted_agent(key, agent)
                 threading.Thread(
                     target=self._release_evicted_agent_soft,
                     args=(agent,),
@@ -13887,6 +13972,7 @@ class GatewayRunner:
                 "Agent cache idle-TTL evict: session=%s (idle=%.0fs)",
                 key, now - getattr(agent, "_last_activity_ts", now),
             )
+            self._remember_soft_evicted_agent(key, agent)
             threading.Thread(
                 target=self._release_evicted_agent_soft,
                 args=(agent,),
