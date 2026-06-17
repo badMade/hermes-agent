@@ -105,7 +105,7 @@ rm -f "$PRS_TO_REVIEW.candidates"
 
 if [ ! -s "$PRS_TO_REVIEW" ]; then
   echo "No authorized PRs to review."
-  return 0 2>/dev/null || true
+  return 0
 fi
 
 # Ensure the jules-reviewed label exists before we attempt to apply it.
