@@ -480,28 +480,13 @@ class TrajectoryCompressor:
         if not trajectory:
             return []
 
-        texts = [(turn.get("value") or "") for turn in trajectory]
-        empty_mask = [not text for text in texts]
-        non_empty_texts = [text for text in texts if text]
+        texts = [turn.get("value", "") for turn in trajectory]
         try:
-            if not non_empty_texts:
-                return [0] * len(texts)
             # Optimize by batch-encoding if supported by the tokenizer
-            encoded = self.tokenizer(non_empty_texts)
-            lengths_iter = iter(len(ids) for ids in encoded["input_ids"])
-            return [0 if is_empty else next(lengths_iter) for is_empty in empty_mask]
-        except (TypeError, AttributeError):
-            # Fallback for tokenizers that don't support batch calling (__call__).
-            return [self.count_tokens(text) for text in texts]
-        except Exception as e:
-            # Catching other potential exceptions from the tokenizer, but log them
-            # as this might indicate an issue with the tokenizer itself.
-            self.logger.warning(
-                "Batch tokenization failed unexpectedly for tokenizer '%s', "
-                "falling back to iterative encoding. Error: %s",
-                self.config.tokenizer_name,
-                e,
-            )
+            encoded = self.tokenizer(texts)
+            return [len(ids) for ids in encoded["input_ids"]]
+        except Exception:
+            # Fallback to the individual token counting fallback if batch encoding fails
             return [self.count_tokens(text) for text in texts]
 
     def _find_protected_indices(self, trajectory: List[Dict[str, str]]) -> Tuple[set, int, int]:
