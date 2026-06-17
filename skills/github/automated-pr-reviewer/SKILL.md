@@ -66,7 +66,7 @@ main() {
 
   REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
   PRS_TO_REVIEW=$(mktemp "${TMPDIR:-/tmp}/hermes-prs-to-review.XXXXXX")
-  trap 'rm -f "$PRS_TO_REVIEW" "$PRS_TO_REVIEW.candidates"' RETURN
+  trap 'rm -f "$PRS_TO_REVIEW" "$PRS_TO_REVIEW.candidates"' RETURN EXIT
 
   set -euo pipefail
 
