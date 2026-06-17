@@ -68,7 +68,19 @@ main() {
   PRS_TO_REVIEW=$(mktemp "${TMPDIR:-/tmp}/hermes-prs-to-review.XXXXXX")
   trap 'rm -f "$PRS_TO_REVIEW" "$PRS_TO_REVIEW.candidates"' RETURN
 
-echo "Scanning $REPO for authorized '@jules code review' PR review requests..."
+  set -euo pipefail
+
+  # Ensure GH CLI is installed and authenticated
+  if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
+    echo "GitHub CLI (gh) is not installed or not authenticated."
+    return 1 2>/dev/null || true
+  fi
+
+  REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+  PRS_TO_REVIEW=$(mktemp "${TMPDIR:-/tmp}/hermes-prs-to-review.XXXXXX")
+  trap 'rm -f "$PRS_TO_REVIEW" "$PRS_TO_REVIEW.candidates"' RETURN EXIT
+
+  echo "Scanning $REPO for authorized '@jules code review' PR review requests..."
 
 # Search all pages for open PRs with matching comments, excluding PRs already reviewed.
 gh api --paginate -X GET search/issues \
