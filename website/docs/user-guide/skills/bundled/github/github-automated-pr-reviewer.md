@@ -86,7 +86,9 @@ main() {
   PRS_TO_REVIEW=$(mktemp "${TMPDIR:-/tmp}/hermes-prs-to-review.XXXXXX")
   trap 'rm -f "$PRS_TO_REVIEW" "$PRS_TO_REVIEW.candidates"' RETURN
 
-echo "Scanning $REPO for authorized '@jules code review' PR review requests..."
+  trap 'rm -f "$PRS_TO_REVIEW" "$PRS_TO_REVIEW.candidates"' RETURN
+
+  echo "Scanning $REPO for authorized '@jules code review' PR review requests..."
 
 # Search all pages for open PRs with matching comments, excluding PRs already reviewed.
 gh api --paginate -X GET search/issues \
