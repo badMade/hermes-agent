@@ -480,11 +480,16 @@ class TrajectoryCompressor:
         if not trajectory:
             return []
 
-        texts = [turn.get("value", "") for turn in trajectory]
+        texts = [(turn.get("value") or "") for turn in trajectory]
+        empty_mask = [not text for text in texts]
+        non_empty_texts = [text for text in texts if text]
         try:
+            if not non_empty_texts:
+                return [0] * len(texts)
             # Optimize by batch-encoding if supported by the tokenizer
-            encoded = self.tokenizer(texts)
-            return [len(ids) for ids in encoded["input_ids"]]
+            encoded = self.tokenizer(non_empty_texts)
+            lengths_iter = iter(len(ids) for ids in encoded["input_ids"])
+            return [0 if is_empty else next(lengths_iter) for is_empty in empty_mask]
         except (TypeError, AttributeError):
             # Fallback for tokenizers that don't support batch calling (__call__).
             return [self.count_tokens(text) for text in texts]
