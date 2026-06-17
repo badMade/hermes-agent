@@ -9763,7 +9763,9 @@ class AIAgent:
         # reasoning fields are present (some models/providers embed thinking
         # directly in the content rather than returning separate API fields).
         if not reasoning_text:
-            content = assistant_message.content or ""
+            content = assistant_message.content
+            if not isinstance(content, str):
+                content = ""
             think_blocks = re.findall(r'<think>(.*?)</think>', content, flags=re.DOTALL)
             if think_blocks:
                 combined = "\n\n".join(b.strip() for b in think_blocks if b.strip())
