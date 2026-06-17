@@ -1851,6 +1851,238 @@ class TestSignalContentlessEnvelope:
         assert captured["event"].media_urls == ["/tmp/img.png"]
 
     @pytest.mark.asyncio
+    async def test_skips_attachment_fetch_for_unauthorized_dm_sender(self, monkeypatch):
+        """DM attachments must not be fetched before authorization is checked."""
+        adapter = _make_signal_adapter(monkeypatch)
+        captured = {}
+
+        async def fake_handle(event):
+            captured["event"] = event
+
+        adapter.handle_message = fake_handle
+        adapter.set_interaction_authorizer(lambda _source: False)
+
+        fetch_calls = []
+
+        async def fake_fetch(attachment_id):
+            fetch_calls.append(attachment_id)
+            return "/tmp/should_not_exist.png", ".png"
+
+        adapter._fetch_attachment = fake_fetch
+
+        await adapter._handle_envelope({
+            "envelope": {
+                "sourceNumber": "+15550001111",
+                "sourceUuid": "05668cf3-8ffa-467e-9b24-f5eefa5cf475",
+                "sourceName": "Unauthorized Sender",
+                "timestamp": 1777600696077,
+                "dataMessage": {
+                    "message": "with attachment",
+                    "attachments": [{"id": "att-123", "size": 200}],
+                },
+            }
+        })
+
+        assert fetch_calls == []
+        assert "event" in captured
+        assert captured["event"].media_urls == []
+
+    @pytest.mark.asyncio
+    async def test_fails_closed_when_authorizer_raises(self, monkeypatch):
+        """A raising authorizer must fail closed (skip fetch), not crash the loop."""
+        adapter = _make_signal_adapter(monkeypatch)
+        captured = {}
+
+        async def fake_handle(event):
+            captured["event"] = event
+
+        adapter.handle_message = fake_handle
+
+        def boom(_source):
+            raise RuntimeError("authorizer backend down")
+
+        adapter.set_interaction_authorizer(boom)
+
+        fetch_calls = []
+
+        async def fake_fetch(attachment_id):
+            fetch_calls.append(attachment_id)
+            return "/tmp/should_not_exist.png", ".png"
+
+        adapter._fetch_attachment = fake_fetch
+
+        await adapter._handle_envelope({
+            "envelope": {
+                "sourceNumber": "+15550001111",
+                "sourceUuid": "05668cf3-8ffa-467e-9b24-f5eefa5cf475",
+                "sourceName": "Sender",
+                "timestamp": 1777600696077,
+                "dataMessage": {
+                    "message": "with attachment",
+                    "attachments": [{"id": "att-123", "size": 200}],
+                },
+            }
+        })
+
+        assert fetch_calls == []
+        assert "event" in captured
+        assert captured["event"].media_urls == []
+
+    @pytest.mark.asyncio
+    async def test_skips_attachment_fetch_via_runner_authorization(self, monkeypatch):
+        """When no authorizer is injected, falls back to gateway_runner._is_user_authorized."""
+        adapter = _make_signal_adapter(monkeypatch)
+        captured = {}
+
+        async def fake_handle(event):
+            captured["event"] = event
+
+        adapter.handle_message = fake_handle
+
+        class FakeRunner:
+            def _is_user_authorized(self, _source):
+                return False
+
+        adapter.gateway_runner = FakeRunner()
+
+        fetch_calls = []
+
+        async def fake_fetch(attachment_id):
+            fetch_calls.append(attachment_id)
+            return "/tmp/should_not_exist.png", ".png"
+
+        adapter._fetch_attachment = fake_fetch
+
+        await adapter._handle_envelope({
+            "envelope": {
+                "sourceNumber": "+15550001111",
+                "sourceUuid": "05668cf3-8ffa-467e-9b24-f5eefa5cf475",
+                "sourceName": "Unauthorized Sender",
+                "timestamp": 1777600696077,
+                "dataMessage": {
+                    "message": "with attachment",
+                    "attachments": [{"id": "att-123", "size": 200}],
+                },
+            }
+        })
+
+        assert fetch_calls == []
+        assert "event" in captured
+        assert captured["event"].media_urls == []
+
+    @pytest.mark.asyncio
+    async def test_fails_closed_when_runner_authorization_raises(self, monkeypatch):
+        """A raising gateway_runner._is_user_authorized must fail closed."""
+        adapter = _make_signal_adapter(monkeypatch)
+        captured = {}
+
+        async def fake_handle(event):
+            captured["event"] = event
+
+        adapter.handle_message = fake_handle
+
+        class FakeRunner:
+            def _is_user_authorized(self, _source):
+                raise RuntimeError("runner backend down")
+
+        adapter.gateway_runner = FakeRunner()
+
+        fetch_calls = []
+
+        async def fake_fetch(attachment_id):
+            fetch_calls.append(attachment_id)
+            return "/tmp/should_not_exist.png", ".png"
+
+        adapter._fetch_attachment = fake_fetch
+
+        await adapter._handle_envelope({
+            "envelope": {
+                "sourceNumber": "+15550001111",
+                "sourceUuid": "05668cf3-8ffa-467e-9b24-f5eefa5cf475",
+                "sourceName": "Sender",
+                "timestamp": 1777600696077,
+                "dataMessage": {
+                    "message": "with attachment",
+                    "attachments": [{"id": "att-123", "size": 200}],
+                },
+            }
+        })
+
+        assert fetch_calls == []
+        assert "event" in captured
+        assert captured["event"].media_urls == []
+
+    @pytest.mark.asyncio
+    async def test_allows_attachment_fetch_for_dm_allowlisted_sender(self, monkeypatch):
+        """With no authorizer/runner wired, falls back to dm_allow_from allowlist."""
+        adapter = _make_signal_adapter(monkeypatch)
+        adapter.dm_allow_from = {"+15550001111"}
+        captured = {}
+
+        async def fake_handle(event):
+            captured["event"] = event
+
+        adapter.handle_message = fake_handle
+
+        png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        b64_data = base64.b64encode(png_data).decode()
+        adapter._rpc, _ = _stub_rpc({"data": b64_data})
+
+        with patch("gateway.platforms.signal.cache_image_from_bytes", return_value="/tmp/img.png"):
+            await adapter._handle_envelope({
+                "envelope": {
+                    "sourceNumber": "+15550001111",
+                    "sourceUuid": "05668cf3-8ffa-467e-9b24-f5eefa5cf475",
+                    "sourceName": "Allowed Sender",
+                    "timestamp": 1777600696077,
+                    "dataMessage": {
+                        "message": "with attachment",
+                        "attachments": [{"id": "att-123", "size": 200}],
+                    },
+                }
+            })
+
+        assert "event" in captured
+        assert captured["event"].media_urls == ["/tmp/img.png"]
+
+    @pytest.mark.asyncio
+    async def test_skips_attachment_fetch_for_dm_non_allowlisted_sender(self, monkeypatch):
+        """With no authorizer/runner wired, an unlisted sender's DM attachments are skipped."""
+        adapter = _make_signal_adapter(monkeypatch)
+        adapter.dm_allow_from = {"+15559999999"}
+        captured = {}
+
+        async def fake_handle(event):
+            captured["event"] = event
+
+        adapter.handle_message = fake_handle
+
+        fetch_calls = []
+
+        async def fake_fetch(attachment_id):
+            fetch_calls.append(attachment_id)
+            return "/tmp/should_not_exist.png", ".png"
+
+        adapter._fetch_attachment = fake_fetch
+
+        await adapter._handle_envelope({
+            "envelope": {
+                "sourceNumber": "+15550001111",
+                "sourceUuid": "05668cf3-8ffa-467e-9b24-f5eefa5cf475",
+                "sourceName": "Unlisted Sender",
+                "timestamp": 1777600696077,
+                "dataMessage": {
+                    "message": "with attachment",
+                    "attachments": [{"id": "att-123", "size": 200}],
+                },
+            }
+        })
+
+        assert fetch_calls == []
+        assert "event" in captured
+        assert captured["event"].media_urls == []
+
+    @pytest.mark.asyncio
     async def test_allows_normal_text_message(self, monkeypatch):
         """Normal text messages should still flow through."""
         adapter = _make_signal_adapter(monkeypatch)
