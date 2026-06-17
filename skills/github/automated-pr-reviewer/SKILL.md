@@ -61,7 +61,7 @@ main() {
   # Ensure GH CLI is installed and authenticated
   if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
     echo "GitHub CLI (gh) is not installed or not authenticated."
-    return 1 2>/dev/null || true
+    return 1
   fi
 
   REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
