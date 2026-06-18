@@ -239,6 +239,10 @@ class QQAdapter(BasePlatformAdapter):
         # box; callers can override with set_interaction_callback(None) or
         # register a custom handler.
         self._interaction_callback = self._default_interaction_dispatch
+        self._interaction_authorizer: Optional[Callable[[Any], bool]] = None
+        # Suppress repeated "gateway_runner not attached" warnings after the
+        # first occurrence so log noise stays low in long-running deployments.
+        self._warned_no_runner: bool = False
 
     # ------------------------------------------------------------------
     # Properties
@@ -1066,6 +1070,55 @@ class QQAdapter(BasePlatformAdapter):
         except Exception as exc:
             logger.error("Failed to write update response: %s", exc)
 
+    def _is_source_authorized_for_attachment_processing(self, source) -> bool:
+        """Check gateway authorization before attachment network I/O."""
+        runner = getattr(self, "gateway_runner", None)
+        auth_fn = getattr(runner, "_is_user_authorized", None)
+        if not callable(auth_fn):
+            if not self._warned_no_runner:
+                logger.warning(
+                    "[%s] Blocking QQ attachment processing before gateway authorization: "
+                    "gateway runner is not attached",
+                    self._log_tag,
+                )
+                self._warned_no_runner = True
+            else:
+                logger.debug(
+                    "[%s] Blocking QQ attachment processing: gateway runner still not attached",
+                    self._log_tag,
+                )
+            return False
+        try:
+            return bool(auth_fn(source))
+        except Exception as exc:
+            logger.warning(
+                "[%s] Blocking QQ attachment processing after authorization check failed: %s",
+                self._log_tag,
+                exc,
+            )
+            return False
+
+    async def _forward_message_without_attachments(
+            self,
+            *,
+            source,
+            text: str,
+            raw_message: Dict[str, Any],
+            message_id: str,
+            timestamp: str,
+    ) -> None:
+        """Forward text-only metadata so gateway auth can reject or pair safely."""
+        await self.handle_message(MessageEvent(
+            source=source,
+            text=text,
+            message_type=MessageType.TEXT,
+            raw_message=raw_message,
+            message_id=message_id,
+            media_urls=[],
+            media_types=[],
+            timestamp=self._parse_qq_timestamp(timestamp),
+        ))
+
     async def _handle_c2c_message(
             self,
             d: Dict[str, Any],
@@ -1105,6 +1158,23 @@ class QQAdapter(BasePlatformAdapter):
                         str(_att.get("url", ""))[:80],
                         _att.get("filename", ""),
                     )
+
+        source = self.build_source(
+            chat_id=user_openid,
+            user_id=user_openid,
+            chat_type="dm",
+        )
+
+        # Guard: skip attachment network I/O for unauthorized senders (SSRF).
+        if isinstance(attachments_raw, list) and attachments_raw and not self._is_source_authorized_for_attachment_processing(source):
+            await self._forward_message_without_attachments(
+                source=source,
+                text=text,
+                raw_message=d,
+                message_id=msg_id,
+                timestamp=timestamp,
+            )
+            return
 
         # Process all attachments uniformly (images, voice, files)
         att_result = await self._process_attachments(attachments_raw)
@@ -1146,11 +1216,7 @@ class QQAdapter(BasePlatformAdapter):
 
         self._chat_type_map[user_openid] = "c2c"
         event = MessageEvent(
-            source=self.build_source(
-                chat_id=user_openid,
-                user_id=user_openid,
-                chat_type="dm",
-            ),
+            source=source,
             text=text,
             message_type=self._detect_message_type(image_urls, image_media_types),
             raw_message=d,
