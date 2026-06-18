@@ -1080,6 +1080,32 @@ class QQAdapter(BasePlatformAdapter):
             return
         if not self._is_dm_allowed(user_openid):
             return
+        source = self.build_source(
+            chat_id=user_openid,
+            user_id=user_openid,
+            chat_type="dm",
+        )
+
+        runner = getattr(self, "gateway_runner", None)
+        if runner and hasattr(runner, "_is_user_authorized"):
+            try:
+                if not runner._is_user_authorized(source):
+                    # Let gateway-level unauthorized handling run, but skip
+                    # attachment download/decrypt/transcribe for untrusted users.
+                    event = MessageEvent(
+                        source=source,
+                        text=content,
+                        message_type=MessageType.TEXT,
+                        raw_message=d,
+                        message_id=msg_id,
+                        media_urls=[],
+                        media_types=[],
+                        timestamp=self._parse_qq_timestamp(timestamp),
+                    )
+                    await self.handle_message(event)
+                    return
+            except Exception:
+                pass
 
         text = content
         attachments_raw = d.get("attachments")
@@ -1146,11 +1172,7 @@ class QQAdapter(BasePlatformAdapter):
 
         self._chat_type_map[user_openid] = "c2c"
         event = MessageEvent(
-            source=self.build_source(
-                chat_id=user_openid,
-                user_id=user_openid,
-                chat_type="dm",
-            ),
+            source=source,
             text=text,
             message_type=self._detect_message_type(image_urls, image_media_types),
             raw_message=d,

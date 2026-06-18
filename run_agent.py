@@ -9755,7 +9755,11 @@ class AIAgent:
         # directly in the content rather than returning separate API fields).
         if not reasoning_text:
             content = assistant_message.content or ""
-            think_blocks = re.findall(r'<think>(.*?)</think>', content, flags=re.DOTALL)
+            think_blocks = (
+                re.findall(r'<think>(.*?)</think>', content, flags=re.DOTALL)
+                if isinstance(content, str)
+                else []
+            )
             if think_blocks:
                 combined = "\n\n".join(b.strip() for b in think_blocks if b.strip())
                 reasoning_text = combined or None
@@ -9797,7 +9801,13 @@ class AIAgent:
         # API replay, session transcript, gateway delivery, CLI display,
         # compression, title generation.
         if isinstance(_san_content, str) and _san_content:
-            _san_content = self._strip_think_blocks(_san_content).strip()
+            _stripped_content = self._strip_think_blocks(_san_content)
+            # Test stubs can monkeypatch/magic-mock this method and return a
+            # non-string sentinel; fall back to the sanitized content so the
+            # storage path remains robust.
+            if not isinstance(_stripped_content, str):
+                _stripped_content = _san_content
+            _san_content = sanitize_context(_stripped_content).strip()
 
         msg = {
             "role": "assistant",
