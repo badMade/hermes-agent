@@ -5441,7 +5441,14 @@ class GatewayRunner:
 
         # Check pairing store (always checked, regardless of allowlists)
         platform_name = source.platform.value if source.platform else ""
-        if self.pairing_store.is_approved(platform_name, user_id):
+        auth_user_id = user_id
+        team_id = str(getattr(source, "guild_id", "") or "").strip()
+        if source.platform == Platform.WECOM_CALLBACK and source.chat_id:
+            auth_user_id = source.chat_id
+        pairing_check_ids = [auth_user_id]
+        if team_id:
+            pairing_check_ids.insert(0, f"{team_id}:{auth_user_id}")
+        if any(self.pairing_store.is_approved(platform_name, uid) for uid in pairing_check_ids):
             return True
 
         # Check platform-specific and global allowlists
