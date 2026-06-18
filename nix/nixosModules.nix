@@ -762,7 +762,8 @@
           # HERMES_HOME so the containerized agent cannot alter host routing.
           ${if cfg.container.enable then ''
             install -d -o root -g root -m 0755 /etc/hermes-agent
-            cat > ${containerModeFile} <<'HERMES_CONTAINER_MODE_EOF'
+            _container_mode_tmp="$(mktemp ${containerModeFile}.XXXXXX)"
+            cat > "$_container_mode_tmp" <<'HERMES_CONTAINER_MODE_EOF'
     # Written by NixOS activation script. Do not edit manually.
     backend=${cfg.container.backend}
     runtime_path=${containerBin}
@@ -770,8 +771,9 @@
     exec_user=${cfg.user}
     hermes_bin=${containerDataDir}/current-package/bin/hermes
     HERMES_CONTAINER_MODE_EOF
-            chown root:root ${containerModeFile}
-            chmod 0644 ${containerModeFile}
+            chown root:root "$_container_mode_tmp"
+            chmod 0644 "$_container_mode_tmp"
+            mv -Tf "$_container_mode_tmp" ${containerModeFile}
             rm -f ${cfg.stateDir}/.hermes/.container-mode
           '' else ''
             rm -f ${containerModeFile}

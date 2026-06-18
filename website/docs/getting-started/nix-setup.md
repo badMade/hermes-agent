@@ -554,7 +554,7 @@ Host                                    Container
 ────                                    ─────────
 /nix/store/...-hermes-agent-0.1.0  ──►  /nix/store/... (ro)
 ~/.hermes -> /var/lib/hermes/.hermes       (symlink bridge, per hostUsers)
-/etc/hermes-agent/container-mode         (root-owned CLI routing metadata)
+/etc/hermes-agent/container-mode           (root-owned host CLI routing metadata)
 /var/lib/hermes/                    ──►  /data/          (rw)
   ├── current-package -> /nix/store/...    (symlink, updated each rebuild)
   ├── .gc-root -> /nix/store/...           (prevents nix-collect-garbage)

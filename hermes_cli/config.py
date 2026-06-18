@@ -276,9 +276,11 @@ def _read_container_mode_file(
 
     backend = info.get("backend", "docker")
     if backend not in _CONTAINER_MODE_ALLOWED_BACKENDS:
-        raise ValueError(
-            f"Invalid container backend {backend!r}; expected 'docker' or 'podman'."
-        )
+        if allow_runtime_path:
+            raise ValueError(
+                f"Invalid container backend {backend!r}; expected 'docker' or 'podman'."
+            )
+        backend = "docker"
 
     container_info = {
         "backend": backend,
@@ -296,13 +298,13 @@ def _read_container_mode_file(
 
 
 def get_container_exec_info() -> Optional[dict]:
-    """Read validated container mode metadata.
+    """Read trusted container routing metadata for the host CLI.
 
-    Returns a dict with keys: backend, container_name, exec_user, hermes_bin
-    and optionally runtime_path, or None if container mode is not active,
-    we're already inside the container, or HERMES_DEV=1 is set.
+    Returns a dict with keys: backend, container_name, exec_user, hermes_bin,
+    and optional runtime_path; or None if container mode is not active, we're
+    already inside the container, or HERMES_DEV=1 is set.
 
-    The NixOS activation script writes the trusted metadata file under
+    The NixOS activation script writes trusted metadata under
     /etc/hermes-agent so the containerized agent cannot modify host routing.
     A legacy HERMES_HOME/.container-mode fallback remains for older installs,
     but backend values are restricted to Docker/Podman and runtime_path is
