@@ -295,31 +295,38 @@ class TestStdinHelpers:
         pty.sendeof.assert_called_once()
         assert result["status"] == "ok"
 
-    def test_close_stdin_allows_eof_driven_process_to_finish(self, registry, tmp_path, monkeypatch):
-        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
-        session = registry.spawn_local(
-            "cat",
-            cwd=str(tmp_path),
-            use_pty=False,
-        )
+    def test_close_stdin_allows_eof_driven_process_to_finish(self, registry, tmp_path):
+        # Patch check_all_command_guards at the source module so the approval
+        # guard unconditionally approves. This prevents racy xdist failures where
+        # another worker temporarily sets HERMES_INTERACTIVE/HERMES_EXEC_ASK in
+        # the shared os.environ and makes the guard block cat's stdin payload.
+        with patch(
+            "tools.approval.check_all_command_guards",
+            return_value={"approved": True, "message": None},
+        ):
+            session = registry.spawn_local(
+                "cat",
+                cwd=str(tmp_path),
+                use_pty=False,
+            )
 
-        try:
-            time.sleep(0.5)
-            assert registry.submit_stdin(session.id, "hello")["status"] == "ok"
-            assert registry.close_stdin(session.id)["status"] == "ok"
+            try:
+                time.sleep(0.5)
+                assert registry.submit_stdin(session.id, "hello")["status"] == "ok"
+                assert registry.close_stdin(session.id)["status"] == "ok"
 
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                poll = registry.poll(session.id)
-                if poll["status"] == "exited":
-                    assert poll["exit_code"] == 0
-                    assert "hello" in poll["output_preview"]
-                    return
-                time.sleep(0.2)
+                deadline = time.time() + 5
+                while time.time() < deadline:
+                    poll = registry.poll(session.id)
+                    if poll["status"] == "exited":
+                        assert poll["exit_code"] == 0
+                        assert "hello" in poll["output_preview"]
+                        return
+                    time.sleep(0.2)
 
-            pytest.fail("process did not exit after stdin was closed")
-        finally:
-            registry.kill_process(session.id)
+                pytest.fail("process did not exit after stdin was closed")
+            finally:
+                registry.kill_process(session.id)
 
 
 # =========================================================================
