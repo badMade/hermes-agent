@@ -328,6 +328,11 @@ def _make_compressor(config=None):
         compressor = TrajectoryCompressor(config)
     # Provide a simple token counter for tests (1 token per 4 chars)
     compressor.tokenizer = MagicMock()
+
+    def _mock_call(texts):
+        return {"input_ids": [[0] * (len(text) // 4) for text in texts]}
+
+    compressor.tokenizer.side_effect = _mock_call
     compressor.tokenizer.encode = lambda text: [0] * (len(text) // 4)
     # Mock batch call used by count_turn_tokens
     compressor.tokenizer.side_effect = lambda texts, **kwargs: {
