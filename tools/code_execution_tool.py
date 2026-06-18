@@ -69,17 +69,15 @@ SANDBOX_ALLOWED_TOOLS = frozenset([
 
 # Resource limit defaults (overridable via config.yaml → code_execution.*)
 DEFAULT_TIMEOUT = 300        # 5 minutes
-DEFAULT_MAX_TOOL_CALLS = 50
-MAX_STDOUT_BYTES = 50_000    # 50 KB
-MAX_STDERR_BYTES = 10_000    # 10 KB
-
-# Environment variable scrubbing rules (shared between the local + remote
-# backends).  Secret-substring block is applied first; anything left must
-# match either a safe prefix or, on Windows, an OS-essential name.
 _SAFE_ENV_PREFIXES = ("PATH", "HOME", "USER", "LANG", "LC_", "TERM",
                       "TMPDIR", "TMP", "TEMP", "SHELL", "LOGNAME",
-                      "XDG_", "PYTHONPATH", "VIRTUAL_ENV", "CONDA",
-                      "HERMES_")
+                      "XDG_", "PYTHONPATH", "VIRTUAL_ENV", "CONDA")
+_SAFE_EXACT_ENV_VARS = frozenset({
+    # Needed by Hermes helpers imported inside execute_code subprocesses.
+    # Keep this list exact: broad HERMES_* passthrough can expose secrets
+    # loaded from profile .env files to LLM-generated code.
+    "HERMES_HOME",
+})
 _SECRET_SUBSTRINGS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL",
                       "PASSWD", "AUTH")
 

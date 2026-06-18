@@ -2605,32 +2605,14 @@ class MatrixAdapter(BasePlatformAdapter):
         return f"{self._homeserver}/_matrix/client/v1/media/download/{parts}"
 
     def _markdown_to_html(self, text: str) -> str:
-        """Convert Markdown to Matrix-compatible HTML (org.matrix.custom.html).
+        """Convert Markdown to hardened HTML (org.matrix.custom.html).
 
-        Uses the ``markdown`` library when available (installed with the
-        ``matrix`` extra).  Falls back to a comprehensive regex converter
-        that handles fenced code blocks, inline code, headers, bold,
-        italic, strikethrough, links, blockquotes, lists, and horizontal
-        rules — everything the Matrix HTML spec allows.
+        Always uses the sanitized regex-based converter to prevent
+        inline HTML and unsafe URI schemes (javascript:, data:, vbscript:)
+        from reaching Matrix clients. Handles fenced code blocks, inline
+        code, headers, bold, italic, strikethrough, links, blockquotes,
+        lists, and horizontal rules — everything the Matrix HTML spec allows.
         """
-        try:
-            import markdown as _md
-
-            md = _md.Markdown(
-                extensions=["fenced_code", "tables", "nl2br", "sane_lists"],
-            )
-            if "html_block" in md.preprocessors:
-                md.preprocessors.deregister("html_block")
-
-            html = md.convert(text)
-            md.reset()
-
-            if html.count("<p>") == 1:
-                html = html.replace("<p>", "").replace("</p>", "")
-            return html
-        except ImportError:
-            pass
-
         return self._markdown_to_html_fallback(text)
 
     # ------------------------------------------------------------------

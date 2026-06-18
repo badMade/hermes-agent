@@ -1595,30 +1595,14 @@ async def _send_matrix(token, extra, chat_id, message):
     """
     try:
         import aiohttp
-    except ImportError:
-        return {"error": "aiohttp not installed. Run: pip install aiohttp"}
-    try:
-        homeserver = (extra.get("homeserver") or os.getenv("MATRIX_HOMESERVER", "")).rstrip("/")
-        token = token or os.getenv("MATRIX_ACCESS_TOKEN", "")
-        if not homeserver or not token:
-            return {"error": "Matrix not configured (MATRIX_HOMESERVER, MATRIX_ACCESS_TOKEN required)"}
-        txn_id = f"hermes_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
-        from urllib.parse import quote
-        encoded_room = quote(chat_id, safe="")
-        url = f"{homeserver}/_matrix/client/v3/rooms/{encoded_room}/send/m.room.message/{txn_id}"
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-        # Build message payload with optional HTML formatted_body.
-        payload = {"msgtype": "m.text", "body": message}
         try:
-            import markdown as _md
-            html = _md.markdown(message, extensions=["fenced_code", "tables"])
-            # Convert h1-h6 to bold for Element X compatibility.
-            html = re.sub(r"<h[1-6]>(.*?)</h[1-6]>", r"<strong>\1</strong>", html)
-            payload["format"] = "org.matrix.custom.html"
-            payload["formatted_body"] = html
-        except ImportError:
-            pass
+            from gateway.platforms.matrix import MatrixAdapter
+            html = MatrixAdapter._markdown_to_html_fallback(message)
+            if html and html != message:
+                payload["format"] = "org.matrix.custom.html"
+                payload["formatted_body"] = html
+        except (ImportError, AttributeError, TypeError, ValueError) as exc:
+            logger.debug("Matrix HTML formatting unavailable or failed: %s", exc)
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             async with session.put(url, headers=headers, json=payload) as resp:
