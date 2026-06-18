@@ -5352,6 +5352,7 @@ class GatewayRunner:
         user_id = source.user_id
         if not user_id:
             return False
+        team_id = (source.guild_id or "").strip()
 
         platform_env_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
