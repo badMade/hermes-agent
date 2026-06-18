@@ -357,9 +357,6 @@ jobs:
             for (const review of allReviews) {
               if (review.state === 'APPROVED' ||
                   review.state === 'CHANGES_REQUESTED' ||
-            for (const review of allReviews) {
-              if (review.state === 'APPROVED' ||
-                  review.state === 'CHANGES_REQUESTED' ||
                   review.state === 'DISMISSED') {
                 if (review.user?.login) {
                   latestByReviewer[review.user.login] = review;
