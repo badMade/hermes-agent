@@ -1,0 +1,20 @@
+name: Sentinel Security Scan
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  scan:
+    uses: badMade/hermes-agent/.github/workflows/security-review-reusable.yml@main
+    with:
+      mode: pr
+      force: true
+      pr_number: ${{ github.event.pull_request.number }}
+      comment_body: '@sentinel force'
+      comment_id: null
+      comment_user: null

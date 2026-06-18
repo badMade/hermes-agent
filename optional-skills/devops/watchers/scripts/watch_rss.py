@@ -19,7 +19,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from xml.etree import ElementTree as ET
+import defusedxml.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _watermark import Watermark, format_items_as_markdown  # type: ignore
@@ -69,9 +69,7 @@ def _parse_feed(xml_bytes: bytes):
             summ_el = children.get("summary")
         summary = (summ_el.text or "").strip() if summ_el is not None else ""
 
-        entries.append(
-            {"id": guid, "title": title, "url": href, "summary": summary}
-        )
+        entries.append({"id": guid, "title": title, "url": href, "summary": summary})
     return entries
 
 
@@ -79,16 +77,29 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Watch an RSS/Atom feed.")
     p.add_argument("--name", required=True, help="Watcher name (used for state file)")
     p.add_argument("--url", required=True, help="Feed URL")
-    p.add_argument("--max", type=int, default=10,
-                   help="Max new items to emit per tick (default: 10)")
-    p.add_argument("--with-summary", action="store_true",
-                   help="Include <description>/<summary> snippet under each item")
-    p.add_argument("--timeout", type=float, default=20.0,
-                   help="HTTP timeout in seconds (default: 20)")
+    p.add_argument(
+        "--max",
+        type=int,
+        default=10,
+        help="Max new items to emit per tick (default: 10)",
+    )
+    p.add_argument(
+        "--with-summary",
+        action="store_true",
+        help="Include <description>/<summary> snippet under each item",
+    )
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=20.0,
+        help="HTTP timeout in seconds (default: 20)",
+    )
     args = p.parse_args()
 
     try:
-        req = urllib.request.Request(args.url, headers={"User-Agent": "Hermes-Watcher/1.0"})
+        req = urllib.request.Request(
+            args.url, headers={"User-Agent": "Hermes-Watcher/1.0"}
+        )
         with urllib.request.urlopen(req, timeout=args.timeout) as resp:
             xml_bytes = resp.read()
     except urllib.error.HTTPError as e:

@@ -11,3 +11,8 @@
 **Vulnerability:** Use of `subprocess.run(shell=True)` in `hermes_cli/tools_config.py` for cua-driver installation.
 **Learning:** Using `shell=True` can introduce shell injection vulnerabilities, especially if any parts of the command are dynamic. Although this specific case was a hardcoded URL string, it's best practice to replace `shell=True` with an argument list for defense in depth.
 **Prevention:** Avoid `shell=True` in `subprocess.run` and pass the command and its arguments as a list. When using `bash -c`, pass the script content as an argument to `-c` rather than interpolating it into a single string with `shell=True`.
+
+## 2024-11-20 - [Fix XXE vulnerabilities in XML parsing]
+**Vulnerability:** The codebase uses `xml.etree.ElementTree.fromstring` to parse untrusted XML data (e.g., in `wecom_callback.py`, `watch_rss.py`, `search_arxiv.py`), which is vulnerable to XML External Entity (XXE) attacks.
+**Learning:** `xml.etree.ElementTree` is vulnerable to XXE attacks. We should use `defusedxml` which is specifically designed to prevent these vulnerabilities by overriding the vulnerable methods.
+**Prevention:** Replace `xml.etree.ElementTree.fromstring` and `xml.etree.ElementTree.parse` with `defusedxml.ElementTree.fromstring` and `defusedxml.ElementTree.parse` when parsing untrusted XML, especially for data from network requests.
