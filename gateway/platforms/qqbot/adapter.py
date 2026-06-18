@@ -1082,6 +1082,30 @@ class QQAdapter(BasePlatformAdapter):
             return
 
         text = content
+        source = self.build_source(
+            chat_id=user_openid,
+            user_id=user_openid,
+            chat_type="dm",
+        )
+        if (
+            self.gateway_runner is not None
+            and hasattr(self.gateway_runner, "_is_user_authorized")
+            and not self.gateway_runner._is_user_authorized(source)
+        ):
+            self._chat_type_map[user_openid] = "c2c"
+            event = MessageEvent(
+                source=source,
+                text=text,
+                message_type=self._detect_message_type([], []),
+                raw_message=d,
+                message_id=msg_id,
+                media_urls=[],
+                media_types=[],
+                timestamp=self._parse_qq_timestamp(timestamp),
+            )
+            await self.handle_message(event)
+            return
+
         attachments_raw = d.get("attachments")
         logger.info(
             "[%s] C2C message: id=%s content=%r attachments=%s",
@@ -1146,11 +1170,7 @@ class QQAdapter(BasePlatformAdapter):
 
         self._chat_type_map[user_openid] = "c2c"
         event = MessageEvent(
-            source=self.build_source(
-                chat_id=user_openid,
-                user_id=user_openid,
-                chat_type="dm",
-            ),
+            source=source,
             text=text,
             message_type=self._detect_message_type(image_urls, image_media_types),
             raw_message=d,
