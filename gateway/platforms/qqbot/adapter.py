@@ -1081,8 +1081,15 @@ class QQAdapter(BasePlatformAdapter):
         if not self._is_dm_allowed(user_openid):
             return
 
+        source = self.build_source(
+            chat_id=user_openid,
+            user_id=user_openid,
+            chat_type="dm",
+        )
         text = content
         attachments_raw = d.get("attachments")
+        if self.gateway_runner and not self.gateway_runner._is_user_authorized(source):
+            attachments_raw = None
         logger.info(
             "[%s] C2C message: id=%s content=%r attachments=%s",
             self._log_tag,
@@ -1106,12 +1113,17 @@ class QQAdapter(BasePlatformAdapter):
                         _att.get("filename", ""),
                     )
 
-        # Process all attachments uniformly (images, voice, files)
-        att_result = await self._process_attachments(attachments_raw)
-        image_urls = att_result["image_urls"]
-        image_media_types = att_result["image_media_types"]
-        voice_transcripts = att_result["voice_transcripts"]
-        attachment_info = att_result["attachment_info"]
+        image_urls: List[str] = []
+        image_media_types: List[str] = []
+        voice_transcripts: List[str] = []
+        attachment_info = ""
+        if attachments_raw:
+            # Process all attachments uniformly (images, voice, files)
+            att_result = await self._process_attachments(attachments_raw)
+            image_urls = att_result["image_urls"]
+            image_media_types = att_result["image_media_types"]
+            voice_transcripts = att_result["voice_transcripts"]
+            attachment_info = att_result["attachment_info"]
 
         # Append voice transcripts to the text body
         if voice_transcripts:
@@ -1146,11 +1158,7 @@ class QQAdapter(BasePlatformAdapter):
 
         self._chat_type_map[user_openid] = "c2c"
         event = MessageEvent(
-            source=self.build_source(
-                chat_id=user_openid,
-                user_id=user_openid,
-                chat_type="dm",
-            ),
+            source=source,
             text=text,
             message_type=self._detect_message_type(image_urls, image_media_types),
             raw_message=d,
