@@ -767,6 +767,31 @@ class TestConnectDisconnect(unittest.TestCase):
             if adapter._poll_task:
                 adapter._poll_task.cancel()
 
+
+    def test_connect_does_not_trim_initial_seen_uids(self):
+        """connect() must keep all pre-existing UIDs to preserve startup skip invariant."""
+        import asyncio
+        adapter = self._make_adapter()
+
+        existing_uids = b" ".join(str(i).encode() for i in range(1, 2502))
+        mock_imap = MagicMock()
+        mock_imap.uid.return_value = ("OK", [existing_uids])
+
+        with patch("imaplib.IMAP4_SSL", return_value=mock_imap), \
+             patch("smtplib.SMTP") as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+
+            result = asyncio.run(adapter.connect())
+
+            self.assertTrue(result)
+            self.assertEqual(len(adapter._seen_uids), 2501)
+            self.assertIn(b"1", adapter._seen_uids)
+            self.assertIn(b"2501", adapter._seen_uids)
+            adapter._running = False
+            if adapter._poll_task:
+                adapter._poll_task.cancel()
+
     def test_connect_imap_failure(self):
         """IMAP connection failure returns False."""
         import asyncio

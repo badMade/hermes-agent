@@ -133,9 +133,11 @@ def _get_backend() -> str:
     # Fallback for manual / legacy config — pick the highest-priority
     # available backend. Firecrawl also counts as available when the managed
     # tool gateway is configured for Nous subscribers.
-    # Free-tier API backends trail the paid ones so existing paid setups are
-    # unaffected. ddgs requires explicit configuration because availability
-    # probing must not import a module name that local files can shadow.
+    # Free-tier backends (searxng / brave-free) trail the paid ones so
+    # existing paid setups are unaffected.
+    # Note: ddgs is excluded from auto-detect — it's only used when explicitly
+    # configured, since it's search-only (no extract/crawl) and we want users
+    # to explicitly opt in rather than silently fall back to limited functionality.
     backend_candidates = (
         ("firecrawl", _has_env("FIRECRAWL_API_KEY") or _has_env("FIRECRAWL_API_URL") or _is_tool_gateway_ready()),
         ("parallel", _has_env("PARALLEL_API_KEY")),
@@ -217,6 +219,11 @@ def _ddgs_package_available() -> bool:
     from tools.web_providers.ddgs import ddgs_package_available
 
     return ddgs_package_available()
+
+
+def _ddgs_package_available() -> bool:
+    """Backward-compatible alias used by existing tests/callers."""
+    return _ddgs_package_importable()
 
 # ─── Firecrawl Client ────────────────────────────────────────────────────────
 
