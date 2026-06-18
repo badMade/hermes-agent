@@ -65,8 +65,9 @@ def query(sql: str, limit: int = 50) -> dict[str, Any]:
     """Run a read-only SELECT query and return rows plus column names."""
     _reject_mutation(sql)
     safe_limit = max(0, min(limit, MAX_ROWS))
+    clean_sql = sql.strip().rstrip(";")
     with _connect() as conn:
-        cursor = conn.execute(sql.strip())
+        cursor = conn.execute(clean_sql)
         columns = [column[0] for column in cursor.description or []]
         rows = [dict(zip(columns, row)) for row in cursor.fetchmany(safe_limit)]
     return {"limit": safe_limit, "columns": columns, "rows": rows}

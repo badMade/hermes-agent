@@ -1113,6 +1113,33 @@ class ProcessRegistry:
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
+    @staticmethod
+    def _stdin_guard_command(session: ProcessSession, payload: str) -> str:
+        """Build a command-equivalent view of stdin payload for approval guards."""
+        try:
+            argv = shlex.split(session.command or "")
+        except ValueError:
+            argv = []
+        executable = os.path.basename(argv[0]) if argv else "sh"
+        quoted_payload = shlex.quote(payload)
+
+        # EOF-driven interpreters commonly execute stdin as code.  Reframe the
+        # buffered stdin as an equivalent one-shot command so existing terminal
+        # approval rules see the same risky surface they would see pre-spawn.
+        if executable.startswith("python"):
+            return f"{executable} -c {quoted_payload}"
+        if executable in {"node", "ruby", "perl", "php", "sh", "bash", "zsh", "fish"}:
+            return f"{executable} -c {quoted_payload}"
+        return f"{session.command} <<'HERMES_STDIN_EOF'\n{payload}\nHERMES_STDIN_EOF"
+
+    def _check_stdin_guards(self, session: ProcessSession, payload: str) -> Optional[dict]:
+        """Run terminal approval guards against stdin that may execute on EOF."""
+        if not payload:
+            return None
+        approval = check_all_command_guards(self._stdin_guard_command(session, payload), "local")
+        if approval.get("approved"):
+            return None
+        return {"status": "error", **approval}
     def write_stdin(self, session_id: str, data: str) -> dict:
         """Send raw data to a running process's stdin (no newline appended)."""
         session = self.get(session_id)

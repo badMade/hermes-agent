@@ -1,3 +1,13 @@
+## 2024-05-24 - [Sanitize Subprocess Environments for `quick_commands` and `shell.exec`]
+**Vulnerability:** The CLI and TUI Gateway executed user-defined `quick_commands` and arbitrary shell commands (`shell.exec`) using `subprocess.run(..., shell=True)` without sanitizing the environment variables passed to the child process.
+**Learning:** This exposed sensitive API keys and credentials contained in the main Hermes process environment to these child processes, allowing for easy credential exfiltration by a malicious config or user interaction.
+**Prevention:** Always use `tools.environments.local._sanitize_subprocess_env` to filter the environment before passing it to `subprocess` execution mechanisms when executing untrusted or user-supplied shell commands.
+
+## 2024-05-29 - [SQL Injection via LIMIT bypass using Comment Evasion]
+**Vulnerability:** The FastMCP `database_server.py` template appended a `LIMIT` clause to arbitrary user queries by using an f-string: `f"SELECT * FROM ({sql.strip().rstrip(';')}) LIMIT {safe_limit}"`. An attacker could evade this limit by passing a SQL statement ending with an unbalanced parenthesis and a comment token (e.g., `SELECT * FROM users) /*`), effectively commenting out the application's appended limit clause and potentially causing an OOM or data exfiltration by fetching unbounded results into memory.
+**Learning:** String interpolation of user input around SQL limit statements is intrinsically flawed and easily bypassed through comment injection or syntax manipulation.
+**Prevention:** Never use string concatenation to append SQL query modifiers like `LIMIT` to user-provided queries. Instead, execute the user query as provided (after checking it's read-only) and enforce limits programmatically during fetching, such as using `cursor.fetchmany(limit)` instead of `cursor.fetchall()`.
+
 ## 2024-05-24 - Security Enhancement: YAML Parsing & Subprocess Execution
 **Vulnerability:** Use of `yaml.load` and `subprocess.run(shell=True)`.
 **Learning:** `yaml.load(value, Loader=yaml.CSafeLoader)` is structurally equivalent to `yaml.safe_load(value)` but has significant performance advantages, so it is safe to keep it this way. `subprocess.run(shell=True)` can introduce shell injection vulnerabilities and should be replaced with a list of arguments and `shell=False`. When updating `subprocess.run` to not use `shell=True`, be careful to update the test mocks to correctly handle `shlex.split()` list format.
