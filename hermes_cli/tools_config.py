@@ -18,7 +18,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-from tools.environments.local import _sanitize_subprocess_env
 
 from hermes_cli.config import (
     cfg_get,
@@ -108,24 +107,17 @@ def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
 
 
 def _implicit_default_off_toolsets(platform: str) -> Set[str]:
-    """Default-off toolsets that should be suppressed for ``platform``.
+    """Toolsets treated as opt-in when inferring enabled sets.
 
-    This only applies to configurable toolsets that are valid on the target
-    platform.
+    ``homeassistant`` is the only default-off toolset that remains on by
+    default for its own dedicated platform.
     """
-    configurable_keys = {ts_key for ts_key, _, _ in CONFIGURABLE_TOOLSETS}
-    # Dedicated Home Assistant sessions should keep the homeassistant toolset
-    # enabled by default on that platform.
-    platform_defaults = {"homeassistant"} if platform == "homeassistant" else set()
-    return {
-        ts_key
-        for ts_key in _DEFAULT_OFF_TOOLSETS
-        if (
-            ts_key in configurable_keys
-            and _toolset_allowed_for_platform(ts_key, platform)
-            and ts_key not in platform_defaults
-        )
-    }
+    default_off = set(_DEFAULT_OFF_TOOLSETS)
+    if platform == "homeassistant":
+        default_off.discard("homeassistant")
+    return default_off
+
+
 def _get_effective_configurable_toolsets():
     """Return CONFIGURABLE_TOOLSETS + any plugin-provided toolsets.
 
@@ -163,20 +155,10 @@ def _get_plugin_toolset_keys() -> set:
 
 
 def _implicit_default_off_toolsets(platform: str) -> Set[str]:
-    """Return default-off toolsets to suppress for implicit platform config.
-
-    A platform's own unrestricted toolset remains available for backwards
-    compatibility (for example the ``homeassistant`` platform keeps the
-    ``homeassistant`` toolset). When ``HASS_TOKEN`` is set, the homeassistant
-    toolset is treated as opted-in across all platforms (including ``cron``
-    and ``cli``) — the operator has explicitly provisioned credentials, so
-    other platforms should pick it up rather than silently dropping it.
-    """
+    """Return the default-off toolsets that remain implicitly disabled."""
     default_off = set(_DEFAULT_OFF_TOOLSETS)
     if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
         default_off.remove(platform)
-    if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
-        default_off.remove("homeassistant")
     return default_off
 
 
@@ -585,7 +567,7 @@ def _pip_install(
     (or the last failure for the caller to inspect).
     """
     venv_root = Path(sys.executable).parent.parent
-    uv_env_base = {**os.environ, "VIRTUAL_ENV": str(venv_root)}
+    uv_env = {**os.environ, "VIRTUAL_ENV": str(venv_root)}
 
     uv_bin = shutil.which("uv")
     if uv_bin:
@@ -593,7 +575,7 @@ def _pip_install(
             result = subprocess.run(
                 [uv_bin, "pip", "install", *args],
                 capture_output=capture_output, text=True, timeout=timeout,
-                env=_sanitize_subprocess_env(uv_env_base),
+                env=uv_env,
             )
             if result.returncode == 0:
                 return result
@@ -608,7 +590,6 @@ def _pip_install(
         probe = subprocess.run(
             pip_cmd + ["--version"],
             capture_output=True, text=True, timeout=15,
-            env=_sanitize_subprocess_env(os.environ.copy()),
         )
         if probe.returncode != 0:
             raise FileNotFoundError("pip not in venv")
@@ -617,7 +598,6 @@ def _pip_install(
             subprocess.run(
                 [sys.executable, "-m", "ensurepip", "--upgrade", "--default-pip"],
                 capture_output=True, text=True, timeout=120, check=True,
-                env=_sanitize_subprocess_env(os.environ.copy()),
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             # Synthesize a result so callers see a clean failure path.
@@ -629,7 +609,6 @@ def _pip_install(
     return subprocess.run(
         pip_cmd + ["install", *args],
         capture_output=capture_output, text=True, timeout=timeout,
-        env=_sanitize_subprocess_env(os.environ.copy()),
     )
 
 
@@ -650,8 +629,7 @@ def _run_post_setup(post_setup_key: str):
             # behaviour as before.
             result = subprocess.run(
                 [npm_bin, "install", "--silent"],
-                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
-                env=_sanitize_subprocess_env(os.environ.copy()),
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT)
             )
             if result.returncode == 0:
                 _print_success("    Node.js dependencies installed")
@@ -727,7 +705,6 @@ def _run_post_setup(post_setup_key: str):
             result = subprocess.run(
                 install_cmd,
                 capture_output=True, text=True, cwd=str(PROJECT_ROOT), timeout=600,
-                env=_sanitize_subprocess_env(os.environ.copy()),
             )
             if result.returncode == 0:
                 _print_success("    Chromium installed")
@@ -757,8 +734,7 @@ def _run_post_setup(post_setup_key: str):
             # Absolute npm path so .cmd shim executes on Windows.
             result = subprocess.run(
                 [_npm_bin, "install", "--silent"],
-                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
-                env=_sanitize_subprocess_env(os.environ.copy()),
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT)
             )
             if result.returncode == 0:
                 _print_success("    Camofox installed")
@@ -768,10 +744,10 @@ def _run_post_setup(post_setup_key: str):
             _print_info("    Start the Camofox server:")
             _print_info("      npx @askjo/camofox-browser")
             _print_info("    First run downloads the Camoufox engine (~300MB)")
-            _print_info("    Or use Docker: docker run -p 127.0.0.1:9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
+            _print_info("    Or use Docker: docker run -p 9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
         elif not shutil.which("npm"):
             _print_warning("    Node.js not found. Install Camofox via Docker:")
-            _print_info("      docker run -p 127.0.0.1:9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
+            _print_info("      docker run -p 9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
 
     elif post_setup_key == "cua_driver":
         # cua-driver provides macOS background computer-use (SkyLight SPIs).
@@ -786,7 +762,6 @@ def _run_post_setup(post_setup_key: str):
                 version = subprocess.run(
                     ["cua-driver", "--version"],
                     capture_output=True, text=True, timeout=5,
-                    env=_sanitize_subprocess_env(os.environ.copy()),
                 ).stdout.strip()
                 _print_success(f"    cua-driver already installed: {version or 'unknown version'}")
             except Exception:
@@ -801,19 +776,12 @@ def _run_post_setup(post_setup_key: str):
             return
         _print_info("    Installing cua-driver (macOS background computer-use)...")
         try:
-            install_cmd = [
-                "/bin/bash",
-                "-c",
-                "curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash"
-            ]
-            result = subprocess.run(
-                install_cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
-                timeout=600,
-                env=_sanitize_subprocess_env(os.environ.copy()),
+            install_cmd = (
+                "curl -fsSL "
+                "https://raw.githubusercontent.com/trycua/cua/main/"
+                "libs/cua-driver/scripts/install.sh | /bin/bash"
             )
+            result = subprocess.run(["/bin/bash", "-c", install_cmd], timeout=300)
             if result.returncode == 0 and shutil.which("cua-driver"):
                 _print_success("    cua-driver installed.")
                 _print_info("    IMPORTANT — grant macOS permissions now:")
@@ -822,7 +790,7 @@ def _run_post_setup(post_setup_key: str):
                 _print_info("    Both must allow the terminal / Hermes process.")
             else:
                 _print_warning("    cua-driver install did not complete. Re-run manually:")
-                _print_info("      curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash")
+                _print_info(f"      {install_cmd}")
         except subprocess.TimeoutExpired:
             _print_warning("    cua-driver install timed out. Re-run manually.")
         except Exception as e:
@@ -1209,15 +1177,9 @@ def _get_platform_tools(
         explicit_mcp_servers = explicit_passthrough & enabled_mcp_servers
         enabled_toolsets.update(explicit_passthrough - enabled_mcp_servers)
     if include_default_mcp_servers:
-        if "no_mcp" in toolset_names:
-            # Operator opted out of MCP for this platform — keep only the
-            # MCP servers they explicitly named alongside no_mcp.
+        if explicit_mcp_servers or "no_mcp" in toolset_names:
             enabled_toolsets.update(explicit_mcp_servers)
-        else:
-            # No no_mcp sentinel — surface every enabled MCP server even when
-            # platform_toolsets lists explicit builtin toolsets. The user's
-            # explicit builtin selection is the platform allowlist; MCP servers
-            # configured globally should not need to be re-listed per platform.
+        elif not has_explicit_platform_toolsets:
             enabled_toolsets.update(enabled_mcp_servers)
     else:
         enabled_toolsets.update(explicit_mcp_servers)

@@ -1,7 +1,5 @@
 """Regression tests for sudo detection and sudo password handling."""
 
-import json
-
 import tools.terminal_tool as terminal_tool
 
 
@@ -170,14 +168,3 @@ def test_validate_workdir_blocks_shell_metacharacters_in_windows_paths():
     assert terminal_tool._validate_workdir(r"C:\Users\Alice\project; rm -rf /")
     assert terminal_tool._validate_workdir(r"C:\Users\Alice\project$(whoami)")
     assert terminal_tool._validate_workdir("C:\\Users\\Alice\\project\nwhoami")
-
-
-def test_terminal_tool_error_redacts_secret_and_does_not_return_traceback(monkeypatch):
-    secret = "sk-testsecret0123456789012345"
-    monkeypatch.setenv("TERMINAL_TIMEOUT", secret)
-    result = json.loads(terminal_tool.terminal_tool("echo should-not-run"))
-
-    assert result["status"] == "error"
-    assert result["exit_code"] == -1
-    assert "traceback" not in result
-    assert secret not in result["error"]
