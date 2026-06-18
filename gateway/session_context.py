@@ -186,16 +186,6 @@ def reset_terminal_cwd(token) -> None:
     _TERMINAL_CWD.reset(token)
 
 
-def get_terminal_cwd(default: str | None = None) -> str | None:
-    """Return the session-scoped terminal cwd, falling back to ``os.environ``.
-
-    ``TERMINAL_CWD`` is historically configured through the process
-    environment. Runtime per-session overrides must use this ContextVar-backed
-    helper so concurrent gateway/cron sessions cannot clobber each other.
-    """
-    import os
-
-    value = _TERMINAL_CWD.get()
-    if value is not _UNSET:
-        return value
-    return os.getenv("TERMINAL_CWD", default)
+def get_terminal_cwd(default: str = "") -> str:
+    """Return the session-scoped terminal cwd with legacy env fallback."""
+    return get_session_env("TERMINAL_CWD", default)
