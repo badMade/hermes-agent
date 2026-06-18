@@ -2049,6 +2049,7 @@ daytona = [
 dev = [
     { name = "debugpy" },
     { name = "mcp" },
+    { name = "ptyprocess", marker = "sys_platform != 'win32'" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-split" },
@@ -2860,7 +2861,7 @@ wheels = [
 
 [[package]]
 name = "litellm"
-version = "1.81.15"
+version = "1.84.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp", marker = "python_full_version >= '3.12'" },
@@ -2876,9 +2877,9 @@ dependencies = [
     { name = "tiktoken", marker = "python_full_version >= '3.12'" },
     { name = "tokenizers", marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/70/0c/62a0fdc5adae6d205338f9239175aa6a93818e58b75cf000a9c7214a3d9f/litellm-1.81.15.tar.gz", hash = "sha256:a8a6277a53280762051c5818ebc76dd5f036368b9426c6f21795ae7f1ac6ebdc", size = 16597039, upload-time = "2026-02-24T06:52:50.892Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/dd/e9/8941b7e72a187000561d932c0f2f2ed2b0fd080dfc33ba6e05961d45ca7d/litellm-1.84.0.tar.gz", hash = "sha256:b8ad0cbea11a5941b18d5af973017a340abd3d3ab41cb86e5401b970626d71a6", size = 15103206, upload-time = "2026-05-14T05:45:53.017Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/fd/da11826dda0d332e360b9ead6c0c992d612ecb85b00df494823843cfcda3/litellm-1.81.15-py3-none-any.whl", hash = "sha256:2fa253658702509ce09fe0e172e5a47baaadf697fb0f784c7fd4ff665ae76ae1", size = 14682123, upload-time = "2026-02-24T06:52:48.084Z" },
+    { url = "https://files.pythonhosted.org/packages/01/a6/77fa1bbf5e42eb596b06318b3f7e6af5d0f44028046d1d598c6a595d028f/litellm-1.84.0-py3-none-any.whl", hash = "sha256:2a58d6041e6aa27d1a28dc8d8828ab500fef1a00ef74ca65e60899035010c2f2", size = 16735062, upload-time = "2026-05-14T05:45:49.927Z" },
 ]
 
 [[package]]
