@@ -1081,6 +1081,20 @@ class QQAdapter(BasePlatformAdapter):
         if not self._is_dm_allowed(user_openid):
             return
 
+        source = self.build_source(
+            chat_id=user_openid,
+            user_id=user_openid,
+            chat_type="dm",
+        )
+
+        is_authorized = True
+        if self.gateway_runner and hasattr(self.gateway_runner, "_is_user_authorized"):
+            try:
+                is_authorized = bool(self.gateway_runner._is_user_authorized(source))
+            except Exception:
+                logger.warning("[%s] Failed to evaluate QQ DM authorization; treating as unauthorized", self._log_tag)
+                is_authorized = False
+
         text = content
         attachments_raw = d.get("attachments")
         logger.info(
@@ -1106,8 +1120,17 @@ class QQAdapter(BasePlatformAdapter):
                         _att.get("filename", ""),
                     )
 
-        # Process all attachments uniformly (images, voice, files)
-        att_result = await self._process_attachments(attachments_raw)
+        # Avoid fetching/processing attachments for unauthorized DM senders.
+        if not is_authorized:
+            att_result = {
+                "image_urls": [],
+                "image_media_types": [],
+                "voice_transcripts": [],
+                "attachment_info": "",
+            }
+        else:
+            # Process all attachments uniformly (images, voice, files)
+            att_result = await self._process_attachments(attachments_raw)
         image_urls = att_result["image_urls"]
         image_media_types = att_result["image_media_types"]
         voice_transcripts = att_result["voice_transcripts"]
@@ -1146,11 +1169,7 @@ class QQAdapter(BasePlatformAdapter):
 
         self._chat_type_map[user_openid] = "c2c"
         event = MessageEvent(
-            source=self.build_source(
-                chat_id=user_openid,
-                user_id=user_openid,
-                chat_type="dm",
-            ),
+            source=source,
             text=text,
             message_type=self._detect_message_type(image_urls, image_media_types),
             raw_message=d,

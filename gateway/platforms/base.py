@@ -470,8 +470,54 @@ sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 from gateway.config import Platform, PlatformConfig
 from gateway.session import SessionSource, build_session_key
-from hermes_constants import get_hermes_dir
+from hermes_constants import get_hermes_dir, get_hermes_home
 
+
+def _trusted_gateway_media_roots() -> tuple[Path, ...]:
+    """Return Hermes-managed directories allowed for model-emitted attachments."""
+    home = get_hermes_home()
+    roots = [
+        get_image_cache_dir(),
+        get_audio_cache_dir(),
+        get_video_cache_dir(),
+        get_document_cache_dir(),
+        get_hermes_dir("cache/screenshots", "browser_screenshots"),
+        get_hermes_dir("cache/vision", "temp_vision_images"),
+        home / "cache" / "images",
+        home / "cache" / "audio",
+        home / "cache" / "videos",
+        home / "cache" / "documents",
+    ]
+    resolved: list[Path] = []
+    for root in roots:
+        try:
+            resolved.append(Path(root).expanduser().resolve())
+        except OSError:
+            continue
+    return tuple(dict.fromkeys(resolved))
+
+
+def _is_trusted_gateway_media_path(path: str) -> bool:
+    """Return True when *path* is a regular file inside Hermes media caches."""
+    try:
+        candidate = Path(path).expanduser().resolve()
+        if not candidate.is_file():
+            return False
+        return any(candidate.is_relative_to(root) for root in _trusted_gateway_media_roots())
+    except OSError:
+        return False
+
+
+def _filter_trusted_gateway_media_paths(paths):
+    """Drop model-emitted local paths outside Hermes-managed media caches."""
+    trusted = []
+    for item in paths:
+        path = item[0] if isinstance(item, tuple) else item
+        if _is_trusted_gateway_media_path(path):
+            trusted.append(item)
+        else:
+            logger.warning("Blocked untrusted model-emitted media path: %s", path)
+    return trusted
 
 GATEWAY_SECRET_CAPTURE_UNSUPPORTED_MESSAGE = (
     "Secure secret entry is not supported over messaging. "
@@ -3101,6 +3147,8 @@ class BasePlatformAdapter(ABC):
                 # Extract MEDIA:<path> tags (from TTS tool) before other processing
                 media_files, response = self.extract_media(response)
 
+                media_files = _filter_trusted_gateway_media_paths(media_files)
+
                 # Extract image URLs and send them as native platform attachments
                 images, text_content = self.extract_images(response)
                 # Strip any remaining internal directives from message body (fixes #1561)
@@ -3113,6 +3161,7 @@ class BasePlatformAdapter(ABC):
                 # Auto-detect bare local file paths for native media delivery
                 # (helps small models that don't use MEDIA: syntax)
                 local_files, text_content = self.extract_local_files(text_content)
+                local_files = _filter_trusted_gateway_media_paths(local_files)
                 if local_files:
                     logger.info("[%s] extract_local_files found %d file(s) in response", self.name, len(local_files))
 
