@@ -172,9 +172,9 @@ class TestMemoryProviderABC:
 
     def test_default_on_session_end_is_noop(self):
         """Verify the base on_session_end implementation does not raise."""
-        p = MinimalMemoryProvider()
-        # Should not raise exception (verifying does not raise)
-        p.on_session_end([{"role": "user", "content": "hi"}])
+        p = FakeMemoryProvider()
+        # Should not raise exception (verifying base implementation does not raise)
+        MemoryProvider.on_session_end(p, [{"role": "user", "content": "hi"}])
 
 # ---------------------------------------------------------------------------
 # MemoryManager tests
