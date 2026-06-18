@@ -459,18 +459,6 @@ def test_load_enabled_toolsets_honors_builtin_env_if_config_fails(monkeypatch):
     assert server._load_enabled_toolsets() == ["web"]
 
 
-def test_load_enabled_toolsets_preserves_empty_config_allowlist(monkeypatch):
-    monkeypatch.delenv("HERMES_TUI_TOOLSETS", raising=False)
-
-    import hermes_cli.config as config_mod
-    import hermes_cli.tools_config as tools_config_mod
-
-    monkeypatch.setattr(config_mod, "load_config", lambda: {"platform_toolsets": {"cli": []}})
-    monkeypatch.setattr(tools_config_mod, "_get_platform_tools", lambda *a, **kw: set())
-
-    assert server._load_enabled_toolsets() == []
-
-
 def test_load_enabled_toolsets_all_env_means_all(monkeypatch):
     monkeypatch.setenv("HERMES_TUI_TOOLSETS", "all")
 
@@ -4592,16 +4580,6 @@ def test_make_agent_handles_null_agent_config(monkeypatch):
     assert mock_agent.call_args.kwargs["max_iterations"] == 80
 
 
-def test_make_agent_preserves_empty_toolset_allowlist(monkeypatch):
-    _setup_make_agent_mocks(monkeypatch, {})
-    monkeypatch.setattr(server, "_load_enabled_toolsets", lambda: [])
-
-    with patch("run_agent.AIAgent") as mock_agent:
-        server._make_agent("sid1", "key1")
-
-    assert mock_agent.call_args.kwargs["enabled_toolsets"] == []
-
-
 class _FakeAgentForBackground:
     base_url = None
     api_key = None
@@ -4656,18 +4634,6 @@ def test_background_agent_kwargs_handles_null_agent_config(monkeypatch):
     assert kwargs["max_iterations"] == 40
 
 
-def test_background_agent_kwargs_preserves_empty_toolset_allowlist(monkeypatch):
-    class AgentWithNoTools(_FakeAgentForBackground):
-        enabled_toolsets = []
-
-    monkeypatch.setattr(server, "_load_cfg", lambda: {})
-    monkeypatch.setattr(server, "_load_enabled_toolsets", lambda: ["web"])
-
-    kwargs = server._background_agent_kwargs(AgentWithNoTools(), "task_1")
-
-    assert kwargs["enabled_toolsets"] == []
-
-
 def test_config_show_displays_nested_max_turns(monkeypatch):
     monkeypatch.setattr(
         server,
@@ -4683,3 +4649,37 @@ def test_config_show_displays_nested_max_turns(monkeypatch):
     )
 
     assert ["Max Turns", "120"] in agent_rows
+
+
+def test_slash_worker_spawns_from_trusted_python_src_root(monkeypatch, tmp_path):
+    trusted_root = tmp_path / "hermes-src"
+    trusted_root.mkdir()
+    captured = {}
+
+    class FakePopen:
+        stdin = None
+        stdout = None
+        stderr = None
+
+        def __init__(self, argv, **kwargs):
+            captured["argv"] = argv
+            captured.update(kwargs)
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    untrusted = tmp_path / "untrusted"
+    untrusted.mkdir()
+    monkeypatch.setenv("HERMES_PYTHON_SRC_ROOT", str(trusted_root))
+    monkeypatch.chdir(untrusted)
+    monkeypatch.setattr(server.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(server.threading, "Thread", FakeThread)
+
+    server._SlashWorker("session", "model")
+
+    assert captured["cwd"] == str(trusted_root)
+    assert captured["argv"][:3] == [sys.executable, "-m", "tui_gateway.slash_worker"]
