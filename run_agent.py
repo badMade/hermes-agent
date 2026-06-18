@@ -9797,7 +9797,10 @@ class AIAgent:
         # API replay, session transcript, gateway delivery, CLI display,
         # compression, title generation.
         if isinstance(_san_content, str) and _san_content:
-            _san_content = self._strip_think_blocks(_san_content).strip()
+            _stripped_content = self._strip_think_blocks(_san_content)
+            if not isinstance(_stripped_content, str):
+                _stripped_content = _san_content
+            _san_content = sanitize_context(_stripped_content).strip()
 
         msg = {
             "role": "assistant",
