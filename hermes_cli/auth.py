@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import shlex
 import ssl
@@ -514,6 +515,8 @@ _PLACEHOLDER_SECRET_VALUES = {
     "changeme",
     "your_api_key",
     "your-api-key",
+    "your_api_key_here",
+    "your-api-key-here",
     "placeholder",
     "example",
     "dummy",
@@ -530,6 +533,9 @@ def has_usable_secret(value: Any, *, min_length: int = 4) -> bool:
     if len(cleaned) < min_length:
         return False
     if cleaned.lower() in _PLACEHOLDER_SECRET_VALUES:
+        return False
+    # Reject unresolved shell-style variable references like ${API_SERVER_KEY}
+    if re.search(r"\$\{[^}]+\}", cleaned):
         return False
     return True
 

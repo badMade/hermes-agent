@@ -638,6 +638,7 @@ class WebhookAdapter(BasePlatformAdapter):
             )
             return False
 
+
         # GitHub: X-Hub-Signature-256 = sha256=<hex>
         gh_sig = request.headers.get("X-Hub-Signature-256", "")
         if gh_sig:
