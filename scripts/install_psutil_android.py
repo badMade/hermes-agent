@@ -84,6 +84,7 @@ def main() -> int:
         urllib.request.urlretrieve(PSUTIL_URL, archive)
         with tarfile.open(archive) as tar:
             import os
+
             base_path = os.path.realpath(tmp_path)
             members = tar.getmembers()
             for member in members:
