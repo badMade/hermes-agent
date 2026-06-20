@@ -495,14 +495,22 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
             if prep_error:
                 return {"success": False, "transcript": "", "error": prep_error}
 
-            command_str = command_template.format(
+            command = command_template.format(
                 input_path=shlex.quote(prepared_input),
                 output_dir=shlex.quote(output_dir),
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
-            command_list = shlex.split(command_str)
-            subprocess.run(command_list, check=True, capture_output=True, text=True)
+            cmd_args = [
+                token.format(
+                    input_path=prepared_input,
+                    output_dir=output_dir,
+                    language=language,
+                    model=normalized_model,
+                )
+                for token in shlex.split(command_template)
+            ]
+            subprocess.run(cmd_args, check=True, capture_output=True, text=True)
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
             if not txt_files:
