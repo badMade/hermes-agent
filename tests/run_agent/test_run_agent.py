@@ -2102,6 +2102,15 @@ class TestConcurrentToolExecution:
 
     def test_invoke_tool_does_not_dispatch_unexposed_memory_provider_tool(self, agent):
         """Concurrent helper must not bypass valid_tool_names for memory providers."""
+
+        class _FakeProviderMemoryManager:
+            def __init__(self):
+                self.calls = []
+
+            def dispatch_tool(self, name, kwargs):
+                self.calls.append((name, kwargs))
+                return f"fake result for {name}"
+
         manager = _FakeProviderMemoryManager()
         agent._memory_manager = manager
 
@@ -2117,6 +2126,15 @@ class TestConcurrentToolExecution:
 
     def test_sequential_does_not_dispatch_unexposed_memory_provider_tool(self, agent):
         """Sequential path must not bypass valid_tool_names for memory providers."""
+
+        class _FakeProviderMemoryManager:
+            def __init__(self):
+                self.calls = []
+
+            def dispatch_tool(self, name, kwargs):
+                self.calls.append((name, kwargs))
+                return f"fake result for {name}"
+
         manager = _FakeProviderMemoryManager()
         agent._memory_manager = manager
         tool_call = _mock_tool_call(
