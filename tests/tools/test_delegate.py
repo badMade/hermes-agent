@@ -1063,10 +1063,10 @@ class TestDelegationProviderIntegration(unittest.TestCase):
 
     @patch("tools.delegate_tool._load_config")
     @patch("tools.delegate_tool._resolve_delegation_credentials")
-    def test_provider_override_clears_parent_openrouter_filters(
+    def test_openrouter_provider_override_preserves_parent_openrouter_filters(
         self, mock_creds, mock_cfg
     ):
-        """Delegated provider should not inherit parent provider-preference filters."""
+        """OpenRouter delegated provider must inherit provider routing policy."""
         mock_cfg.return_value = {
             "max_iterations": 45,
             "model": "google/gemini-3-flash-preview",
@@ -1098,6 +1098,125 @@ class TestDelegationProviderIntegration(unittest.TestCase):
 
             _, kwargs = MockAgent.call_args
             self.assertEqual(kwargs["provider"], "openrouter")
+            self.assertEqual(kwargs["providers_allowed"], parent.providers_allowed)
+            self.assertEqual(kwargs["providers_ignored"], parent.providers_ignored)
+            self.assertEqual(kwargs["providers_order"], parent.providers_order)
+            self.assertEqual(kwargs["provider_sort"], parent.provider_sort)
+
+    @patch("tools.delegate_tool._load_config")
+    @patch("tools.delegate_tool._resolve_delegation_credentials")
+    def test_custom_openrouter_base_url_preserves_parent_openrouter_filters(
+        self, mock_creds, mock_cfg
+    ):
+        """A custom provider pointed at OpenRouter still needs OpenRouter filters."""
+        mock_cfg.return_value = {
+            "max_iterations": 45,
+            "base_url": "https://openrouter.ai/api/v1",
+        }
+        mock_creds.return_value = {
+            "model": "google/gemini-3-flash-preview",
+            "provider": "custom",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "sk-or-key",
+            "api_mode": "chat_completions",
+        }
+        parent = _make_mock_parent(depth=0)
+        parent.providers_allowed = ["anthropic/claude-3.5-sonnet"]
+        parent.providers_ignored = ["openai/gpt-4o-mini"]
+        parent.providers_order = ["google/gemini-2.5-pro"]
+        parent.provider_sort = "price"
+
+        with patch("run_agent.AIAgent") as MockAgent:
+            mock_child = MagicMock()
+            mock_child.run_conversation.return_value = {
+                "final_response": "done",
+                "completed": True,
+                "api_calls": 1,
+            }
+            MockAgent.return_value = mock_child
+
+            delegate_task(goal="OpenRouter custom endpoint test", parent_agent=parent)
+
+            _, kwargs = MockAgent.call_args
+            self.assertEqual(kwargs["provider"], "custom")
+            self.assertEqual(kwargs["base_url"], "https://openrouter.ai/api/v1")
+            self.assertEqual(kwargs["providers_allowed"], parent.providers_allowed)
+            self.assertEqual(kwargs["providers_ignored"], parent.providers_ignored)
+            self.assertEqual(kwargs["providers_order"], parent.providers_order)
+            self.assertEqual(kwargs["provider_sort"], parent.provider_sort)
+
+    @patch("tools.delegate_tool._load_config")
+    @patch("tools.delegate_tool._resolve_delegation_credentials")
+    def test_non_openrouter_provider_override_clears_parent_openrouter_filters(
+        self, mock_creds, mock_cfg
+    ):
+        """Non-OpenRouter delegated providers should not inherit OpenRouter filters."""
+        mock_cfg.return_value = {"max_iterations": 45, "provider": "anthropic"}
+        mock_creds.return_value = {
+            "model": "claude-3-5-sonnet-latest",
+            "provider": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "api_key": "sk-ant-key",
+            "api_mode": "anthropic_messages",
+        }
+        parent = _make_mock_parent(depth=0)
+        parent.providers_allowed = ["anthropic/claude-3.5-sonnet"]
+        parent.providers_ignored = ["openai/gpt-4o-mini"]
+        parent.providers_order = ["google/gemini-2.5-pro"]
+        parent.provider_sort = "price"
+
+        with patch("run_agent.AIAgent") as MockAgent:
+            mock_child = MagicMock()
+            mock_child.run_conversation.return_value = {
+                "final_response": "done",
+                "completed": True,
+                "api_calls": 1,
+            }
+            MockAgent.return_value = mock_child
+
+            delegate_task(goal="Non-OpenRouter provider test", parent_agent=parent)
+
+            _, kwargs = MockAgent.call_args
+            self.assertEqual(kwargs["provider"], "anthropic")
+            self.assertIsNone(kwargs["providers_allowed"])
+            self.assertIsNone(kwargs["providers_ignored"])
+            self.assertIsNone(kwargs["providers_order"])
+            self.assertIsNone(kwargs["provider_sort"])
+
+    @patch("tools.delegate_tool._load_config")
+    @patch("tools.delegate_tool._resolve_delegation_credentials")
+    def test_non_openrouter_provider_override_without_base_url_clears_parent_filters(
+        self, mock_creds, mock_cfg
+    ):
+        """Provider override should clear OpenRouter filters even without override base URL."""
+        mock_cfg.return_value = {"max_iterations": 45, "provider": "anthropic"}
+        mock_creds.return_value = {
+            "model": "claude-3-5-sonnet-latest",
+            "provider": "anthropic",
+            "base_url": None,
+            "api_key": "sk-ant-key",
+            "api_mode": "anthropic_messages",
+        }
+        parent = _make_mock_parent(depth=0)
+        parent.providers_allowed = ["anthropic/claude-3.5-sonnet"]
+        parent.providers_ignored = ["openai/gpt-4o-mini"]
+        parent.providers_order = ["google/gemini-2.5-pro"]
+        parent.provider_sort = "price"
+
+        with patch("run_agent.AIAgent") as MockAgent:
+            mock_child = MagicMock()
+            mock_child.run_conversation.return_value = {
+                "final_response": "done",
+                "completed": True,
+                "api_calls": 1,
+            }
+            MockAgent.return_value = mock_child
+
+            delegate_task(goal="Non-OpenRouter provider no base URL test", parent_agent=parent)
+
+            _, kwargs = MockAgent.call_args
+            self.assertEqual(kwargs["provider"], "anthropic")
+            # base_url may still inherit from parent (OpenRouter); filters must still clear.
             self.assertIsNone(kwargs["providers_allowed"])
             self.assertIsNone(kwargs["providers_ignored"])
             self.assertIsNone(kwargs["providers_order"])

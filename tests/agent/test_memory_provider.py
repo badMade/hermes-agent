@@ -84,6 +84,23 @@ class MetadataMemoryProvider(FakeMemoryProvider):
         self.memory_writes.append((action, target, content, metadata or {}))
 
 
+class MinimalMemoryProvider(MemoryProvider):
+    """Concrete provider that keeps default optional hook implementations."""
+
+    @property
+    def name(self) -> str:
+        return "minimal"
+
+    def is_available(self) -> bool:
+        return True
+
+    def initialize(self, session_id: str, **kwargs) -> None:
+        pass
+
+    def get_tool_schemas(self) -> list:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # MemoryProvider ABC tests
 # ---------------------------------------------------------------------------
