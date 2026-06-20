@@ -501,7 +501,16 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
-            subprocess.run(shlex.split(command), check=True, capture_output=True, text=True)
+            cmd_args = [
+                token.format(
+                    input_path=prepared_input,
+                    output_dir=output_dir,
+                    language=language,
+                    model=normalized_model,
+                )
+                for token in shlex.split(command_template)
+            ]
+            subprocess.run(cmd_args, check=True, capture_output=True, text=True)
 
             txt_files = sorted(Path(output_dir).glob("*.txt"))
             if not txt_files:
