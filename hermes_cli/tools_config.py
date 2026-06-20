@@ -18,7 +18,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-from tools.environments.local import _sanitize_subprocess_env
 
 from hermes_cli.config import (
     cfg_get,
@@ -585,7 +584,7 @@ def _pip_install(
     (or the last failure for the caller to inspect).
     """
     venv_root = Path(sys.executable).parent.parent
-    uv_env_base = {**os.environ, "VIRTUAL_ENV": str(venv_root)}
+    uv_env = {**os.environ, "VIRTUAL_ENV": str(venv_root)}
 
     uv_bin = shutil.which("uv")
     if uv_bin:
@@ -593,7 +592,7 @@ def _pip_install(
             result = subprocess.run(
                 [uv_bin, "pip", "install", *args],
                 capture_output=capture_output, text=True, timeout=timeout,
-                env=_sanitize_subprocess_env(uv_env_base),
+                env=uv_env,
             )
             if result.returncode == 0:
                 return result
@@ -608,7 +607,6 @@ def _pip_install(
         probe = subprocess.run(
             pip_cmd + ["--version"],
             capture_output=True, text=True, timeout=15,
-            env=_sanitize_subprocess_env(os.environ.copy()),
         )
         if probe.returncode != 0:
             raise FileNotFoundError("pip not in venv")
@@ -617,7 +615,6 @@ def _pip_install(
             subprocess.run(
                 [sys.executable, "-m", "ensurepip", "--upgrade", "--default-pip"],
                 capture_output=True, text=True, timeout=120, check=True,
-                env=_sanitize_subprocess_env(os.environ.copy()),
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             # Synthesize a result so callers see a clean failure path.
@@ -629,7 +626,6 @@ def _pip_install(
     return subprocess.run(
         pip_cmd + ["install", *args],
         capture_output=capture_output, text=True, timeout=timeout,
-        env=_sanitize_subprocess_env(os.environ.copy()),
     )
 
 
@@ -650,8 +646,7 @@ def _run_post_setup(post_setup_key: str):
             # behaviour as before.
             result = subprocess.run(
                 [npm_bin, "install", "--silent"],
-                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
-                env=_sanitize_subprocess_env(os.environ.copy()),
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT)
             )
             if result.returncode == 0:
                 _print_success("    Node.js dependencies installed")
@@ -727,7 +722,6 @@ def _run_post_setup(post_setup_key: str):
             result = subprocess.run(
                 install_cmd,
                 capture_output=True, text=True, cwd=str(PROJECT_ROOT), timeout=600,
-                env=_sanitize_subprocess_env(os.environ.copy()),
             )
             if result.returncode == 0:
                 _print_success("    Chromium installed")
@@ -757,8 +751,7 @@ def _run_post_setup(post_setup_key: str):
             # Absolute npm path so .cmd shim executes on Windows.
             result = subprocess.run(
                 [_npm_bin, "install", "--silent"],
-                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
-                env=_sanitize_subprocess_env(os.environ.copy()),
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT)
             )
             if result.returncode == 0:
                 _print_success("    Camofox installed")
@@ -768,10 +761,10 @@ def _run_post_setup(post_setup_key: str):
             _print_info("    Start the Camofox server:")
             _print_info("      npx @askjo/camofox-browser")
             _print_info("    First run downloads the Camoufox engine (~300MB)")
-            _print_info("    Or use Docker: docker run -p 127.0.0.1:9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
+            _print_info("    Or use Docker: docker run -p 9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
         elif not shutil.which("npm"):
             _print_warning("    Node.js not found. Install Camofox via Docker:")
-            _print_info("      docker run -p 127.0.0.1:9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
+            _print_info("      docker run -p 9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
 
     elif post_setup_key == "cua_driver":
         # cua-driver provides macOS background computer-use (SkyLight SPIs).
@@ -786,7 +779,6 @@ def _run_post_setup(post_setup_key: str):
                 version = subprocess.run(
                     ["cua-driver", "--version"],
                     capture_output=True, text=True, timeout=5,
-                    env=_sanitize_subprocess_env(os.environ.copy()),
                 ).stdout.strip()
                 _print_success(f"    cua-driver already installed: {version or 'unknown version'}")
             except Exception:
@@ -801,19 +793,12 @@ def _run_post_setup(post_setup_key: str):
             return
         _print_info("    Installing cua-driver (macOS background computer-use)...")
         try:
-            install_cmd = [
-                "/bin/bash",
-                "-c",
-                "curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash"
-            ]
-            result = subprocess.run(
-                install_cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
-                timeout=600,
-                env=_sanitize_subprocess_env(os.environ.copy()),
+            install_cmd = (
+                "/bin/bash -c \"$(curl -fsSL "
+                "https://raw.githubusercontent.com/trycua/cua/main/"
+                "libs/cua-driver/scripts/install.sh)\""
             )
+            result = subprocess.run(install_cmd, shell=True, timeout=300)
             if result.returncode == 0 and shutil.which("cua-driver"):
                 _print_success("    cua-driver installed.")
                 _print_info("    IMPORTANT — grant macOS permissions now:")
@@ -822,7 +807,7 @@ def _run_post_setup(post_setup_key: str):
                 _print_info("    Both must allow the terminal / Hermes process.")
             else:
                 _print_warning("    cua-driver install did not complete. Re-run manually:")
-                _print_info("      curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash")
+                _print_info(f"      {install_cmd}")
         except subprocess.TimeoutExpired:
             _print_warning("    cua-driver install timed out. Re-run manually.")
         except Exception as e:
