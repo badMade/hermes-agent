@@ -394,6 +394,8 @@ class TestTranscribeLocalCommand:
                     handle.write(b"RIFF....WAVEfmt ")
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+            assert isinstance(cmd, list)
+            assert kwargs.get("shell", False) is False
             (out_dir / "test.txt").write_text("hello from local command\n", encoding="utf-8")
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
