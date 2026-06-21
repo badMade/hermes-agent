@@ -585,7 +585,7 @@ def _pip_install(
     (or the last failure for the caller to inspect).
     """
     venv_root = Path(sys.executable).parent.parent
-    uv_env = _sanitize_subprocess_env(os.environ.copy(), extra_env={"VIRTUAL_ENV": str(venv_root)})
+    uv_env_base = {**os.environ, "VIRTUAL_ENV": str(venv_root)}
 
     uv_bin = shutil.which("uv")
     if uv_bin:
@@ -593,7 +593,7 @@ def _pip_install(
             result = subprocess.run(
                 [uv_bin, "pip", "install", *args],
                 capture_output=capture_output, text=True, timeout=timeout,
-                env=uv_env,
+                env=_sanitize_subprocess_env(uv_env_base),
             )
             if result.returncode == 0:
                 return result
@@ -768,10 +768,10 @@ def _run_post_setup(post_setup_key: str):
             _print_info("    Start the Camofox server:")
             _print_info("      npx @askjo/camofox-browser")
             _print_info("    First run downloads the Camoufox engine (~300MB)")
-            _print_info("    Or use Docker: docker run -p 9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
+            _print_info("    Or use Docker: docker run -p 127.0.0.1:9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
         elif not shutil.which("npm"):
             _print_warning("    Node.js not found. Install Camofox via Docker:")
-            _print_info("      docker run -p 9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
+            _print_info("      docker run -p 127.0.0.1:9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser")
 
     elif post_setup_key == "cua_driver":
         # cua-driver provides macOS background computer-use (SkyLight SPIs).
@@ -801,13 +801,17 @@ def _run_post_setup(post_setup_key: str):
             return
         _print_info("    Installing cua-driver (macOS background computer-use)...")
         try:
-            install_cmd = (
-                "/bin/bash -c \"$(curl -fsSL "
-                "https://raw.githubusercontent.com/trycua/cua/main/"
-                "libs/cua-driver/scripts/install.sh)\""
-            )
+            install_cmd = [
+                "/bin/bash",
+                "-c",
+                "curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash"
+            ]
             result = subprocess.run(
-                install_cmd, shell=True, timeout=300,
+                install_cmd,
+                capture_output=True,
+                text=True,
+                cwd=str(PROJECT_ROOT),
+                timeout=600,
                 env=_sanitize_subprocess_env(os.environ.copy()),
             )
             if result.returncode == 0 and shutil.which("cua-driver"):
@@ -818,7 +822,7 @@ def _run_post_setup(post_setup_key: str):
                 _print_info("    Both must allow the terminal / Hermes process.")
             else:
                 _print_warning("    cua-driver install did not complete. Re-run manually:")
-                _print_info(f"      {install_cmd}")
+                _print_info("      curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh | /bin/bash")
         except subprocess.TimeoutExpired:
             _print_warning("    cua-driver install timed out. Re-run manually.")
         except Exception as e:
