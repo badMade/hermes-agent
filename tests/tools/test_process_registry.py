@@ -342,23 +342,24 @@ class TestStdinHelpers:
             use_pty=False,
         )
 
-        try:
-            time.sleep(0.5)
-            assert registry.submit_stdin(session.id, "hello")["status"] == "ok"
-            assert registry.close_stdin(session.id)["status"] == "ok"
+        with patch.dict("os.environ", {"HERMES_YOLO_MODE": "1"}):
+            try:
+                time.sleep(0.5)
+                assert registry.submit_stdin(session.id, "hello")["status"] == "ok"
+                assert registry.close_stdin(session.id)["status"] == "ok"
 
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                poll = registry.poll(session.id)
-                if poll["status"] == "exited":
-                    assert poll["exit_code"] == 0
-                    assert "hello" in poll["output_preview"]
-                    return
-                time.sleep(0.2)
+                deadline = time.time() + 5
+                while time.time() < deadline:
+                    poll = registry.poll(session.id)
+                    if poll["status"] == "exited":
+                        assert poll["exit_code"] == 0
+                        assert "hello" in poll["output_preview"]
+                        return
+                    time.sleep(0.2)
 
-            pytest.fail("process did not exit after stdin was closed")
-        finally:
-            registry.kill_process(session.id)
+                pytest.fail("process did not exit after stdin was closed")
+            finally:
+                registry.kill_process(session.id)
 
 
 # =========================================================================
