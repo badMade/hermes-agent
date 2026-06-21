@@ -568,10 +568,14 @@ def _session_browse_picker(sessions: list) -> Optional[str]:
                 stdscr.refresh()
                 key = stdscr.getch()
 
-                if key in {curses.KEY_UP,}:
+                if key in {
+                    curses.KEY_UP,
+                }:
                     if filtered:
                         cursor = (cursor - 1) % len(filtered)
-                elif key in {curses.KEY_DOWN,}:
+                elif key in {
+                    curses.KEY_DOWN,
+                }:
                     if filtered:
                         cursor = (cursor + 1) % len(filtered)
                 elif key in {curses.KEY_ENTER, 10, 13}:
@@ -1712,6 +1716,7 @@ def _is_profile_api_key_provider(provider_id: str) -> bool:
     """
     try:
         from providers import get_provider_profile
+
         _p = get_provider_profile(provider_id)
         return _p is not None and _p.auth_type == "api_key"
     except Exception:
@@ -3133,7 +3138,8 @@ def _model_flow_custom(config):
     if context_length_str:
         try:
             context_length = int(
-                context_length_str.replace(",", "")
+                context_length_str
+                .replace(",", "")
                 .replace("k", "000")
                 .replace("K", "000")
             )
@@ -5602,7 +5608,9 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
 
     if r2.returncode != 0:
         stderr_preview = (r2.stderr or "").strip()
-        stderr_tail = "\n  ".join(stderr_preview.splitlines()[-10:]) if stderr_preview else ""
+        stderr_tail = (
+            "\n  ".join(stderr_preview.splitlines()[-10:]) if stderr_preview else ""
+        )
         dist_dir = web_dir.parent / "hermes_cli" / "web_dist"
         dist_index = dist_dir / "index.html"
 
@@ -5832,6 +5840,7 @@ def _format_time_ago(iso_ts: str) -> str:
     """Render an ISO timestamp as `Xh ago` / `Xd ago` / `Xm ago`. Best effort."""
     try:
         from datetime import datetime, timezone
+
         ts = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
@@ -5920,6 +5929,7 @@ def _kill_stale_dashboard_processes(
             # On Windows, os.kill(pid, 0) is NOT a no-op. Route through
             # the cross-platform existence check.
             from gateway.status import _pid_exists
+
             for pid in pending:
                 if _pid_exists(pid):
                     still_pending.append(pid)
@@ -6363,9 +6373,13 @@ def _redact_git_remote_url(origin_url: Optional[str]) -> str:
         host = parsed.hostname or ""
         port = f":{parsed.port}" if parsed.port else ""
         netloc = f"[REDACTED]@{host}{port}"
-        return urlunsplit(
-            (parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)
-        )
+        return urlunsplit((
+            parsed.scheme,
+            netloc,
+            parsed.path,
+            parsed.query,
+            parsed.fragment,
+        ))
 
     if ":" in remote and "/" in remote.split(":", 1)[1]:
         userinfo, sep, rest = remote.partition("@")
@@ -6723,6 +6737,7 @@ def _quarantine_running_hermes_exe(scripts_dir: Path) -> list[tuple[Path, Path]]
         return moved
 
     import time
+
     stamp = int(time.time() * 1000)
     for shim in _hermes_exe_shims(scripts_dir):
         if not shim.exists():
@@ -6877,7 +6892,17 @@ def _install_psutil_android_compat(
         archive = tmp_path / "psutil.tar.gz"
         urllib.request.urlretrieve(psutil_url, archive)
         with tarfile.open(archive) as tar:
-            tar.extractall(tmp_path)
+            for member in tar.getmembers():
+                name = member.name
+                if (
+                    name.startswith("/")
+                    or ".." in __import__("pathlib").Path(name).parts
+                ):
+                    raise tarfile.TarError(f"refusing to extract unsafe path: {name!r}")
+            try:
+                tar.extractall(tmp_path, filter="data")
+            except TypeError:
+                tar.extractall(tmp_path)
 
         src_root = next(
             p for p in tmp_path.iterdir() if p.is_dir() and p.name.startswith("psutil-")
@@ -6902,7 +6927,9 @@ def _ensure_uv_for_termux(pip_cmd: list[str]) -> str | None:
     if uv_bin or not _is_termux_env():
         return uv_bin
     try:
-        print("  → Termux detected: trying to install uv for faster dependency updates...")
+        print(
+            "  → Termux detected: trying to install uv for faster dependency updates..."
+        )
         subprocess.run(pip_cmd + ["install", "uv"], cwd=PROJECT_ROOT, check=False)
     except Exception:
         pass
@@ -7207,7 +7234,9 @@ def _ensure_fhs_path_guard() -> None:
     if sys.platform != "linux":
         return
     try:
-        if os.geteuid() != 0:  # windows-footgun: ok — Linux FHS helper, guarded by sys.platform == "linux" above + AttributeError catch
+        if (
+            os.geteuid() != 0
+        ):  # windows-footgun: ok — Linux FHS helper, guarded by sys.platform == "linux" above + AttributeError catch
             return
     except AttributeError:
         return
@@ -7244,7 +7273,7 @@ def _ensure_fhs_path_guard() -> None:
 
     path_line = 'export PATH="/usr/local/bin:$PATH"'
     path_comment = (
-        "# Hermes Agent — ensure /usr/local/bin is on PATH " "(RHEL non-login shells)"
+        "# Hermes Agent — ensure /usr/local/bin is on PATH (RHEL non-login shells)"
     )
     wrote_any = False
     for candidate in (".bashrc", ".bash_profile"):
@@ -7473,7 +7502,6 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
     # Fetch and pull
     try:
-
         print("→ Fetching updates...")
         fetch_result = subprocess.run(
             git_cmd + ["fetch", "origin"],
@@ -7665,9 +7693,13 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 uv_env.pop("PYTHONPATH", None)
                 uv_env.pop("PYTHONHOME", None)
                 install_group = "termux-all"
-                print("  → Termux detected: using uv + curated termux-all optional profile...")
+                print(
+                    "  → Termux detected: using uv + curated termux-all optional profile..."
+                )
             if _is_termux_env(uv_env) and _is_android_python():
-                print("  → Termux/Android detected: prebuilding psutil with Linux source path compatibility...")
+                print(
+                    "  → Termux/Android detected: prebuilding psutil with Linux source path compatibility..."
+                )
                 _install_psutil_android_compat([uv_bin, "pip"], env=uv_env)
             _install_python_dependencies_with_optional_fallback(
                 [uv_bin, "pip"], env=uv_env, group=install_group
@@ -7693,11 +7725,17 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 )
             if _is_termux_env():
                 install_group = "termux-all"
-                print("  → Termux detected: using curated termux-all optional profile...")
+                print(
+                    "  → Termux detected: using curated termux-all optional profile..."
+                )
             if _is_termux_env() and _is_android_python():
-                print("  → Termux/Android detected: prebuilding psutil with Linux source path compatibility...")
+                print(
+                    "  → Termux/Android detected: prebuilding psutil with Linux source path compatibility..."
+                )
                 _install_psutil_android_compat(pip_cmd)
-            _install_python_dependencies_with_optional_fallback(pip_cmd, group=install_group)
+            _install_python_dependencies_with_optional_fallback(
+                pip_cmd, group=install_group
+            )
 
         _update_node_dependencies()
         _build_web_ui(PROJECT_ROOT / "web")
@@ -8276,7 +8314,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
                                         restarted_services.append(svc_name)
                                         print(f"  ✓ {svc_name} recovered on retry")
                                     else:
-                                        _scope_flag = "--user " if scope == "user" else ""
+                                        _scope_flag = (
+                                            "--user " if scope == "user" else ""
+                                        )
                                         print(
                                             f"  ✗ {svc_name} failed to stay running after restart.\n"
                                             f"    Check logs: journalctl {_scope_flag}-u {svc_name} --since '2 min ago'\n"
@@ -8407,6 +8447,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         f"  ⚠ {len(_stuck)} gateway process(es) ignored SIGTERM — force-killing"
                     )
                     from gateway.status import terminate_pid as _terminate_pid
+
                     for pid in _stuck:
                         try:
                             # Routes through taskkill /T /F on Windows,
@@ -8607,10 +8648,7 @@ def cmd_profile(args):
             f"\n {'Profile':<16} {'Model':<28} {'Gateway':<12} "
             f"{'Alias':<12} {'Distribution'}"
         )
-        print(
-            f" {'─' * 15}    {'─' * 27}    {'─' * 11}    "
-            f"{'─' * 11}    {'─' * 20}"
-        )
+        print(f" {'─' * 15}    {'─' * 27}    {'─' * 11}    {'─' * 11}    {'─' * 20}")
 
         for p in profiles:
             marker = (
@@ -8956,8 +8994,12 @@ def cmd_profile(args):
                 if force_config:
                     print("  --force-config set: config.yaml WILL be overwritten.")
                 else:
-                    print("  config.yaml will be preserved (pass --force-config to overwrite).")
-                print("  User data (memories, sessions, auth, .env) will NOT be touched.")
+                    print(
+                        "  config.yaml will be preserved (pass --force-config to overwrite)."
+                    )
+                print(
+                    "  User data (memories, sessions, auth, .env) will NOT be touched."
+                )
                 try:
                     answer = input("\nProceed? [y/N] ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
@@ -8978,7 +9020,10 @@ def cmd_profile(args):
             sys.exit(1)
 
     elif action == "info":
-        from hermes_cli.profile_distribution import describe_distribution, DistributionError
+        from hermes_cli.profile_distribution import (
+            describe_distribution,
+            DistributionError,
+        )
 
         try:
             data = describe_distribution(args.profile_name)
@@ -9022,6 +9067,7 @@ def cmd_profile(args):
 def _render_distribution_plan(plan) -> None:
     """Print a human-readable summary of a pending distribution install."""
     from hermes_cli.profile_distribution import MANIFEST_FILENAME
+
     mf = plan.manifest
     print(f"\nDistribution: {mf.name} v{mf.version}")
     if mf.description:
@@ -9104,7 +9150,8 @@ def _report_dashboard_status() -> int:
                 if os.path.exists(cmdline_path):
                     with open(cmdline_path, "rb") as f:
                         cmdline = (
-                            f.read()
+                            f
+                            .read()
                             .replace(b"\x00", b" ")
                             .decode("utf-8", errors="replace")
                             .strip()
@@ -9221,15 +9268,40 @@ def _build_provider_choices() -> list[str]:
     """Build the --provider choices list from CANONICAL_PROVIDERS + 'auto'."""
     try:
         from hermes_cli.models import CANONICAL_PROVIDERS as _cp
+
         return ["auto"] + [p.slug for p in _cp]
     except Exception:
         # Fallback: static list guarantees the CLI always works
         return [
-            "auto", "openrouter", "nous", "openai-codex", "copilot-acp", "copilot",
-            "anthropic", "gemini", "google-gemini-cli", "xai", "bedrock", "azure-foundry",
-            "ollama-cloud", "huggingface", "zai", "kimi-coding", "kimi-coding-cn",
-            "stepfun", "minimax", "minimax-cn", "kilocode", "xiaomi", "arcee",
-            "nvidia", "deepseek", "alibaba", "qwen-oauth", "opencode-zen", "opencode-go",
+            "auto",
+            "openrouter",
+            "nous",
+            "openai-codex",
+            "copilot-acp",
+            "copilot",
+            "anthropic",
+            "gemini",
+            "google-gemini-cli",
+            "xai",
+            "bedrock",
+            "azure-foundry",
+            "ollama-cloud",
+            "huggingface",
+            "zai",
+            "kimi-coding",
+            "kimi-coding-cn",
+            "stepfun",
+            "minimax",
+            "minimax-cn",
+            "kilocode",
+            "xiaomi",
+            "arcee",
+            "nvidia",
+            "deepseek",
+            "alibaba",
+            "qwen-oauth",
+            "opencode-zen",
+            "opencode-go",
         ]
 
 
@@ -9242,22 +9314,53 @@ def _build_provider_choices() -> list[str]:
 # below in ``main()``. Missing an entry here only costs a one-time
 # discovery; extra entries here would let a plugin command silently fail
 # to parse.
-_BUILTIN_SUBCOMMANDS = frozenset(
-    {
-        "acp", "auth", "backup", "checkpoints", "claw", "completion",
-        "computer-use",
-        "config", "cron", "curator", "dashboard", "debug", "doctor",
-        "dump", "fallback", "gateway", "hooks", "import", "insights",
-        "kanban", "login", "logout", "logs", "mcp", "memory", "model",
-        "pairing", "plugins", "profile", "sessions", "setup", "skills",
-        "slack", "status", "tools", "uninstall", "update", "version",
-        "webhook", "whatsapp", "chat",
-        # Help-ish invocations — plugin commands not being listed in
-        # top-level --help is an acceptable trade-off for skipping an
-        # expensive eager import of every bundled plugin module.
-        "help",
-    }
-)
+_BUILTIN_SUBCOMMANDS = frozenset({
+    "acp",
+    "auth",
+    "backup",
+    "checkpoints",
+    "claw",
+    "completion",
+    "computer-use",
+    "config",
+    "cron",
+    "curator",
+    "dashboard",
+    "debug",
+    "doctor",
+    "dump",
+    "fallback",
+    "gateway",
+    "hooks",
+    "import",
+    "insights",
+    "kanban",
+    "login",
+    "logout",
+    "logs",
+    "mcp",
+    "memory",
+    "model",
+    "pairing",
+    "plugins",
+    "profile",
+    "sessions",
+    "setup",
+    "skills",
+    "slack",
+    "status",
+    "tools",
+    "uninstall",
+    "update",
+    "version",
+    "webhook",
+    "whatsapp",
+    "chat",
+    # Help-ish invocations — plugin commands not being listed in
+    # top-level --help is an acceptable trade-off for skipping an
+    # expensive eager import of every bundled plugin module.
+    "help",
+})
 
 
 # Top-level flags that take a value. Needed by ``_first_positional_argv``
@@ -9268,21 +9371,25 @@ _BUILTIN_SUBCOMMANDS = frozenset(
 # Correctness-safe either way: missing an entry here only makes the
 # fast-path bail out too eagerly (we run plugin discovery when we didn't
 # need to); extra entries would make us skip a real positional.
-_TOP_LEVEL_VALUE_FLAGS = frozenset(
-    {
-        "-z", "--oneshot",
-        "-m", "--model",
-        "--provider",
-        "-t", "--toolsets",
-        "-r", "--resume",
-        "-s", "--skills",
-        # ``-c / --continue`` is nargs='?' (optional value). Treat it as
-        # value-taking: if the next token is a subcommand-looking word
-        # the user almost certainly meant it as the session name, and
-        # either interpretation keeps us on the safe side.
-        "-c", "--continue",
-    }
-)
+_TOP_LEVEL_VALUE_FLAGS = frozenset({
+    "-z",
+    "--oneshot",
+    "-m",
+    "--model",
+    "--provider",
+    "-t",
+    "--toolsets",
+    "-r",
+    "--resume",
+    "-s",
+    "--skills",
+    # ``-c / --continue`` is nargs='?' (optional value). Treat it as
+    # value-taking: if the next token is a subcommand-looking word
+    # the user almost certainly meant it as the session name, and
+    # either interpretation keeps us on the safe side.
+    "-c",
+    "--continue",
+})
 
 
 def _first_positional_argv() -> str | None:
@@ -9346,6 +9453,7 @@ def main():
     # Force UTF-8 stdio on Windows before anything prints.  No-op elsewhere.
     try:
         from hermes_cli.stdio import configure_windows_stdio
+
         configure_windows_stdio()
     except Exception:
         pass
@@ -9561,7 +9669,9 @@ def main():
     )
 
     # gateway list
-    gateway_subparsers.add_parser("list", help="List all profiles and their gateway status")
+    gateway_subparsers.add_parser(
+        "list", help="List all profiles and their gateway status"
+    )
 
     # gateway setup
     gateway_subparsers.add_parser("setup", help="Configure messaging platforms")
@@ -10275,6 +10385,7 @@ Examples:
         "space checkpoints occupy, force a prune, or wipe the base.",
     )
     from hermes_cli.checkpoints import register_cli as _register_checkpoints_cli
+
     _register_checkpoints_cli(checkpoints_parser)
 
     # =========================================================================
@@ -10907,10 +11018,12 @@ Examples:
         action = getattr(args, "computer_use_action", None)
         if action == "install":
             from hermes_cli.tools_config import _run_post_setup
+
             _run_post_setup("cua_driver")
             return
         if action == "status":
             import shutil
+
             path = shutil.which("cua-driver")
             if path:
                 print(f"cua-driver: installed at {path}")
@@ -11134,7 +11247,6 @@ Examples:
                     return
                 line = _json.dumps(data, ensure_ascii=False) + "\n"
                 if args.output == "-":
-
                     sys.stdout.write(line)
                 else:
                     with open(args.output, "w", encoding="utf-8") as f:
@@ -11143,7 +11255,6 @@ Examples:
             else:
                 sessions = db.export_all(source=args.source)
                 if args.output == "-":
-
                     for s in sessions:
                         sys.stdout.write(_json.dumps(s, ensure_ascii=False) + "\n")
                 else:
@@ -11556,19 +11667,25 @@ Examples:
         help="Distribution source (git URL or local directory)",
     )
     profile_install.add_argument(
-        "--name", dest="install_name", metavar="NAME",
+        "--name",
+        dest="install_name",
+        metavar="NAME",
         help="Override profile name (default: read from manifest)",
     )
     profile_install.add_argument(
-        "--alias", action="store_true",
+        "--alias",
+        action="store_true",
         help="Create a shell wrapper alias for the installed profile",
     )
     profile_install.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Overwrite an existing profile of the same name (user data preserved)",
     )
     profile_install.add_argument(
-        "-y", "--yes", action="store_true",
+        "-y",
+        "--yes",
+        action="store_true",
         help="Skip manifest preview confirmation",
     )
 
@@ -11584,11 +11701,14 @@ Examples:
     )
     profile_update.add_argument("profile_name", help="Profile to update")
     profile_update.add_argument(
-        "--force-config", action="store_true",
+        "--force-config",
+        action="store_true",
         help="Also overwrite config.yaml (normally preserved to keep user overrides)",
     )
     profile_update.add_argument(
-        "-y", "--yes", action="store_true",
+        "-y",
+        "--yes",
+        action="store_true",
         help="Skip confirmation",
     )
 
