@@ -83,29 +83,43 @@ def main() -> int:
         archive = tmp_path / "psutil.tar.gz"
         urllib.request.urlretrieve(PSUTIL_URL, archive)
         with tarfile.open(archive) as tar:
-            for member in tar.getmembers():
-                name = member.name
-                if (
-                    Path(name).is_absolute()
-                    or name.startswith("/")
-                    or name.startswith("\\")
-                    or ".." in Path(name).parts
-                ):
+            import os
+
+            base_path = os.path.realpath(tmp_path)
+            members = tar.getmembers()
+            for member in members:
+                if member.issym() or member.islnk() or not (member.isdir() or member.isreg()):
                     raise tarfile.TarError(
-                        f"refusing to extract unsafe path: {name!r}"
+                        f"refusing to extract link or special member: {member.name!r}"
                     )
-                if not (member.isreg() or member.isdir()):
+                try:
+                    target_path = os.path.realpath(os.path.join(base_path, member.name))
+                    if os.path.commonpath([base_path, target_path]) != base_path:
+                        raise tarfile.TarError(
+                            f"refusing to extract unsafe path: {member.name!r}"
+                        )
+                except ValueError:
                     raise tarfile.TarError(
-                        f"refusing to extract unexpected member type: {name!r}"
+                        f"refusing to extract unsafe path: {member.name!r}"
                     )
             try:
                 tar.extractall(tmp_path, filter="data")
             except TypeError:
-                tar.extractall(tmp_path)
-            try:
-                tar.extractall(tmp_path, filter="data")
-            except TypeError:
-                tar.extractall(tmp_path)
+                # Python < 3.12 — no filter kwarg
+                for member in members:
+                    target_path = Path(os.path.realpath(os.path.join(base_path, member.name)))
+                    if member.isdir():
+                        target_path.mkdir(parents=True, exist_ok=True)
+                        continue
+
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    extracted = tar.extractfile(member)
+                    if extracted is None:
+                        raise tarfile.TarError(
+                            f"refusing to extract non-file member: {member.name!r}"
+                        )
+                    with extracted, target_path.open("wb") as dst:
+                        shutil.copyfileobj(extracted, dst)
 
         try:
             src_root = next(
