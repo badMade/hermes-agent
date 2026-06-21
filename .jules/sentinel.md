@@ -11,3 +11,8 @@
 **Vulnerability:** Use of `subprocess.run(shell=True)` in `hermes_cli/tools_config.py` for cua-driver installation.
 **Learning:** Using `shell=True` can introduce shell injection vulnerabilities, especially if any parts of the command are dynamic. Although this specific case was a hardcoded URL string, it's best practice to replace `shell=True` with an argument list for defense in depth.
 **Prevention:** Avoid `shell=True` in `subprocess.run` and pass the command and its arguments as a list. When using `bash -c`, pass the script content as an argument to `-c` rather than interpolating it into a single string with `shell=True`.
+
+## 2024-05-26 - Security Enhancement: Zip Slip Prevention in Tar Extraction
+**Vulnerability:** Use of `tar.extractall()` without path validation allows Zip Slip (Path Traversal / CWE-22) vulnerabilities. An attacker could craft an archive with member names starting with `/` or containing `..` to overwrite arbitrary files on the system.
+**Learning:** Python's `tarfile.extractall()` does not safely validate member paths before Python 3.12 (unless `filter='data'` is used, which is unavailable in older versions). Even when downloading from a trusted source, it is best practice to always explicitly validate paths to defend against compromised archives or Man-in-the-Middle attacks.
+**Prevention:** Avoid `tar.extractall()` directly without filters. Iterate over `tar.getmembers()`, explicitly validate that `member.name.split("/")` does not contain `..` or start with `/`. If safe, use `tar.extract()` directly. To support modern safety natively when available, use `tar.extract(member, path=tmp_path, filter="data")` and fallback on `TypeError` to standard `tar.extract(member, path=tmp_path)`.
