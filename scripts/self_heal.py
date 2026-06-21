@@ -14,8 +14,6 @@ import subprocess
 import sys
 import os
 
-SCHEDULE_FILE = ".github/self-heal-schedule.yml"
-
 def run_cmd(cmd: list[str]) -> bool:
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -41,15 +39,20 @@ def main() -> None:
 
     print("Starting Self-Heal Pipeline...")
 
+    # Define the 6 idempotent steps
     steps = [
-        {"name": "Lockfile refresh", "cmd": ["uv", "lock"]},
+        {"name": "Toolchain and deps rebuild", "cmd": ["uv", "sync", "--all-extras", "--dev"]},
         {"name": "Ruff lint auto-fix", "cmd": ["uv", "run", "ruff", "check", "--fix", "."]},
         {"name": "Ruff format auto-fix", "cmd": ["uv", "run", "ruff", "format", "."]},
-        {"name": "Ty type stub check", "cmd": ["uv", "run", "ty", "check"]},
+        {"name": "Snapshot updates (pytest)", "cmd": ["uv", "run", "pytest", "tests/", "--snapshot-update"]},
+        {"name": "Type stubs update", "cmd": ["uv", "run", "ty", "update"]},
+        {"name": "Lockfile refresh", "cmd": ["uv", "lock"]},
+        {"name": "Static asset regeneration", "cmd": ["uv", "run", "python", "scripts/build_skills_index.py"]},
     ]
 
     for step in steps:
         print(f"\n--- Executing Step: {step['name']} ---")
+
         run_cmd(step["cmd"])
 
         passed = run_healthcheck()

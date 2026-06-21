@@ -229,3 +229,7 @@ select = ["PLW1514"]
 "skills/**" = ["PLW1514"]
 "optional-skills/**" = ["PLW1514"]
 "plugins/**" = ["PLW1514"]
+
+[dependency-groups]
+dev = ["pytest", "ruff", "ty"]
+selfheal = ["ruamel.yaml>=0.18.16,<0.19", "requests>=2.33.0,<3"]
