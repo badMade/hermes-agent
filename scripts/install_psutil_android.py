@@ -102,10 +102,6 @@ def main() -> int:
                 tar.extractall(tmp_path, filter="data")
             except TypeError:
                 tar.extractall(tmp_path)
-            try:
-                tar.extractall(tmp_path, filter="data")
-            except TypeError:
-                tar.extractall(tmp_path)
 
         try:
             src_root = next(
