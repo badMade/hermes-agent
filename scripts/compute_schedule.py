@@ -82,8 +82,12 @@ def update_schedule_file(new_cron: str) -> None:
 
         # Load yaml content
         data = yaml.load(content)
+        if not isinstance(data, dict):
+            data = {}
+        if not isinstance(data.get('schedule'), dict):
+            data['schedule'] = {}
 
-        if data.get('schedule', {}).get('cron') == new_cron:
+        if data['schedule'].get('cron') == new_cron:
             print("Schedule unchanged.")
             sys.exit(0)
 
