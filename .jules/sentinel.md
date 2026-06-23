@@ -13,7 +13,7 @@
 **Learning:** Even when inputs are quoted, `shell=True` is inherently unsafe for command execution when local binaries like Whisper can be executed directly as an argument list.
 **Prevention:** Always tokenize command strings using `shlex.split()` and use `shell=False` for local binary execution without shell dependencies.
 
-## 2026-06-23 - [Fix Zip Slip Vulnerability in File Sync]
+## 2025-02-27 - [Fix Zip Slip Vulnerability in File Sync]
 **Vulnerability:** The `tools/environments/file_sync.py` script was extracting untrusted tarball archives fetched from remote environments using `tar.extractall(..., filter="data")` without an explicit pre-extraction path validation, and failing outright on older Python versions.
-**Learning:** Python's `tarfile` support for `filter="data"` is not available in all runtimes; even when available, it’s safer to validate extraction targets before writing any files.
-**Prevention:** Always validate each member’s extraction target stays within the staging directory (e.g. via `os.path.commonpath` on absolute paths), reject link entries, and defensively wrap `tar.extractall` in a `try/except TypeError` fallback for legacy interpreters.
+**Learning:** Python's native `tarfile` module relies entirely on the `filter="data"` backward compatibility which might not be supported on older interpreter versions. Even with it, it's safer to always validate extraction paths natively when handling untrusted files to prevent arbitrary host file overwrites (Zip Slip/Path Traversal vulnerabilities) entirely.
+**Prevention:** Always manually validate each member using `tar.getmembers()` ensuring paths do not begin with `/` or contain `..` using `.split("/")`, and defensively wrap `tar.extractall` in a `try/except TypeError` with a fallback `extractall` call.
