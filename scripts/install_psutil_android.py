@@ -84,14 +84,24 @@ def main() -> int:
         urllib.request.urlretrieve(PSUTIL_URL, archive)
         with tarfile.open(archive) as tar:
             for member in tar.getmembers():
-                resolved_path = Path(tmp_path / member.name).resolve()
-                resolved_tmp = tmp_path.resolve()
-                if resolved_tmp != resolved_path and resolved_tmp not in resolved_path.parents:
-                    continue
-                try:
-                    tar.extract(member, path=tmp_path, filter='data')
-                except TypeError:
-                    tar.extract(member, path=tmp_path)
+                name = member.name
+                if (
+                    Path(name).is_absolute()
+                    or name.startswith("/")
+                    or name.startswith("\\")
+                    or ".." in Path(name).parts
+                ):
+                    raise tarfile.TarError(
+                        f"refusing to extract unsafe path: {name!r}"
+                    )
+                if not (member.isreg() or member.isdir()):
+                    raise tarfile.TarError(
+                        f"refusing to extract unexpected member type: {name!r}"
+                    )
+            try:
+                tar.extractall(tmp_path, filter="data")
+            except TypeError:
+                tar.extractall(tmp_path)
 
         try:
             src_root = next(
