@@ -6931,7 +6931,12 @@ def _install_psutil_android_compat(
         with tarfile.open(archive) as tar:
             for member in tar.getmembers():
                 name = member.name
-                if name.startswith("/") or ".." in Path(name).parts:
+                if (
+                    PurePosixPath(name).is_absolute()
+                    or PureWindowsPath(name).is_absolute()
+                    or ".." in PurePosixPath(name).parts
+                    or ".." in PureWindowsPath(name).parts
+                ):
                     raise tarfile.TarError(f"refusing to extract unsafe path: {name!r}")
             try:
                 tar.extractall(tmp_path, filter="data")
