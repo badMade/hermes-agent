@@ -477,7 +477,17 @@ class TrajectoryCompressor:
 
     def count_turn_tokens(self, trajectory: List[Dict[str, str]]) -> List[int]:
         """Count tokens for each turn in a trajectory."""
-        return [self.count_tokens(turn.get("value", "")) for turn in trajectory]
+        if not trajectory:
+            return []
+
+        texts = [turn.get("value", "") for turn in trajectory]
+        try:
+            # Optimize by batch-encoding if supported by the tokenizer
+            encoded = self.tokenizer(texts)
+            return [len(ids) for ids in encoded["input_ids"]]
+        except Exception:
+            # Fallback to the individual token counting fallback if batch encoding fails
+            return [self.count_tokens(text) for text in texts]
 
     def _find_protected_indices(self, trajectory: List[Dict[str, str]]) -> Tuple[set, int, int]:
         """
