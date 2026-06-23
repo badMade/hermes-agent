@@ -19,9 +19,7 @@ Usage:
     all_dists = list_distributions()
 """
 
-import json
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 import random
 from toolsets import validate_toolset
 
@@ -222,50 +220,18 @@ DISTRIBUTIONS = {
 }
 
 
-def _is_valid_distribution(data: Any) -> bool:
-    """Validate the expected distribution shape."""
-    return (
-        isinstance(data, dict)
-        and isinstance(data.get("description"), str)
-        and isinstance(data.get("toolsets"), dict)
-    )
-
-
-def get_distribution(name: str) -> Optional[Dict[str, Any]]:
+def get_distribution(name: str) -> Optional[Dict[str, any]]:
     """
     Get a toolset distribution by name.
     
     Args:
-        name (str): Name of the distribution or a path to a JSON distribution file.
+        name (str): Name of the distribution
         
     Returns:
         Dict: Distribution definition with description and toolsets
         None: If distribution not found
     """
-    dist = DISTRIBUTIONS.get(name)
-    if dist is not None:
-        return dist
-
-    path = Path(name)
-    if path.suffix != ".json":
-        return None
-
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    except json.JSONDecodeError:
-        print(f"⚠️  Warning: Invalid JSON in distribution file '{name}'")
-        return None
-    except Exception as e:
-        print(f"⚠️  Warning: Failed to load distribution file '{name}': {e}")
-        return None
-
-    if not _is_valid_distribution(payload):
-        print(f"⚠️  Warning: Invalid distribution structure in '{name}'")
-        return None
-
-    return payload
+    return DISTRIBUTIONS.get(name)
 
 
 def list_distributions() -> Dict[str, Dict]:
@@ -332,7 +298,7 @@ def validate_distribution(distribution_name: str) -> bool:
     Returns:
         bool: True if valid, False otherwise
     """
-    return get_distribution(distribution_name) is not None
+    return distribution_name in DISTRIBUTIONS
 
 
 def print_distribution_info(distribution_name: str) -> None:
