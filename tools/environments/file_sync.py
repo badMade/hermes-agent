@@ -321,11 +321,17 @@ class FileSyncManager:
 
             with tempfile.TemporaryDirectory(prefix="hermes-sync-back-") as staging:
                 with tarfile.open(tf.name) as tar:
+                    staging_abs = os.path.abspath(staging)
                     for member in tar.getmembers():
-                        name = member.name
-                        if name.startswith("/") or ".." in name.split("/"):
+                        target_abs = os.path.abspath(os.path.join(staging, member.name))
+                        try:
+                            if os.path.commonpath([staging_abs, target_abs]) != staging_abs:
+                                raise tarfile.TarError(
+                                    f"refusing to extract unsafe path: {member.name!r}"
+                                )
+                        except ValueError:
                             raise tarfile.TarError(
-                                f"refusing to extract unsafe path: {name!r}"
+                                f"refusing to extract unsafe path: {member.name!r}"
                             )
                     try:
                         tar.extractall(staging, filter="data")
