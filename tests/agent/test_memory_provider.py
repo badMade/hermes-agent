@@ -84,27 +84,6 @@ class MetadataMemoryProvider(FakeMemoryProvider):
         self.memory_writes.append((action, target, content, metadata or {}))
 
 
-class MinimalMemoryProvider(MemoryProvider):
-    """Bare-minimum concrete provider that does NOT override any optional hooks.
-
-    Used to verify that the default ABC implementations of optional hooks
-    (e.g. on_session_end) are safe no-ops.
-    """
-
-    @property
-    def name(self) -> str:
-        return "minimal"
-
-    def is_available(self) -> bool:
-        return True
-
-    def initialize(self, session_id: str, **kwargs) -> None:
-        pass
-
-    def get_tool_schemas(self) -> list:
-        return []
-
-
 # ---------------------------------------------------------------------------
 # MemoryProvider ABC tests
 # ---------------------------------------------------------------------------

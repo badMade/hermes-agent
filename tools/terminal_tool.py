@@ -2107,14 +2107,13 @@ def terminal_tool(
             return json.dumps(result_dict, ensure_ascii=False)
 
     except Exception as e:
-        import traceback
-        tb_str = traceback.format_exc()
-        logger.error("terminal_tool exception:\n%s", tb_str)
+        logger.exception("terminal_tool exception")
+        from agent.redact import redact_sensitive_text
+        redacted_error = redact_sensitive_text(str(e))
         return json.dumps({
             "output": "",
             "exit_code": -1,
-            "error": f"Failed to execute command: {str(e)}",
-            "traceback": tb_str,
+            "error": f"Failed to execute command: {redacted_error}",
             "status": "error"
         }, ensure_ascii=False)
 

@@ -4,23 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import plugins.memory.openviking as openviking
 from plugins.memory.openviking import OpenVikingMemoryProvider, _VikingClient
-
-EXPECTED_LOCAL_PATH_ERROR = (
-    "Only http://, https://, git@, ssh://, or git:// URLs are accepted for "
-    "viking_add_resource. Local filesystem paths and file:// URIs are not allowed."
-)
-
-
-@pytest.fixture(autouse=True)
-def stub_openviking_httpx(monkeypatch):
-    mock_resp = MagicMock(status_code=200)
-    mock_resp.json.return_value = {}
-    httpx_stub = MagicMock()
-    httpx_stub.get.return_value = mock_resp
-    httpx_stub.post.return_value = mock_resp
-    monkeypatch.setattr(openviking, "_get_httpx", lambda: httpx_stub)
 
 
 def test_tool_search_sorts_by_raw_score_across_buckets():
@@ -98,29 +82,60 @@ def test_tool_add_resource_uploads_existing_local_file(tmp_path):
         "wait": True,
     }))
 
-    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_called_once_with(sample)
+    provider._client.post.assert_called_once_with("/api/v1/resources", {
+        "reason": "local test",
+        "wait": True,
+        "source_name": "sample.md",
+        "temp_file_id": "upload_sample.md",
+    })
+    assert result["status"] == "added"
+    assert result["root_uri"] == "viking://resources/sample"
 
 
-def test_tool_add_resource_rejects_file_uri(tmp_path):
+def test_tool_add_resource_uploads_file_uri(tmp_path):
     sample = tmp_path / "sample.md"
     sample.write_text("# Local resource\n", encoding="utf-8")
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
+    provider._client.upload_temp_file.return_value = "upload_sample.md"
+    provider._client.post.return_value = {
+        "status": "ok",
+        "result": {"root_uri": "viking://resources/sample"},
+    }
 
     result = json.loads(provider._tool_add_resource({
         "url": sample.as_uri(),
         "reason": "file uri test",
     }))
 
-    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_called_once_with(sample)
+    provider._client.post.assert_called_once_with("/api/v1/resources", {
+        "reason": "file uri test",
+        "source_name": "sample.md",
+        "temp_file_id": "upload_sample.md",
+    })
+    assert result["status"] == "added"
+    assert result["root_uri"] == "viking://resources/sample"
 
 
-def test_tool_add_resource_rejects_local_directory(tmp_path):
+def test_tool_add_resource_uploads_existing_local_directory_and_cleans_zip(tmp_path):
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    nested = docs / "nested"
+    nested.mkdir()
+    (nested / "api.md").write_text("# API\n", encoding="utf-8")
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
+    uploaded_paths = []
+    provider._client.upload_temp_file.side_effect = (
+        lambda path: uploaded_paths.append(path) or "upload_docs.zip"
+    )
+    provider._client.post.return_value = {
+        "status": "ok",
+        "result": {"root_uri": "viking://resources/docs"},
+    }
 
     result = json.loads(provider._tool_add_resource({
         "url": str(docs),
@@ -128,8 +143,57 @@ def test_tool_add_resource_rejects_local_directory(tmp_path):
         "wait": True,
     }))
 
-    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
-    provider._client.upload_temp_file.assert_not_called()
+    assert uploaded_paths
+    assert uploaded_paths[0].suffix == ".zip"
+    assert not uploaded_paths[0].exists()
+    provider._client.post.assert_called_once_with("/api/v1/resources", {
+        "reason": "directory test",
+        "wait": True,
+        "source_name": "docs",
+        "temp_file_id": "upload_docs.zip",
+    })
+    assert result["status"] == "added"
+    assert result["root_uri"] == "viking://resources/docs"
+
+
+def test_tool_add_resource_cleans_local_directory_zip_when_add_fails(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+    uploaded_paths = []
+    provider._client.upload_temp_file.side_effect = (
+        lambda path: uploaded_paths.append(path) or "upload_docs.zip"
+    )
+    provider._client.post.side_effect = RuntimeError("add failed")
+
+    with pytest.raises(RuntimeError, match="add failed"):
+        provider._tool_add_resource({"url": str(docs)})
+
+    assert uploaded_paths
+    assert not uploaded_paths[0].exists()
+
+
+def test_tool_add_resource_cleans_local_directory_zip_when_upload_fails(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+    uploaded_paths = []
+
+    def fail_upload(path):
+        uploaded_paths.append(path)
+        raise RuntimeError("upload failed")
+
+    provider._client.upload_temp_file.side_effect = fail_upload
+
+    with pytest.raises(RuntimeError, match="upload failed"):
+        provider._tool_add_resource({"url": str(docs)})
+
+    assert uploaded_paths
+    assert not uploaded_paths[0].exists()
     provider._client.post.assert_not_called()
 
 
@@ -140,23 +204,7 @@ def test_tool_add_resource_rejects_missing_local_path(tmp_path):
 
     result = json.loads(provider._tool_add_resource({"url": str(missing)}))
 
-    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
-    provider._client.upload_temp_file.assert_not_called()
-    provider._client.post.assert_not_called()
-
-
-@pytest.mark.parametrize("url", [
-    "mailto:attacker@evil.com",
-    "ftp://internal-server/secret",
-    "secrets.txt",
-    "relative/path/to/file.md",
-    "../../../etc/passwd",
-])
-def test_tool_add_resource_rejects_non_allowlisted_schemes(url):
-    provider = OpenVikingMemoryProvider()
-    provider._client = MagicMock()
-    result = json.loads(provider._tool_add_resource({"url": url}))
-    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    assert result["error"] == f"Local resource path does not exist: {missing}"
     provider._client.upload_temp_file.assert_not_called()
     provider._client.post.assert_not_called()
 

@@ -1,0 +1,111 @@
+name: Compute Self-Heal Schedule
+
+on:
+  schedule:
+    # Runs weekly to recompute the self-heal telemetry schedule
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: compute-schedule-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compute-schedule:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system ruamel.yaml
+
+      - name: Guard - Duplicate PR Check
+        id: pr_check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OPEN_PR=$(gh pr list --label "self-heal-schedule" --state open --limit 1 --json number --jq '.[].number')
+          if [ -n "$OPEN_PR" ]; then
+            echo "Open selfheal schedule PR #$OPEN_PR exists. Skipping to avoid duplicates."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Compute New Schedule
+        if: steps.pr_check.outputs.skip == 'false'
+        id: compute
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The script safely mutates .github/self-heal-schedule.yml
+          uv run python scripts/compute_schedule.py
+
+      - name: Check for Diff
+        if: steps.pr_check.outputs.skip == 'false'
+        id: diff
+        run: |
+          if git diff --quiet .github/self-heal-schedule.yml; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Sync Workflow Cron
+        if: steps.pr_check.outputs.skip == 'false' && steps.diff.outputs.changed == 'true'
+        run: |
+          # Keep the main workflow trigger in sync
+          NEW_CRON=$(grep -E 'cron:\s*".*?"' .github/self-heal-schedule.yml | awk -F'"' '{print $2}')
+          sed -i -E 's/cron: ".*?"/cron: "'"$NEW_CRON"'"/' .github/workflows/self-heal.yml
+
+      - name: Create Pull Request
+        if: steps.pr_check.outputs.skip == 'false' && steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH_NAME="selfheal-schedule-$(date +%s)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH_NAME"
+          git add .github/self-heal-schedule.yml .github/workflows/self-heal.yml
+          git commit -m "[Self-Heal Schedule] Update cadence"
+          git push origin "$BRANCH_NAME"
+
+          PR_BODY="### Self-Heal Schedule Update
+
+          The telemetry compute step has detected a shift in PR churn or CI failure frequency. The \`.github/self-heal-schedule.yml\` and associated workflow triggers have been updated.
+
+          **Rationale**: Schedule adjusted to match current repo activity levels to avoid oscillation or excessive runs.
+
+          > [!NOTE]
+          > Link back to Claude/Claude Code chat context for review.
+
+          ### Reviewer Checklist
+          - [ ] Verify cron expression is valid
+          - [ ] Confirm no manual overrides were incorrectly squashed
+          "
+
+          gh pr create \
+            --title "[Self-Heal Schedule] Update cadence" \
+            --body "$PR_BODY" \
+            --label "automation,self-heal-schedule" \
+            --base main \
+            --head "$BRANCH_NAME"

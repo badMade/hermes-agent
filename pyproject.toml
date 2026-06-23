@@ -49,7 +49,6 @@ dependencies = [
   # (which is a silent killer on Windows — see CONTRIBUTING.md) and
   # `os.killpg` (which doesn't exist on Windows).
   "psutil>=5.9.0,<8",
-  "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]
@@ -230,3 +229,7 @@ select = ["PLW1514"]
 "skills/**" = ["PLW1514"]
 "optional-skills/**" = ["PLW1514"]
 "plugins/**" = ["PLW1514"]
+
+[dependency-groups]
+dev = ["pytest", "ruff", "ty"]
+selfheal = ["ruamel.yaml>=0.18.16,<0.19", "requests>=2.33.0,<3"]
