@@ -6935,6 +6935,7 @@ def _install_psutil_android_compat(
                 if (
                     PurePosixPath(name).anchor
                     or PureWindowsPath(name).anchor
+                    or PureWindowsPath(name).drive
                     or ".." in PurePosixPath(name).parts
                     or ".." in PureWindowsPath(name).parts
                     or (
@@ -6942,6 +6943,7 @@ def _install_psutil_android_compat(
                         and (
                             PurePosixPath(member.linkname).anchor
                             or PureWindowsPath(member.linkname).anchor
+                            or PureWindowsPath(member.linkname).drive
                             or ".." in PurePosixPath(member.linkname).parts
                             or ".." in PureWindowsPath(member.linkname).parts
                         )
