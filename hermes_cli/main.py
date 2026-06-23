@@ -6934,8 +6934,19 @@ def _install_psutil_android_compat(
                 if (
                     PurePosixPath(name).is_absolute()
                     or PureWindowsPath(name).is_absolute()
+                    or PureWindowsPath(name).drive
                     or ".." in PurePosixPath(name).parts
                     or ".." in PureWindowsPath(name).parts
+                    or (
+                        (member.issym() or member.islnk())
+                        and (
+                            PurePosixPath(member.linkname).is_absolute()
+                            or PureWindowsPath(member.linkname).is_absolute()
+                            or PureWindowsPath(member.linkname).drive
+                            or ".." in PurePosixPath(member.linkname).parts
+                            or ".." in PureWindowsPath(member.linkname).parts
+                        )
+                    )
                 ):
                     raise tarfile.TarError(f"refusing to extract unsafe path: {name!r}")
             try:
