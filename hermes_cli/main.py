@@ -6929,6 +6929,7 @@ def _install_psutil_android_compat(
         tmp_path = Path(tmp)
         archive = tmp_path / "psutil.tar.gz"
         urllib.request.urlretrieve(psutil_url, archive)
+        _verify_file_sha256(archive, psutil_sha256)
         with tarfile.open(archive) as tar:
             for member in tar.getmembers():
                 name = member.name
