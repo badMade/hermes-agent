@@ -14,8 +14,6 @@ import subprocess
 import sys
 import os
 
-SCHEDULE_FILE = ".github/self-heal-schedule.yml"
-
 def run_cmd(cmd: list[str]) -> bool:
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -42,10 +40,12 @@ def main() -> None:
     print("Starting Self-Heal Pipeline...")
 
     steps = [
+        {"name": "Toolchain refresh", "cmd": ["uv", "sync", "--all-groups"]},
         {"name": "Lockfile refresh", "cmd": ["uv", "lock"]},
         {"name": "Ruff lint auto-fix", "cmd": ["uv", "run", "ruff", "check", "--fix", "."]},
-        {"name": "Ruff format auto-fix", "cmd": ["uv", "run", "ruff", "format", "."]},
+        {"name": "Ruff format auto-fix", "cmd": ["sh", "-c", "git ls-files -m | grep '\\.py$' | xargs -r uv run ruff format"]},
         {"name": "Ty type stub check", "cmd": ["uv", "run", "ty", "check"]},
+        {"name": "Static asset regeneration", "cmd": ["uv", "run", "--with", "pyyaml", "python", "website/scripts/generate-skill-docs.py"]},
     ]
 
     for step in steps:
