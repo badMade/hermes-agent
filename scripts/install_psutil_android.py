@@ -87,7 +87,7 @@ def main() -> int:
                 name = member.name
                 if (
                     name.startswith("/")
-                    or ".." in __import__("pathlib").Path(name).parts
+                    or ".." in Path(name).parts
                 ):
                     raise tarfile.TarError(f"refusing to extract unsafe path: {name!r}")
             try:
