@@ -67,6 +67,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 
