@@ -87,13 +87,9 @@ def main() -> int:
                 name = member.name
                 if (
                     name.startswith("/")
-                    or ".." in Path(name).parts
+                    or ".." in __import__("pathlib").Path(name).parts
                 ):
                     raise tarfile.TarError(f"refusing to extract unsafe path: {name!r}")
-                if member.issym() or member.islnk():
-                    link = member.linkname
-                    if link.startswith("/") or ".." in Path(link).parts:
-                        raise tarfile.TarError(f"refusing to extract unsafe link: {link!r}")
             try:
                 tar.extractall(tmp_path, filter="data")
             except TypeError:

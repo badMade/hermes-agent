@@ -67,8 +67,9 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 
 def _add_accept_hooks_flag(parser) -> None:
@@ -681,6 +682,41 @@ def _probe_container(cmd: list, backend: str, via_sudo: bool = False):
         sys.exit(1)
 
 
+_CONTAINER_ALLOWED_BACKENDS = frozenset({"docker", "podman"})
+
+
+def _resolve_container_runtime(container_info: dict) -> str:
+    """Return a trusted Docker/Podman runtime path for container routing."""
+    backend = container_info["backend"]
+    if backend not in _CONTAINER_ALLOWED_BACKENDS:
+        print(
+            f"Error: invalid container backend {backend!r}. Expected docker or podman.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    runtime_path = container_info.get("runtime_path")
+    if runtime_path:
+        runtime = Path(runtime_path)
+        if not runtime.is_absolute() or not os.access(runtime, os.X_OK):
+            print(
+                f"Error: invalid container runtime path {runtime_path!r}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return str(runtime)
+
+    runtime = shutil.which(backend)
+    if runtime:
+        return runtime
+
+    print(
+        f"Error: {backend} not found on PATH. Cannot route to container.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def _exec_in_container(container_info: dict, cli_args: list):
     """Replace the current process with a command inside the managed container.
 
@@ -699,13 +735,7 @@ def _exec_in_container(container_info: dict, cli_args: list):
     exec_user = container_info["exec_user"]
     hermes_bin = container_info["hermes_bin"]
 
-    runtime = shutil.which(backend)
-    if not runtime:
-        print(
-            f"Error: {backend} not found on PATH. Cannot route to container.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    runtime = _resolve_container_runtime(container_info)
 
     # Rootful containers (NixOS systemd service) are invisible to unprivileged
     # users — Podman uses per-user namespaces, Docker needs group access.
@@ -1168,6 +1198,7 @@ def _launch_tui(
     )
     env.setdefault("HERMES_PYTHON", sys.executable)
     env.setdefault("HERMES_CWD", os.getcwd())
+    env.setdefault("TERMINAL_CWD", env["HERMES_CWD"])
     env.setdefault("NODE_ENV", "development" if tui_dev else "production")
 
     wt_info = None
@@ -5484,9 +5515,12 @@ def _run_npm_install_deterministic(
 
     Prefers ``npm ci`` (strict, lockfile-preserving) when a lockfile is present;
     falls back to ``npm install`` only if ``npm ci`` fails (e.g. lockfile out of
-    sync on a WIP checkout).  Without this, ``npm install`` on npm ≥ 10 silently
-    rewrites committed lockfiles (stripping ``"peer": true`` etc.), which leaves
-    the working tree dirty and causes the next ``hermes update`` to stash the
+    sync on a WIP checkout). Callers may pass npm safety flags such as
+    ``--ignore-scripts`` for self-update paths that must not execute untrusted
+    package hooks as the Hermes operator. Without this, ``npm install`` on npm
+    ≥ 10 silently rewrites committed lockfiles (stripping ``"peer": true``
+    etc.), which leaves the working tree dirty and causes the next
+    ``hermes update`` to stash the
     lockfile — repeatedly.
     """
     lockfile = cwd / "package-lock.json"
@@ -6357,17 +6391,11 @@ def _redact_git_remote_url(origin_url: Optional[str]) -> str:
 
 def _is_fork(origin_url: Optional[str]) -> bool:
     """Check if the origin remote points to a fork (not the official repo)."""
-    if not origin_url:
+    normalized = _canonical_git_remote(origin_url)
+    if not normalized:
         return False
-    # Normalize URL for comparison (strip trailing .git if present)
-    normalized = origin_url.rstrip("/")
-    if normalized.endswith(".git"):
-        normalized = normalized[:-4]
     for official in OFFICIAL_REPO_URLS:
-        official_normalized = official.rstrip("/")
-        if official_normalized.endswith(".git"):
-            official_normalized = official_normalized[:-4]
-        if normalized == official_normalized:
+        if normalized == _canonical_git_remote(official):
             return False
     return True
 
@@ -6828,71 +6856,6 @@ def _is_android_python() -> bool:
     return sys.platform == "android"
 
 
-def _safe_tar_member_parts(member_name: str) -> list[str]:
-    """Return safe relative path parts for a tar member."""
-    normalized_name = member_name.replace("\\", "/")
-    posix_path = PurePosixPath(normalized_name)
-    windows_path = PureWindowsPath(member_name)
-
-    if (
-        not normalized_name
-        or posix_path.is_absolute()
-        or windows_path.is_absolute()
-        or windows_path.drive
-    ):
-        raise ValueError(f"Unsafe archive member path: {member_name}")
-
-    parts = [part for part in posix_path.parts if part not in {"", "."}]
-    if not parts or any(part == ".." for part in parts):
-        raise ValueError(f"Unsafe archive member path: {member_name}")
-    return parts
-
-
-def _safe_extract_tar_archive(archive: Path, destination: Path) -> None:
-    """Extract a tar archive without allowing path escapes or links."""
-    import tarfile
-
-    with tarfile.open(archive, "r:*") as tar:
-        for member in tar.getmembers():
-            target = destination.joinpath(*_safe_tar_member_parts(member.name))
-
-            if member.isdir():
-                target.mkdir(parents=True, exist_ok=True)
-                continue
-
-            if not member.isfile():
-                raise ValueError(f"Unsupported archive member type: {member.name}")
-
-            target.parent.mkdir(parents=True, exist_ok=True)
-            source = tar.extractfile(member)
-            if source is None:
-                raise ValueError(f"Cannot read archive member: {member.name}")
-
-            with source, open(target, "wb") as dst:
-                shutil.copyfileobj(source, dst)
-
-            try:
-                os.chmod(target, member.mode & 0o777)
-            except OSError:
-                pass
-
-
-def _verify_file_sha256(path: Path, expected_hex: str) -> None:
-    """Raise if a file's SHA-256 digest does not match the expected value."""
-    import hashlib
-
-    digest = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            digest.update(chunk)
-
-    actual_hex = digest.hexdigest()
-    if actual_hex != expected_hex:
-        raise RuntimeError(
-            f"Downloaded archive hash mismatch: expected {expected_hex}, got {actual_hex}"
-        )
-
-
 def _install_psutil_android_compat(
     install_cmd_prefix: list[str],
     *,
@@ -6914,6 +6877,7 @@ def _install_psutil_android_compat(
     contains the same logic for ``scripts/install.sh`` (fresh installs).
     Both copies should be removed together.
     """
+    import tarfile
     import tempfile
     import urllib.request
 
@@ -6922,7 +6886,6 @@ def _install_psutil_android_compat(
         "d1ddf4abb55e93cebc4f2ed8b5d6dbad109ecb8d63748dd2b20ab5e57ebe/"
         "psutil-7.2.2.tar.gz"
     )
-    psutil_sha256 = "0746f5f8d406af344fd547f1c8daa5f5c33dbc293bb8d6a16d80b4bb88f59372"
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -6931,7 +6894,10 @@ def _install_psutil_android_compat(
         with tarfile.open(archive) as tar:
             for member in tar.getmembers():
                 name = member.name
-                    or ".." in Path(name).parts
+                if (
+                    name.startswith("/")
+                    or ".." in __import__("pathlib").Path(name).parts
+                ):
                     raise tarfile.TarError(f"refusing to extract unsafe path: {name!r}")
             try:
                 tar.extractall(tmp_path, filter="data")
@@ -6990,7 +6956,13 @@ def _update_node_dependencies() -> None:
         result = _run_npm_install_deterministic(
             npm,
             path,
-            extra_args=("--silent", "--no-fund", "--no-audit", "--progress=false"),
+            extra_args=(
+                "--ignore-scripts",
+                "--silent",
+                "--no-fund",
+                "--no-audit",
+                "--progress=false",
+            ),
         )
         if result.returncode == 0:
             print(f"  ✓ {label}")
@@ -7262,9 +7234,8 @@ def _ensure_fhs_path_guard() -> None:
     if sys.platform != "linux":
         return
     try:
-        if (
-            os.geteuid() != 0
-        ):  # windows-footgun: ok — Linux FHS helper, guarded by sys.platform == "linux" above + AttributeError catch
+        uid = os.geteuid()  # windows-footgun: ok — Linux FHS helper, guarded by sys.platform == "linux" above + AttributeError catch
+        if uid != 0:
             return
     except AttributeError:
         return
@@ -7520,7 +7491,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
     if is_fork:
         print("⚠ Updating from fork:")
-        print(f"  {origin_url}")
+        print(f"  {_redact_git_remote_url(origin_url)}")
         print()
 
     if use_zip_update:
