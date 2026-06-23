@@ -6878,11 +6878,12 @@ def _install_psutil_android_compat(
         urllib.request.urlretrieve(psutil_url, archive)
         with tarfile.open(archive) as tar:
             for member in tar.getmembers():
-                parts = member.name.split("/")
-                if member.name.startswith("/") or ".." in parts:
+                resolved_path = Path(tmp_path / member.name).resolve()
+                resolved_tmp = tmp_path.resolve()
+                if resolved_tmp != resolved_path and resolved_tmp not in resolved_path.parents:
                     continue
                 try:
-                    tar.extract(member, path=tmp_path, filter="data")
+                    tar.extract(member, path=tmp_path, filter='data')
                 except TypeError:
                     tar.extract(member, path=tmp_path)
 
