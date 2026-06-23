@@ -6932,23 +6932,26 @@ def _install_psutil_android_compat(
         with tarfile.open(archive) as tar:
             for member in tar.getmembers():
                 name = member.name
-                if (
-                    PurePosixPath(name).anchor
-                    or PureWindowsPath(name).anchor
-                    or PureWindowsPath(name).drive
-                    or ".." in PurePosixPath(name).parts
-                    or ".." in PureWindowsPath(name).parts
-                    or (
-                        (member.issym() or member.islnk())
-                        and (
-                            PurePosixPath(member.linkname).anchor
-                            or PureWindowsPath(member.linkname).anchor
-                            or PureWindowsPath(member.linkname).drive
-                            or ".." in PurePosixPath(member.linkname).parts
-                            or ".." in PureWindowsPath(member.linkname).parts
-                        )
+                name_posix = PurePosixPath(name)
+                name_win = PureWindowsPath(name)
+                unsafe = (
+                    name_posix.anchor
+                    or name_win.anchor
+                    or name_win.drive
+                    or ".." in name_posix.parts
+                    or ".." in name_win.parts
+                )
+                if not unsafe and (member.issym() or member.islnk()):
+                    link_posix = PurePosixPath(member.linkname)
+                    link_win = PureWindowsPath(member.linkname)
+                    unsafe = (
+                        link_posix.anchor
+                        or link_win.anchor
+                        or link_win.drive
+                        or ".." in link_posix.parts
+                        or ".." in link_win.parts
                     )
-                ):
+                if unsafe:
                     raise tarfile.TarError(f"refusing to extract unsafe path: {name!r}")
             try:
                 tar.extractall(tmp_path, filter="data")
