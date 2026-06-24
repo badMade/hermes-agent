@@ -6310,6 +6310,7 @@ def _canonical_git_remote(origin_url: Optional[str]) -> Optional[str]:
     remote = origin_url.strip()
     if not remote:
         return None
+    from urllib.parse import urlsplit
 
     parsed = urlsplit(remote)
     if parsed.scheme and parsed.netloc:
