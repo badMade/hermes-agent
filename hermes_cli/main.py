@@ -6346,7 +6346,7 @@ from urllib.parse import urlsplit, urlunsplit
 
     if ":" in remote and "/" in remote.split(":", 1)[1]:
         userinfo, sep, rest = remote.partition("@")
-        if sep and ":" in userinfo:
+        if sep and userinfo.lower() not in {"git"}:
             return f"[REDACTED]@{rest}"
 
     return remote
