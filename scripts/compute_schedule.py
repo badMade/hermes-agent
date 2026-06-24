@@ -55,7 +55,7 @@ def update_schedule_file(new_cron: str) -> None:
             yaml.dump(data, f)
         print(f"Updated {SCHEDULE_FILE} with new schedule: {new_cron} using ruamel.yaml")
         return
-    except Exception:
+    except ImportError:
         pass
 
     with open(file_path, "r", encoding="utf-8") as f:

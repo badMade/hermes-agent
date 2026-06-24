@@ -31,7 +31,7 @@ if [ $failed -eq 0 ] && ! scripts/run_tests.sh > /dev/null 2>&1; then
     failed=1
 fi
 
-if [ $failed -eq 0 ] && [ -n "$(git status --porcelain website/docs/)" ]; then
+if [ $failed -eq 0 ] && ! git diff --quiet website/docs/; then
     echo "Healthcheck failed: static asset drift detected in website/docs/"
     git status --porcelain website/docs/
     failed=1
