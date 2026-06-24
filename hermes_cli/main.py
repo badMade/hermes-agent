@@ -6334,6 +6334,7 @@ def _redact_git_remote_url(origin_url: Optional[str]) -> str:
         return "<unknown>"
 
     remote = origin_url.strip()
+    from urllib.parse import urlsplit, urlunsplit
     parsed = urlsplit(remote)
     if parsed.scheme and parsed.netloc and "@" in parsed.netloc:
         host = parsed.hostname or ""
