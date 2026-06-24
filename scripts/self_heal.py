@@ -43,7 +43,7 @@ def main() -> None:
         {"name": "Toolchain refresh", "cmd": ["uv", "sync", "--all-groups"]},
         {"name": "Lockfile refresh", "cmd": ["uv", "lock"]},
         {"name": "Ruff lint auto-fix", "cmd": ["uv", "run", "ruff", "check", "--fix", "."]},
-        {"name": "Ruff format auto-fix", "cmd": ["sh", "-c", "git ls-files -m | grep '\\.py$' | xargs -r uv run ruff format"]},
+        {"name": "Ruff format auto-fix", "cmd": ["sh", "-c", "git ls-files -m -o --exclude-standard | grep '\\.py$' | xargs -r uv run ruff format"]},
         {"name": "Ty type stub check", "cmd": ["uv", "run", "ty", "check"]},
         {"name": "Static asset regeneration", "cmd": ["uv", "run", "--with", "pyyaml", "python", "website/scripts/generate-skill-docs.py"]},
     ]
