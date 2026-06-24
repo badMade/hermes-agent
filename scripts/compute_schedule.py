@@ -2,30 +2,20 @@
 """
 Compute Self-Heal Schedule
 
-Computes a new schedule based on basic telemetry (simulated for now,
-or using simple PR query if gh CLI is available) and safely updates
-the .github/self-heal-schedule.yml using marker-based replacement.
+Computes a new schedule based on basic telemetry and safely updates
+the .github/self-heal-schedule.yml using ruamel.yaml if available, or marker-based replacement.
 """
 
 import os
 import subprocess
 import re
 import sys
-from datetime import datetime
 
 SCHEDULE_FILE = ".github/self-heal-schedule.yml"
 MARKER = "# AUTO-UPDATED"
 
 def compute_new_schedule() -> str:
-    """
-    Computes new schedule cron string based on telemetry.
-    For demonstration, we check the number of recent PRs.
-    Tiers:
-    - High churn (>10 PRs/week): daily at 02:00 -> "0 2 * * *"
-    - Standard (<=10 PRs/week): weekly on Sunday at 02:00 -> "0 2 * * 0"
-    """
     try:
-        # Check if gh CLI is available
         result = subprocess.run(
             ["gh", "pr", "list", "--state", "merged", "--limit", "15"],
             capture_output=True, text=True
@@ -42,13 +32,31 @@ def compute_new_schedule() -> str:
     return "0 2 * * 0"
 
 def update_schedule_file(new_cron: str) -> None:
-    """Safely updates the schedule file using marker replacement."""
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     file_path = os.path.join(repo_root, SCHEDULE_FILE)
 
     if not os.path.exists(file_path):
         print(f"File {file_path} does not exist.")
         sys.exit(1)
+
+    try:
+        from ruamel.yaml import YAML
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = yaml.load(f)
+
+        if data["schedule"]["cron"] == new_cron:
+            print("Schedule unchanged.")
+            sys.exit(0)
+
+        data["schedule"]["cron"] = new_cron
+        with open(file_path, "w", encoding="utf-8") as f:
+            yaml.dump(data, f)
+        print(f"Updated {SCHEDULE_FILE} with new schedule: {new_cron} using ruamel.yaml")
+        return
+    except ImportError:
+        pass
 
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -57,7 +65,6 @@ def update_schedule_file(new_cron: str) -> None:
         print(f"Marker '{MARKER}' not found in {file_path}.")
         sys.exit(1)
 
-    # Replace the cron string
     new_content = re.sub(
         r'cron:\s*".*?"',
         f'cron: "{new_cron}"',
@@ -71,7 +78,7 @@ def update_schedule_file(new_cron: str) -> None:
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(new_content)
 
-    print(f"Updated {SCHEDULE_FILE} with new schedule: {new_cron}")
+    print(f"Updated {SCHEDULE_FILE} with new schedule: {new_cron} using regex fallback")
 
 def main() -> None:
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

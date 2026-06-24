@@ -1,0 +1,107 @@
+name: Self-Heal Repair
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # Fallback; overridden by self-heal-schedule.yml if used
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Tests"]
+    types: ["completed"]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: selfheal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  self-heal:
+    if: |
+      (!startsWith(github.ref_name, 'selfheal-')) &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
+
+      - name: Run Healthcheck
+        id: check
+        run: |
+          scripts/healthcheck.sh && echo "status=pass" >> $GITHUB_OUTPUT || echo "status=fail" >> $GITHUB_OUTPUT
+
+      - name: Run Self-Heal pipeline
+        id: heal
+        if: steps.check.outputs.status == 'fail'
+        run: |
+          scripts/self_heal.py
+
+      - name: Check for duplicate PRs
+        if: steps.check.outputs.status == 'fail'
+        id: dupcheck
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          count=$(gh pr list --state open --label self-heal --json id --jq '. | length')
+          if [ "$count" -gt "0" ]; then
+            echo "Duplicate PR exists. Skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate PR Body Details
+        if: steps.check.outputs.status == 'fail' && steps.dupcheck.outputs.skip == 'false'
+        id: prbody
+        run: |
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "body<<$EOF" >> $GITHUB_OUTPUT
+          echo "Automatic self-heal repair triggered by **${{ github.event_name }}**." >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### Rationale & Telemetry" >> $GITHUB_OUTPUT
+          echo "The self-heal pipeline detects drift, runs safe idempotent repair scripts, and opens this PR. The schedule is derived automatically via telemetry. See \`.github/self-heal-schedule.yml\` for the current active schedule." >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### Drift Summary" >> $GITHUB_OUTPUT
+          echo "\`\`\`" >> $GITHUB_OUTPUT
+          git diff --stat >> $GITHUB_OUTPUT
+          echo "\`\`\`" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### Links" >> $GITHUB_OUTPUT
+          echo "- [Workflow Artifacts & Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_OUTPUT
+          echo "- Conversation context: [internal chat link]" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+      - name: Open Self-Heal PR
+        if: steps.check.outputs.status == 'fail' && steps.dupcheck.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_BODY: ${{ steps.prbody.outputs.body }}
+        run: |
+          # Determine title based on trigger
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            TITLE="[Self-Heal Scheduled] Drift fixes"
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TITLE="[Self-Heal Manual] Repair"
+          else
+            TITLE="[Self-Heal Reactive] CI fix"
+          fi
+
+          BRANCH_NAME="selfheal-$(date +%s)"
+          git checkout -b "$BRANCH_NAME"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: self-heal auto-repair"
+          git push origin "$BRANCH_NAME"
+
+          gh pr create \
+            --title "$TITLE" \
+            --body "$PR_BODY" \
+            --label "automation,self-heal" \
+            --head "$BRANCH_NAME" \
+            --base main
