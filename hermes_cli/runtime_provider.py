@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,22 @@ def _loopback_hostname(host: str) -> bool:
     return h in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
 
+_AZURE_ENDPOINT_DOMAINS = ("openai.azure.com", "services.ai.azure.com")
+
+
+def _has_https_scheme(base_url: str) -> bool:
+    raw = (base_url or "").strip()
+    if not raw:
+        return False
+    parsed = urlparse(raw if "://" in raw else f"//{raw}")
+    return parsed.scheme.lower() == "https"
+
+
+def _is_azure_endpoint(base_url: str) -> bool:
+    return _has_https_scheme(base_url) and any(
+        base_url_host_matches(base_url, domain)
+        for domain in _AZURE_ENDPOINT_DOMAINS
+    )
 def _config_base_url_trustworthy_for_bare_custom(cfg_base_url: str, cfg_provider: str) -> bool:
     """Decide whether ``model.base_url`` may back bare ``custom`` runtime resolution.
 
@@ -57,6 +74,16 @@ def _config_base_url_trustworthy_for_bare_custom(cfg_base_url: str, cfg_provider
     if base_url_host_matches(bu, "openrouter.ai"):
         return False
     return _loopback_hostname(base_url_hostname(bu))
+
+
+def _is_azure_endpoint_url(base_url: str) -> bool:
+    """Return True only for Azure-owned hostnames, not path/lookalike matches."""
+    return _is_azure_endpoint(base_url)
+
+
+def _is_anthropic_credential_endpoint_url(base_url: str) -> bool:
+    """Return True for endpoints allowed to receive default Anthropic credentials."""
+    return base_url_hostname(base_url) == "api.anthropic.com" or _is_azure_endpoint(base_url)
 
 
 def _detect_api_mode_for_url(base_url: str) -> Optional[str]:
@@ -774,6 +801,13 @@ def _resolve_explicit_runtime(
         base_url = explicit_base_url or cfg_base_url or "https://api.anthropic.com"
         api_key = explicit_api_key
         if not api_key:
+            if explicit_base_url and not _is_anthropic_credential_endpoint_url(base_url):
+                raise AuthError(
+                    "Refusing to use default Anthropic credentials with an untrusted "
+                    "explicit base_url. Pass an explicit API key for custom Anthropic "
+                    "gateways, or use api.anthropic.com / an Azure endpoint."
+                )
+
             from agent.anthropic_adapter import resolve_anthropic_token
 
             api_key = resolve_anthropic_token()
@@ -924,7 +958,7 @@ def resolve_runtime_provider(
     # return provider="custom" with chat_completions api_mode and no valid key).
     # Instead, use the Azure key directly with anthropic_messages api_mode.
     _eff_base = (explicit_base_url or "").strip()
-    if requested_provider == "anthropic" and "azure.com" in _eff_base:
+    if requested_provider == "anthropic" and _is_azure_endpoint_url(_eff_base):
         _azure_key = (
             (explicit_api_key or "").strip()
             or os.getenv("AZURE_ANTHROPIC_KEY", "").strip()
@@ -1161,10 +1195,10 @@ def resolve_runtime_provider(
         # would find the Claude Code OAuth token first (priority 3) and return
         # that instead, causing 401s. Detect Azure endpoints and use the env
         # key directly to bypass the OAuth priority chain.
-        _is_azure_endpoint = "azure.com" in base_url.lower() or (
-            cfg_base_url and "azure.com" in cfg_base_url.lower()
+        is_azure_endpoint = _is_azure_endpoint_url(base_url) or (
+            bool(cfg_base_url) and _is_azure_endpoint_url(cfg_base_url)
         )
-        if _is_azure_endpoint:
+        if is_azure_endpoint:
             # Honor user-specified env var hints on the model config before
             # falling back to the built-in AZURE_ANTHROPIC_KEY / ANTHROPIC_API_KEY
             # chain.  Accept both `key_env` (Hermes canonical — matches the
