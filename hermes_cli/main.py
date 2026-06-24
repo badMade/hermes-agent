@@ -6302,6 +6302,8 @@ def _strip_git_suffix(value: str) -> str:
 
 def _canonical_git_remote(origin_url: Optional[str]) -> Optional[str]:
     """Normalize a git remote for comparison without retaining credentials."""
+    from urllib.parse import urlsplit
+
     if not origin_url:
         return None
 
