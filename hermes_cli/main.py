@@ -6332,7 +6332,10 @@ def _canonical_git_remote(origin_url: Optional[str]) -> Optional[str]:
 
 
 def _redact_git_remote_url(origin_url: Optional[str]) -> str:
-from urllib.parse import urlsplit, urlunsplit
+    from urllib.parse import urlsplit, urlunsplit
+    if not origin_url:
+        return ""
+    parsed = urlsplit(origin_url)
     if parsed.scheme and parsed.netloc and "@" in parsed.netloc:
         host = parsed.hostname or ""
         port = f":{parsed.port}" if parsed.port else ""
@@ -6345,12 +6348,12 @@ from urllib.parse import urlsplit, urlunsplit
             parsed.fragment,
         ))
 
-    if ":" in remote and "/" in remote.split(":", 1)[1]:
-        userinfo, sep, rest = remote.partition("@")
+    if ":" in origin_url and "/" in origin_url.split(":", 1)[1]:
+        userinfo, sep, rest = origin_url.partition("@")
         if sep and userinfo.lower() not in {"git"}:
             return f"[REDACTED]@{rest}"
 
-    return remote
+    return origin_url
 
 
 def _is_fork(origin_url: Optional[str]) -> bool:
