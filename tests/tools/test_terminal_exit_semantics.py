@@ -111,6 +111,16 @@ class TestInterpretExitCode:
         assert result is not None
         assert "no matches" in result.lower()
 
+    def test_separator_in_quotes_ignored(self):
+        result = _interpret_exit_code('grep "a|b" file.txt', 1)
+        assert result is not None
+        assert "no matches" in result.lower()
+
+    def test_escaped_separator_ignored(self):
+        result = _interpret_exit_code(r"grep a\|b file.txt", 1)
+        assert result is not None
+        assert "no matches" in result.lower()
+
     # ---- full paths ----
 
     def test_full_path_command(self):
@@ -146,6 +156,10 @@ class TestInterpretExitCode:
 
     def test_empty_command(self):
         assert _interpret_exit_code("", 1) is None
+
+    def test_large_leading_whitespace_does_not_break_parsing(self):
+        cmd = " " * 50000 + "nonexistent_command"
+        assert _interpret_exit_code(cmd, 127) is None
 
     def test_only_env_vars(self):
         """Command with only env var assignments, no actual command."""

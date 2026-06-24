@@ -1475,10 +1475,51 @@ def _interpret_exit_code(command: str, exit_code: int) -> str | None:
         return None
 
     # Extract the last command in a pipeline/chain — that determines the
-    # exit code.  Handles  `cmd1 && cmd2`, `cmd1 | cmd2`, `cmd1; cmd2`.
-    # Deliberately simple: split on shell operators and take the last piece.
-    segments = re.split(r'\s*(?:\|\||&&|[|;])\s*', command)
-    last_segment = (segments[-1] if segments else command).strip()
+    # exit code. Handles `cmd1 && cmd2`, `cmd1 | cmd2`, `cmd1; cmd2`.
+    # Use a single linear scan so pathological whitespace cannot trigger
+    # quadratic regex backtracking.
+    last_segment = command.strip()
+    in_single = False
+    in_double = False
+    escape = False
+    last_sep_end = -1
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if escape:
+            escape = False
+            i += 1
+            continue
+        if ch == "\\" and not in_single:
+            escape = True
+            i += 1
+            continue
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            i += 1
+            continue
+        if in_single or in_double:
+            i += 1
+            continue
+
+        if ch == "&" and i + 1 < len(command) and command[i + 1] == "&":
+            last_sep_end = i + 2
+            i += 2
+            continue
+        if ch == "|" and i + 1 < len(command) and command[i + 1] == "|":
+            last_sep_end = i + 2
+            i += 2
+            continue
+        if ch in "|;":
+            last_sep_end = i + 1
+        i += 1
+
+    if last_sep_end != -1:
+        last_segment = command[last_sep_end:].strip()
 
     # Get base command name (first word), stripping env var assignments
     # like  VAR=val cmd ...
