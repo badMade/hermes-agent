@@ -6331,13 +6331,7 @@ def _canonical_git_remote(origin_url: Optional[str]) -> Optional[str]:
 
 
 def _redact_git_remote_url(origin_url: Optional[str]) -> str:
-    """Return a display-safe git remote URL with credential userinfo removed."""
-    if not origin_url:
-        return "<unknown>"
-
-    remote = origin_url.strip()
-    from urllib.parse import urlsplit, urlunsplit
-    parsed = urlsplit(remote)
+from urllib.parse import urlsplit, urlunsplit
     if parsed.scheme and parsed.netloc and "@" in parsed.netloc:
         host = parsed.hostname or ""
         port = f":{parsed.port}" if parsed.port else ""
