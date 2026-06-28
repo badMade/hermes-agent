@@ -148,10 +148,11 @@ class TestValidateSignature:
         """Unresolved ${VAR} placeholders are not accepted as HMAC secrets."""
         adapter = _make_adapter()
         body = b'{"action": "opened"}'
-        secret = "${WEBHOOK_SECRET}"
-        sig = _github_signature(body, secret)
-        req = _mock_request(headers={"X-Hub-Signature-256": sig})
-        assert adapter._validate_signature(req, body, secret) is False
+
+        for secret in ["${WEBHOOK_SECRET}", "${WEBHOOK_SECRET:-default}", "${WEBHOOK_SECRET:-}"]:
+            sig = _github_signature(body, secret)
+            req = _mock_request(headers={"X-Hub-Signature-256": sig})
+            assert adapter._validate_signature(req, body, secret) is False
 
     def test_validate_no_secret_allows_all(self):
         """When the secret is empty/falsy, the validator is never even called
