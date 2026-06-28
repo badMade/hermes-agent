@@ -149,7 +149,7 @@ class TestValidateSignature:
         adapter = _make_adapter()
         body = b'{"action": "opened"}'
 
-        for secret in ["${WEBHOOK_SECRET}", "${WEBHOOK_SECRET:-default}", "${WEBHOOK_SECRET:-}"]:
+        for secret in ["${WEBHOOK_SECRET}", "${WEBHOOK_SECRET:-default}", "${WEBHOOK_SECRET:-}", "${WEBHOOK_SECRET-default}", "${WEBHOOK_SECRET-}"]:
             sig = _github_signature(body, secret)
             req = _mock_request(headers={"X-Hub-Signature-256": sig})
             assert adapter._validate_signature(req, body, secret) is False
