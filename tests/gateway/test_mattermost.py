@@ -474,6 +474,52 @@ class TestMattermostMentionBehavior:
             assert "2+2" in msg.text
 
 
+class TestMattermostEarlyAuthorization:
+    def setup_method(self):
+        self.adapter = _make_adapter()
+        self.adapter._bot_user_id = "bot_user_id"
+        self.adapter._bot_username = "hermes-bot"
+        self.adapter._session = MagicMock()
+
+    def _make_event(self, file_ids):
+        post_data = {
+            "id": "post_auth",
+            "user_id": "attacker_1",
+            "channel_id": "chan_456",
+            "message": "hello",
+            "file_ids": file_ids,
+        }
+        return {
+            "event": "posted",
+            "data": {
+                "post": json.dumps(post_data),
+                "channel_type": "O",
+                "sender_name": "@eve",
+            },
+        }
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_message_skips_attachment_downloads(self):
+        class _Runner:
+            def __init__(self):
+                self._is_user_authorized = MagicMock(return_value=False)
+
+            async def _handle_message(self, _event):
+                return None
+
+        runner = _Runner()
+        self.adapter.set_message_handler(runner._handle_message)
+        self.adapter.handle_message = AsyncMock()
+        self.adapter._api_get = AsyncMock()
+
+        with patch.dict(os.environ, {"MATTERMOST_REQUIRE_MENTION": "false"}):
+            await self.adapter._handle_ws_event(self._make_event(["file_payload"]))
+
+        assert not self.adapter._api_get.called
+        assert not self.adapter._session.get.called
+        assert not self.adapter.handle_message.called
+
+
 # ---------------------------------------------------------------------------
 # File upload (send_image)
 # ---------------------------------------------------------------------------
