@@ -14,6 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: badMade/agy-pr-review@v1
+      - uses: badMade/agy-pr-review@5de5b1c2f698e91f2676e35edce16e2fd712ceff  # main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
