@@ -336,6 +336,7 @@ class TestStdinHelpers:
         guard.assert_called_once()
 
     def test_close_stdin_allows_eof_driven_process_to_finish(self, registry, tmp_path):
+        os.environ.pop("HERMES_CRON_SESSION", None)
         session = registry.spawn_local(
             'python3 -c "import sys; print(sys.stdin.read().strip())"',
             cwd=str(tmp_path),
