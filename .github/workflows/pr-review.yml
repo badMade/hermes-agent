@@ -15,5 +15,8 @@ jobs:
       - uses: actions/checkout@v4
       
       - uses: badMade/agy-pr-review@main
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTIGRAVITY_API_KEY: ${{ secrets.ANTIGRAVITY_API_KEY }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
