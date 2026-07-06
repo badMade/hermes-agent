@@ -34,7 +34,6 @@ from acp.schema import (
     McpServerHttp,
     McpServerSse,
     McpServerStdio,
-    ModelInfo,
     NewSessionResponse,
     PromptCapabilities,
     PromptResponse,
@@ -46,7 +45,6 @@ from acp.schema import (
     SessionCapabilities,
     SessionForkCapabilities,
     SessionListCapabilities,
-    SessionModelState,
     SessionResumeCapabilities,
     SessionInfo,
     TextContentBlock,
@@ -62,6 +60,13 @@ try:
     from acp.schema import AuthMethodAgent
 except ImportError:
     from acp.schema import AuthMethod as AuthMethodAgent  # type: ignore[attr-defined]
+
+# ModelInfo and SessionModelState are only available in newer ACP versions
+try:
+    from acp.schema import ModelInfo, SessionModelState
+except ImportError:
+    ModelInfo = None  # type: ignore[assignment,misc]
+    SessionModelState = None  # type: ignore[assignment,misc]
 
 from acp_adapter.auth import detect_provider
 from acp_adapter.events import (
@@ -522,8 +527,11 @@ class HermesACPAgent(acp.Agent):
             return raw_model
         return f"{raw_provider}:{raw_model}"
 
-    def _build_model_state(self, state: SessionState) -> SessionModelState | None:
+    def _build_model_state(self, state: SessionState):
         """Return the ACP model selector payload for editors like Zed."""
+        if SessionModelState is None or ModelInfo is None:
+            return None
+
         model = str(state.model or getattr(state.agent, "model", "") or "").strip()
         provider = getattr(state.agent, "provider", None) or detect_provider() or "openrouter"
 
@@ -532,7 +540,7 @@ class HermesACPAgent(acp.Agent):
 
             normalized_provider = normalize_provider(provider)
             provider_name = provider_label(normalized_provider)
-            available_models: list[ModelInfo] = []
+            available_models: list[Any] = []
             seen_ids: set[str] = set()
 
             for model_id, description in curated_models_for_provider(normalized_provider):
