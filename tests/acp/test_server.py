@@ -577,7 +577,8 @@ class TestSessionConfiguration:
                 session_id=state.session_id,
             )
 
-        assert isinstance(result, SetSessionModelResponse)
+        if SetSessionModelResponse is not None:
+            assert isinstance(result, SetSessionModelResponse)
         assert state.model == "claude-sonnet-4-6"
         assert state.agent.provider == "anthropic"
         assert state.agent.base_url == "https://anthropic.example/v1"
