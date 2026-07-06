@@ -527,7 +527,7 @@ class HermesACPAgent(acp.Agent):
             return raw_model
         return f"{raw_provider}:{raw_model}"
 
-    def _build_model_state(self, state: SessionState):
+    def _build_model_state(self, state: SessionState) -> Any:
         """Return the ACP model selector payload for editors like Zed."""
         if SessionModelState is None or ModelInfo is None:
             return None
