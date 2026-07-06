@@ -17,3 +17,13 @@
 **Vulnerability:** The `tools/environments/file_sync.py` script was extracting untrusted tarball archives fetched from remote environments using `tar.extractall(..., filter="data")` without an explicit pre-extraction path validation, and failing outright on older Python versions.
 **Learning:** Python's native `tarfile` module relies entirely on the `filter="data"` backward compatibility which might not be supported on older interpreter versions. Even with it, it's safer to always validate extraction paths natively when handling untrusted files to prevent arbitrary host file overwrites (Zip Slip/Path Traversal vulnerabilities) entirely.
 **Prevention:** Always manually validate each member using `tar.getmembers()` ensuring paths do not begin with `/` or contain `..` using `.split("/")`, and defensively wrap `tar.extractall` in a `try/except TypeError` with a fallback `extractall` call.
+
+## 2026-07-04 - [Fix Command Injection in Plugin Dependency Checks]
+**Vulnerability:** The memory plugin installation process (`_install_dependencies` in `hermes_cli/memory_setup.py`) executed arbitrary external dependency checks sourced from unverified `plugin.yaml` files using `subprocess.run(..., shell=True)`.
+**Learning:** This allowed malicious or compromised plugins to execute arbitrary shell commands via the `check` configuration field, leading to Remote Code Execution (RCE) / Command Injection on the host when running `hermes memory setup`.
+**Prevention:** Always tokenize configuration-provided command strings using `shlex.split()` and use `shell=False` to ensure they are executed safely as a binary list, preventing arbitrary shell operator (`&&`, `|`, `;`) evaluation.
+
+## 2026-07-05 - [Remove Unauthorized PR Review GitHub Action]
+**Vulnerability:** An unauthorized GitHub Actions workflow (`.github/workflows/pr-review.yml`) was introduced, which attempted to run a third-party action (`badMade/agy-pr-review@v1`) that could lead to untrusted code execution during PR reviews, or act as a malicious backdoor.
+**Learning:** Automatically adding third-party GitHub Actions workflows for PR review without strict version pinning and verification violates CI security standards. Hardcoded bypasses or unauthorized integrations can easily introduce Remote Code Execution (RCE) via GitHub Actions runners.
+**Prevention:** Always remove unauthorized or failing third-party GitHub Action workflows. Ensure PR review automations only use trusted, verified, and exact pinned action versions without checking out untrusted branch code.
