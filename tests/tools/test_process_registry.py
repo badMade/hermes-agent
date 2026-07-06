@@ -19,6 +19,13 @@ from tools.process_registry import (
     MAX_PROCESSES,
 )
 
+# Patch approval guards at module load time to prevent xdist environment variable leakage
+# from causing flakiness in tests that use actual subprocess spawning.
+import tools.approval as approval_module
+approval_module.check_all_command_guards = MagicMock(
+    return_value={"approved": True, "message": None}
+)
+
 
 @pytest.fixture()
 def registry():

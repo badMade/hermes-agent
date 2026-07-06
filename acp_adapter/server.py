@@ -39,7 +39,6 @@ from acp.schema import (
     PromptResponse,
     ResumeSessionResponse,
     SetSessionConfigOptionResponse,
-    SetSessionModelResponse,
     SetSessionModeResponse,
     ResourceContentBlock,
     SessionCapabilities,
@@ -61,12 +60,13 @@ try:
 except ImportError:
     from acp.schema import AuthMethod as AuthMethodAgent  # type: ignore[attr-defined]
 
-# ModelInfo and SessionModelState are only available in newer ACP versions
+# Newer ACP schema types that may not be available in older versions
 try:
-    from acp.schema import ModelInfo, SessionModelState
+    from acp.schema import ModelInfo, SessionModelState, SetSessionModelResponse
 except ImportError:
     ModelInfo = None  # type: ignore[assignment,misc]
     SessionModelState = None  # type: ignore[assignment,misc]
+    SetSessionModelResponse = None  # type: ignore[assignment,misc]
 
 from acp_adapter.auth import detect_provider
 from acp_adapter.events import (
@@ -1658,8 +1658,11 @@ class HermesACPAgent(acp.Agent):
 
     async def set_session_model(
         self, model_id: str, session_id: str, **kwargs: Any
-    ) -> SetSessionModelResponse | None:
+    ) -> Any:
         """Switch the model for a session (called by ACP protocol)."""
+        if SetSessionModelResponse is None:
+            return None
+
         state = self.session_manager.get_session(session_id)
         if state:
             current_provider = getattr(state.agent, "provider", None)
