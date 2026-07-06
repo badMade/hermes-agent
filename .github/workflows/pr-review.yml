@@ -10,10 +10,12 @@ permissions:
 
 jobs:
   review:
+    if: ${{ secrets.ANTIGRAVITY_API_KEY != '' || secrets.GEMINI_API_KEY != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       
       - uses: badMade/agy-pr-review@5de5b1c2f698e91f2676e35edce16e2fd712ceff  # main
         with:
+          api-key: ${{ secrets.ANTIGRAVITY_API_KEY || secrets.GEMINI_API_KEY }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
