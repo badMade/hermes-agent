@@ -34,19 +34,16 @@ from acp.schema import (
     McpServerHttp,
     McpServerSse,
     McpServerStdio,
-    ModelInfo,
     NewSessionResponse,
     PromptCapabilities,
     PromptResponse,
     ResumeSessionResponse,
     SetSessionConfigOptionResponse,
-    SetSessionModelResponse,
     SetSessionModeResponse,
     ResourceContentBlock,
     SessionCapabilities,
     SessionForkCapabilities,
     SessionListCapabilities,
-    SessionModelState,
     SessionResumeCapabilities,
     SessionInfo,
     TextContentBlock,
@@ -56,6 +53,14 @@ from acp.schema import (
     UsageUpdate,
     UserMessageChunk,
 )
+
+try:
+    from acp.schema import ModelInfo, SessionModelState, SetSessionModelResponse
+except ImportError:
+    # Handle older agent-client-protocol versions if these don't exist
+    ModelInfo = None
+    SessionModelState = None
+    SetSessionModelResponse = None
 
 # AuthMethodAgent was renamed from AuthMethod in agent-client-protocol 0.9.0
 try:
@@ -567,7 +572,7 @@ class HermesACPAgent(acp.Agent):
                     ),
                 )
 
-            if available_models:
+            if available_models and SessionModelState is not None:
                 return SessionModelState(
                     available_models=available_models,
                     current_model_id=current_model_id or available_models[0].model_id,
@@ -575,7 +580,7 @@ class HermesACPAgent(acp.Agent):
         except Exception:
             logger.debug("Could not build ACP model state", exc_info=True)
 
-        if not model:
+        if not model or SessionModelState is None or ModelInfo is None:
             return None
 
         fallback_choice = self._encode_model_choice(provider, model)
@@ -1678,7 +1683,9 @@ class HermesACPAgent(acp.Agent):
                 resolved_model,
                 requested_provider,
             )
-            return SetSessionModelResponse()
+            if SetSessionModelResponse is not None:
+                return SetSessionModelResponse()
+            return None
         logger.warning("Session %s: model switch requested for missing session", session_id)
         return None
 
