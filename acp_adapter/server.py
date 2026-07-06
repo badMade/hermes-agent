@@ -34,19 +34,16 @@ from acp.schema import (
     McpServerHttp,
     McpServerSse,
     McpServerStdio,
-    ModelInfo,
     NewSessionResponse,
     PromptCapabilities,
     PromptResponse,
     ResumeSessionResponse,
     SetSessionConfigOptionResponse,
-    SetSessionModelResponse,
     SetSessionModeResponse,
     ResourceContentBlock,
     SessionCapabilities,
     SessionForkCapabilities,
     SessionListCapabilities,
-    SessionModelState,
     SessionResumeCapabilities,
     SessionInfo,
     TextContentBlock,
@@ -62,6 +59,14 @@ try:
     from acp.schema import AuthMethodAgent
 except ImportError:
     from acp.schema import AuthMethod as AuthMethodAgent  # type: ignore[attr-defined]
+
+# Newer ACP schema types that may not be available in older versions
+try:
+    from acp.schema import ModelInfo, SessionModelState, SetSessionModelResponse
+except ImportError:
+    ModelInfo = None  # type: ignore[assignment,misc]
+    SessionModelState = None  # type: ignore[assignment,misc]
+    SetSessionModelResponse = None  # type: ignore[assignment,misc]
 
 from acp_adapter.auth import detect_provider
 from acp_adapter.events import (
@@ -522,8 +527,11 @@ class HermesACPAgent(acp.Agent):
             return raw_model
         return f"{raw_provider}:{raw_model}"
 
-    def _build_model_state(self, state: SessionState) -> SessionModelState | None:
+    def _build_model_state(self, state: SessionState) -> Any:
         """Return the ACP model selector payload for editors like Zed."""
+        if SessionModelState is None or ModelInfo is None:
+            return None
+
         model = str(state.model or getattr(state.agent, "model", "") or "").strip()
         provider = getattr(state.agent, "provider", None) or detect_provider() or "openrouter"
 
@@ -532,7 +540,7 @@ class HermesACPAgent(acp.Agent):
 
             normalized_provider = normalize_provider(provider)
             provider_name = provider_label(normalized_provider)
-            available_models: list[ModelInfo] = []
+            available_models: list[Any] = []
             seen_ids: set[str] = set()
 
             for model_id, description in curated_models_for_provider(normalized_provider):
@@ -1650,8 +1658,11 @@ class HermesACPAgent(acp.Agent):
 
     async def set_session_model(
         self, model_id: str, session_id: str, **kwargs: Any
-    ) -> SetSessionModelResponse | None:
+    ) -> Any:
         """Switch the model for a session (called by ACP protocol)."""
+        if SetSessionModelResponse is None:
+            return None
+
         state = self.session_manager.get_session(session_id)
         if state:
             current_provider = getattr(state.agent, "provider", None)

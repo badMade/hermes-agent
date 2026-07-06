@@ -11,9 +11,13 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
+    env:
+      REVIEW_API_KEY: ${{ secrets.ANTIGRAVITY_API_KEY || secrets.GEMINI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       
-      - uses: badMade/agy-pr-review@v1
+      - uses: badMade/agy-pr-review@5de5b1c2f698e91f2676e35edce16e2fd712ceff  # main
+        if: env.REVIEW_API_KEY != ''
         with:
+          api-key: ${{ env.REVIEW_API_KEY }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -21,9 +21,7 @@ from acp.schema import (
     NewSessionResponse,
     PromptResponse,
     ResumeSessionResponse,
-    SessionModelState,
     SetSessionConfigOptionResponse,
-    SetSessionModelResponse,
     SetSessionModeResponse,
     SessionInfo,
     TextContentBlock,
@@ -33,6 +31,13 @@ from acp.schema import (
     UsageUpdate,
     UserMessageChunk,
 )
+
+# Newer ACP schema types that may not be available in older versions
+try:
+    from acp.schema import SessionModelState, SetSessionModelResponse
+except ImportError:
+    SessionModelState = None  # type: ignore[assignment,misc]
+    SetSessionModelResponse = None  # type: ignore[assignment,misc]
 from acp_adapter.server import HermesACPAgent, HERMES_VERSION
 from acp_adapter.session import SessionManager
 from hermes_state import SessionDB
@@ -165,11 +170,12 @@ class TestSessionOps:
         ):
             resp = await acp_agent.new_session(cwd="/tmp")
 
-        assert isinstance(resp.models, SessionModelState)
-        assert resp.models.current_model_id == "openai-codex:gpt-5.4"
-        assert resp.models.available_models[0].model_id == "openai-codex:gpt-5.4"
-        assert resp.models.available_models[0].description is not None
-        assert "Provider:" in resp.models.available_models[0].description
+        if SessionModelState is not None:
+            assert isinstance(resp.models, SessionModelState)
+            assert resp.models.current_model_id == "openai-codex:gpt-5.4"
+            assert resp.models.available_models[0].model_id == "openai-codex:gpt-5.4"
+            assert resp.models.available_models[0].description is not None
+            assert "Provider:" in resp.models.available_models[0].description
 
     @pytest.mark.asyncio
     async def test_available_commands_include_help(self, agent):
@@ -517,6 +523,10 @@ class TestSessionConfiguration:
         assert config_result == {"configOptions": []}
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        SetSessionModelResponse is None,
+        reason="SetSessionModelResponse not available in this ACP version",
+    )
     async def test_router_accepts_unstable_model_switch_when_enabled(self, agent):
         new_resp = await agent.new_session(cwd="/tmp")
         router = build_agent_router(agent, use_unstable_protocol=True)
@@ -532,6 +542,10 @@ class TestSessionConfiguration:
         assert state.model == "gpt-5.4"
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        SetSessionModelResponse is None,
+        reason="SetSessionModelResponse not available in this ACP version",
+    )
     async def test_set_session_model_accepts_provider_prefixed_choice(self, tmp_path, monkeypatch):
         runtime_calls = []
 
@@ -572,7 +586,8 @@ class TestSessionConfiguration:
                 session_id=state.session_id,
             )
 
-        assert isinstance(result, SetSessionModelResponse)
+        if SetSessionModelResponse is not None:
+            assert isinstance(result, SetSessionModelResponse)
         assert state.model == "claude-sonnet-4-6"
         assert state.agent.provider == "anthropic"
         assert state.agent.base_url == "https://anthropic.example/v1"
