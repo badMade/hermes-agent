@@ -523,6 +523,10 @@ class TestSessionConfiguration:
         assert config_result == {"configOptions": []}
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        SetSessionModelResponse is None,
+        reason="SetSessionModelResponse not available in this ACP version",
+    )
     async def test_router_accepts_unstable_model_switch_when_enabled(self, agent):
         new_resp = await agent.new_session(cwd="/tmp")
         router = build_agent_router(agent, use_unstable_protocol=True)
@@ -538,6 +542,10 @@ class TestSessionConfiguration:
         assert state.model == "gpt-5.4"
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        SetSessionModelResponse is None,
+        reason="SetSessionModelResponse not available in this ACP version",
+    )
     async def test_set_session_model_accepts_provider_prefixed_choice(self, tmp_path, monkeypatch):
         runtime_calls = []
 
