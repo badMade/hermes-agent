@@ -34,7 +34,6 @@ from acp.schema import (
     McpServerHttp,
     McpServerSse,
     McpServerStdio,
-    ModelInfo,
     NewSessionResponse,
     PromptCapabilities,
     PromptResponse,
@@ -46,7 +45,6 @@ from acp.schema import (
     SessionCapabilities,
     SessionForkCapabilities,
     SessionListCapabilities,
-    SessionModelState,
     SessionResumeCapabilities,
     SessionInfo,
     TextContentBlock,
@@ -56,6 +54,11 @@ from acp.schema import (
     UsageUpdate,
     UserMessageChunk,
 )
+try:
+    from acp.schema import ModelInfo, SessionModelState
+except ImportError:
+    ModelInfo = None  # type: ignore
+    SessionModelState = None  # type: ignore
 
 # AuthMethodAgent was renamed from AuthMethod in agent-client-protocol 0.9.0
 try:
