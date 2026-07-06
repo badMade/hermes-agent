@@ -21,9 +21,7 @@ from acp.schema import (
     NewSessionResponse,
     PromptResponse,
     ResumeSessionResponse,
-    SessionModelState,
     SetSessionConfigOptionResponse,
-    SetSessionModelResponse,
     SetSessionModeResponse,
     SessionInfo,
     TextContentBlock,
@@ -33,6 +31,13 @@ from acp.schema import (
     UsageUpdate,
     UserMessageChunk,
 )
+
+# Newer ACP schema types that may not be available in older versions
+try:
+    from acp.schema import SessionModelState, SetSessionModelResponse
+except ImportError:
+    SessionModelState = None  # type: ignore[assignment,misc]
+    SetSessionModelResponse = None  # type: ignore[assignment,misc]
 from acp_adapter.server import HermesACPAgent, HERMES_VERSION
 from acp_adapter.session import SessionManager
 from hermes_state import SessionDB

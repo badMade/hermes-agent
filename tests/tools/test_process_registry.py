@@ -19,13 +19,6 @@ from tools.process_registry import (
     MAX_PROCESSES,
 )
 
-# Patch approval guards at module load time to prevent xdist environment variable leakage
-# from causing flakiness in tests that use actual subprocess spawning.
-import tools.approval as approval_module
-approval_module.check_all_command_guards = MagicMock(
-    return_value={"approved": True, "message": None}
-)
-
 
 @pytest.fixture()
 def registry():
@@ -342,7 +335,11 @@ class TestStdinHelpers:
         proc.stdin.close.assert_not_called()
         guard.assert_called_once()
 
-    def test_close_stdin_allows_eof_driven_process_to_finish(self, registry, tmp_path):
+    @patch(
+        "tools.approval.check_all_command_guards",
+        return_value={"approved": True, "message": None},
+    )
+    def test_close_stdin_allows_eof_driven_process_to_finish(self, _mock_guard, registry, tmp_path):
         session = registry.spawn_local(
             'python3 -c "import sys; print(sys.stdin.read().strip())"',
             cwd=str(tmp_path),
