@@ -344,8 +344,9 @@ class TestStdinHelpers:
 
         try:
             time.sleep(0.5)
-            assert registry.submit_stdin(session.id, "hello")["status"] == "ok"
-            assert registry.close_stdin(session.id)["status"] == "ok"
+            with patch("tools.process_registry.check_all_command_guards", return_value={"approved": True, "message": None}):
+                assert registry.submit_stdin(session.id, "hello")["status"] == "ok"
+                assert registry.close_stdin(session.id)["status"] == "ok"
 
             deadline = time.time() + 5
             while time.time() < deadline:
