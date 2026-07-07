@@ -31,7 +31,12 @@ if [ $failed -eq 0 ] && ! scripts/run_tests.sh > /dev/null 2>&1; then
     failed=1
 fi
 
+if [ $failed -eq 0 ] && ! uv build > /dev/null 2>&1; then
+    echo "Healthcheck failed: build"
+    uv build
+    failed=1
+fi
+
 if [ $failed -ne 0 ]; then
     exit 1
-
 fi

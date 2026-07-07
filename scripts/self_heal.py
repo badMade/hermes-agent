@@ -42,10 +42,12 @@ def main() -> None:
     print("Starting Self-Heal Pipeline...")
 
     steps = [
+        {"name": "Rebuild/reinstall toolchain + dependencies", "cmd": ["uv", "sync"]},
         {"name": "Lockfile refresh", "cmd": ["uv", "lock"]},
         {"name": "Ruff lint auto-fix", "cmd": ["uv", "run", "ruff", "check", "--fix", "."]},
         {"name": "Ruff format auto-fix", "cmd": ["uv", "run", "ruff", "format", "."]},
         {"name": "Ty type stub check", "cmd": ["uv", "run", "ty", "check"]},
+        {"name": "Static asset regeneration", "cmd": ["uv", "run", "--with", "pyyaml", "python", "website/scripts/generate-skill-docs.py"]},
     ]
 
     for step in steps:

@@ -13,6 +13,11 @@ import re
 import sys
 from datetime import datetime
 
+try:
+    from ruamel.yaml import YAML
+except ImportError:
+    YAML = None
+
 SCHEDULE_FILE = ".github/self-heal-schedule.yml"
 MARKER = "# AUTO-UPDATED"
 
@@ -56,6 +61,22 @@ def update_schedule_file(new_cron: str) -> None:
     if MARKER not in content:
         print(f"Marker '{MARKER}' not found in {file_path}.")
         sys.exit(1)
+
+    if YAML:
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        try:
+            data = yaml.load(content)
+            if data["schedule"]["cron"] == new_cron:
+                print("Schedule unchanged.")
+                sys.exit(0)
+            data["schedule"]["cron"] = new_cron
+            with open(file_path, "w", encoding="utf-8") as f:
+                yaml.dump(data, f)
+            print(f"Updated {SCHEDULE_FILE} with new schedule: {new_cron}")
+            return
+        except Exception as e:
+            print(f"ruamel.yaml processing failed: {e}. Falling back to regex.")
 
     # Replace the cron string
     new_content = re.sub(

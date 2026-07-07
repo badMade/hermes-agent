@@ -1,0 +1,60 @@
+name: Compute Schedule
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  compute-schedule:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: pip install ruamel.yaml
+
+      - name: Compute New Schedule
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/compute_schedule.py
+
+      - name: Check for duplicate PRs
+        id: check_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          count=$(gh pr list --state open --label self-heal --json number -q '. | length')
+          if [ "$count" -gt 0 ]; then
+            echo "duplicate=true" >> $GITHUB_OUTPUT
+          else
+            echo "duplicate=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create PR
+        if: success() && steps.check_pr.outputs.duplicate != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ $(git status --porcelain | wc -l) -eq 0 ]; then
+            echo "No schedule change. Exiting."
+            exit 0
+          fi
+
+          branch_name="selfheal-schedule-$(date +%s)"
+          git checkout -b "$branch_name"
+          git add .github/self-heal-schedule.yml
+          git commit -m "Update self-heal cadence"
+          git push origin "$branch_name"
+
+          gh pr create --title "[Self-Heal Schedule] Update cadence" --body "Automated self-heal schedule update PR.\nLink to chat: https://claude.ai/chat/placeholder" --label "automation,self-heal"
