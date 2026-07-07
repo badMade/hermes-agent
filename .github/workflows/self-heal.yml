@@ -1,0 +1,103 @@
+name: Self-Heal Repair
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
+
+concurrency:
+  group: selfheal-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  repair:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Guard branch loop
+        if: startsWith(github.ref, 'refs/heads/selfheal-')
+        run: |
+          echo "Skipping self-heal workflow on a self-heal branch to prevent loops."
+          exit 0
+
+      - name: Default branch guard for scheduled
+        if: github.event_name == 'schedule' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          echo "Scheduled runs must only execute on the default branch."
+          exit 0
+
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
+
+      - name: Check for duplicate PRs
+        id: check_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          count=$(gh pr list --state open --label self-heal --json number -q '. | length')
+          if [ "$count" -gt 0 ]; then
+            echo "duplicate=true" >> $GITHUB_OUTPUT
+            echo "An open self-heal PR already exists. Aborting to avoid duplicates."
+          else
+            echo "duplicate=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Self-Heal Pipeline
+        if: steps.check_pr.outputs.duplicate != 'true'
+        run: |
+          python scripts/self_heal.py || true
+
+      - name: Upload post-repair artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: self-heal-logs
+          path: scripts/
+          retention-days: 7
+
+      - name: Create PR
+        if: success() && steps.check_pr.outputs.duplicate != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          diff_files=$(git status --porcelain | wc -l)
+          if [ "$diff_files" -eq 0 ]; then
+            echo "No diff generated. Skipping PR creation."
+            exit 0
+          fi
+
+          if git diff | grep -qEi "(secret|token|password|key|env|credentials)"; then
+            echo "High-entropy or secret patterns detected in diff. Aborting PR."
+            exit 1
+          fi
+
+          branch_name="selfheal-$(date +%s)"
+          git checkout -b "$branch_name"
+          git add .
+          git commit -m "Apply automated self-heal fixes"
+          git push origin "$branch_name"
+
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            title="[Self-Heal Scheduled] Drift fixes"
+          elif [ "${{ github.event_name }}" == "workflow_run" ]; then
+            title="[Self-Heal Reactive] CI fix"
+          else
+            title="[Self-Heal Manual] Repair"
+          fi
+
+          gh pr create --title "$title" --body "Automated self-heal repair PR.\nLink to chat: https://claude.ai/chat/placeholder" --label "automation,self-heal"
