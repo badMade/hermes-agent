@@ -844,3 +844,12 @@ class TestInsecureNoAuthSafetyRail:
         finally:
             await adapter.disconnect()
 
+
+    def test_validate_placeholder_secret_with_default_rejects_literal_hmac(self):
+        """Unresolved ${VAR:-default} placeholders are not accepted as HMAC secrets."""
+        adapter = _make_adapter()
+        body = b'{"action": "opened"}'
+        secret = "${WEBHOOK_SECRET:-my-default}"
+        sig = _github_signature(body, secret)
+        req = _mock_request(headers={"X-Hub-Signature-256": sig})
+        assert adapter._validate_signature(req, body, secret) is False
