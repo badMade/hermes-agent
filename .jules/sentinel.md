@@ -16,4 +16,7 @@
 ## 2025-02-27 - [Fix Zip Slip Vulnerability in File Sync]
 **Vulnerability:** The `tools/environments/file_sync.py` script was extracting untrusted tarball archives fetched from remote environments using `tar.extractall(..., filter="data")` without an explicit pre-extraction path validation, and failing outright on older Python versions.
 **Learning:** Python's native `tarfile` module relies entirely on the `filter="data"` backward compatibility which might not be supported on older interpreter versions. Even with it, it's safer to always validate extraction paths natively when handling untrusted files to prevent arbitrary host file overwrites (Zip Slip/Path Traversal vulnerabilities) entirely.
-**Prevention:** Always manually validate each member using `tar.getmembers()` ensuring paths do not begin with `/` or contain `..` using `.split("/")`, and defensively wrap `tar.extractall` in a `try/except TypeError` with a fallback `extractall` call.
+## 2025-02-28 - [Fix Webhook Unresolved Secret regex]
+**Vulnerability:** Webhooks in `gateway/platforms/webhook.py` were missing a check to reject unresolved environment placeholders with default values in secrets (e.g. `${VAR_NAME:-default}`).
+**Learning:** This could lead to a silent bypass of webhook authentication if a misconfigured deployment leaves an unresolved `${WEBHOOK_SECRET}` placeholder with a default value. This allows attackers to forge valid signatures.
+**Prevention:** Use a more comprehensive regex to reject unresolved environment placeholders, taking care to include defaults.
