@@ -133,8 +133,11 @@ def _install_dependencies(provider_name: str) -> None:
         install_cmd = dep.get("install", "")
         if check_cmd:
             try:
+                import shlex
+                from tools.environments.local import _sanitize_subprocess_env
+                sanitized_env = _sanitize_subprocess_env(os.environ.copy())
                 subprocess.run(
-                    check_cmd, shell=True, capture_output=True, timeout=5
+                    shlex.split(check_cmd), shell=False, capture_output=True, timeout=5, env=sanitized_env
                 )
             except Exception:
                 if install_cmd:
