@@ -473,7 +473,10 @@ class TrajectoryCompressor:
 
     def count_trajectory_tokens(self, trajectory: List[Dict[str, str]]) -> int:
         """Count total tokens in a trajectory."""
-        return sum(self.count_tokens(turn.get("value", "")) for turn in trajectory)
+        # ⚡ Bolt Optimization: Delegate to count_turn_tokens to leverage batch encoding
+        # via HuggingFace's Rust implementation `self.tokenizer(texts)`, which is
+        # significantly faster than iteratively encoding each turn.
+        return sum(self.count_turn_tokens(trajectory))
 
     def count_turn_tokens(self, trajectory: List[Dict[str, str]]) -> List[int]:
         """Count tokens for each turn in a trajectory."""
