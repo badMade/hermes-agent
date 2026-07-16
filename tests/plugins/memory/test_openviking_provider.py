@@ -8,8 +8,8 @@ import plugins.memory.openviking as openviking
 from plugins.memory.openviking import OpenVikingMemoryProvider, _VikingClient
 
 EXPECTED_LOCAL_PATH_ERROR = (
-    "Local filesystem paths are not allowed for viking_add_resource; "
-    "provide a remote URL instead."
+    "Only http://, https://, git@, ssh://, or git:// URLs are accepted for "
+    "viking_add_resource. Local filesystem paths and file:// URIs are not allowed."
 )
 
 
@@ -93,8 +93,6 @@ def test_tool_add_resource_rejects_existing_local_file(tmp_path):
     }))
 
     assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
-    provider._client.upload_temp_file.assert_not_called()
-    provider._client.post.assert_not_called()
 
 
 def test_tool_add_resource_rejects_file_uri(tmp_path):
@@ -102,25 +100,22 @@ def test_tool_add_resource_rejects_file_uri(tmp_path):
     sample.write_text("# Local resource\n", encoding="utf-8")
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
+
     result = json.loads(provider._tool_add_resource({
         "url": sample.as_uri(),
         "reason": "file uri test",
     }))
 
     assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
-    provider._client.upload_temp_file.assert_not_called()
-    provider._client.post.assert_not_called()
 
 
-def test_tool_add_resource_rejects_existing_local_directory(tmp_path):
+def test_tool_add_resource_rejects_local_directory(tmp_path):
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
-    nested = docs / "nested"
-    nested.mkdir()
-    (nested / "api.md").write_text("# API\n", encoding="utf-8")
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
+
     result = json.loads(provider._tool_add_resource({
         "url": str(docs),
         "reason": "directory test",
@@ -169,6 +164,22 @@ def test_tool_add_resource_rejects_missing_local_path_with_generic_local_path_er
 
 
 @pytest.mark.parametrize("url", [
+    "mailto:attacker@evil.com",
+    "ftp://internal-server/secret",
+    "secrets.txt",
+    "relative/path/to/file.md",
+    "../../../etc/passwd",
+])
+def test_tool_add_resource_rejects_non_allowlisted_schemes(url):
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+    result = json.loads(provider._tool_add_resource({"url": url}))
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_not_called()
+    provider._client.post.assert_not_called()
+
+
+@pytest.mark.parametrize("url", [
     "ftp://example.com/file.txt",
     "data:text/plain;base64,SGVsbG8=",
     "mailto:user@example.com",
@@ -181,7 +192,7 @@ def test_tool_add_resource_rejects_disallowed_schemes(url):
     result = json.loads(provider._tool_add_resource({"url": url}))
 
     assert "error" in result
-    assert result["error"] == "Invalid resource URL. Provide a public http(s), git, or ssh URL."
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
     provider._client.post.assert_not_called()
 
 

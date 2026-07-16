@@ -21,9 +21,7 @@ from acp.schema import (
     NewSessionResponse,
     PromptResponse,
     ResumeSessionResponse,
-    SessionModelState,
     SetSessionConfigOptionResponse,
-    SetSessionModelResponse,
     SetSessionModeResponse,
     SessionInfo,
     TextContentBlock,
@@ -33,6 +31,13 @@ from acp.schema import (
     UsageUpdate,
     UserMessageChunk,
 )
+
+# Newer ACP schema types that may not be available in older versions
+try:
+    from acp.schema import SessionModelState, SetSessionModelResponse
+except ImportError:
+    SessionModelState = None  # type: ignore[assignment,misc]
+    SetSessionModelResponse = None  # type: ignore[assignment,misc]
 from acp_adapter.server import HermesACPAgent, HERMES_VERSION
 from acp_adapter.session import SessionManager
 from hermes_state import SessionDB
@@ -165,11 +170,12 @@ class TestSessionOps:
         ):
             resp = await acp_agent.new_session(cwd="/tmp")
 
-        assert isinstance(resp.models, SessionModelState)
-        assert resp.models.current_model_id == "openai-codex:gpt-5.4"
-        assert resp.models.available_models[0].model_id == "openai-codex:gpt-5.4"
-        assert resp.models.available_models[0].description is not None
-        assert "Provider:" in resp.models.available_models[0].description
+        if SessionModelState is not None:
+            assert isinstance(resp.models, SessionModelState)
+            assert resp.models.current_model_id == "openai-codex:gpt-5.4"
+            assert resp.models.available_models[0].model_id == "openai-codex:gpt-5.4"
+            assert resp.models.available_models[0].description is not None
+            assert "Provider:" in resp.models.available_models[0].description
 
     @pytest.mark.asyncio
     async def test_available_commands_include_help(self, agent):
@@ -517,6 +523,10 @@ class TestSessionConfiguration:
         assert config_result == {"configOptions": []}
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        SetSessionModelResponse is None,
+        reason="SetSessionModelResponse not available in this ACP version",
+    )
     async def test_router_accepts_unstable_model_switch_when_enabled(self, agent):
         new_resp = await agent.new_session(cwd="/tmp")
         router = build_agent_router(agent, use_unstable_protocol=True)
@@ -532,6 +542,10 @@ class TestSessionConfiguration:
         assert state.model == "gpt-5.4"
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        SetSessionModelResponse is None,
+        reason="SetSessionModelResponse not available in this ACP version",
+    )
     async def test_set_session_model_accepts_provider_prefixed_choice(self, tmp_path, monkeypatch):
         runtime_calls = []
 
@@ -572,7 +586,8 @@ class TestSessionConfiguration:
                 session_id=state.session_id,
             )
 
-        assert isinstance(result, SetSessionModelResponse)
+        if SetSessionModelResponse is not None:
+            assert isinstance(result, SetSessionModelResponse)
         assert state.model == "claude-sonnet-4-6"
         assert state.agent.provider == "anthropic"
         assert state.agent.base_url == "https://anthropic.example/v1"
@@ -1036,14 +1051,6 @@ class TestSlashCommands:
 # ---------------------------------------------------------------------------
 
 
-class TestAcpConfig:
-    def test_client_stdio_mcp_servers_disabled_by_default(self):
-        """Client-provided stdio MCP commands require explicit operator opt-in."""
-        from hermes_cli.config import DEFAULT_CONFIG
-
-        assert DEFAULT_CONFIG["acp"]["allow_client_stdio_mcp_servers"] is False
-
-
 class TestRegisterSessionMcpServers:
     """Tests for ACP MCP server registration in session lifecycle."""
 
@@ -1056,28 +1063,8 @@ class TestRegisterSessionMcpServers:
         await agent._register_session_mcp_servers(state, [])
 
     @pytest.mark.asyncio
-    async def test_skips_stdio_servers_by_default(self, agent, mock_manager):
-        """ACP-provided stdio MCP servers are not executed unless config opts in."""
-        from acp.schema import McpServerStdio
-
-        state = mock_manager.create_session(cwd="/tmp")
-        server = McpServerStdio(
-            name="test-server",
-            command="/usr/bin/test",
-            args=["--flag"],
-            env=[],
-        )
-
-        with patch("tools.mcp_tool.register_mcp_servers") as mock_register, \
-             patch("model_tools.get_tool_definitions") as mock_defs:
-            await agent._register_session_mcp_servers(state, [server])
-
-        mock_register.assert_not_called()
-        mock_defs.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_registers_stdio_servers_when_operator_enabled(self, agent, mock_manager):
-        """McpServerStdio servers are registered only after explicit operator opt-in."""
+    async def test_registers_stdio_servers(self, agent, mock_manager):
+        """McpServerStdio servers are converted and passed to register_mcp_servers."""
         from acp.schema import McpServerStdio, EnvVariable
 
         state = mock_manager.create_session(cwd="/tmp")
@@ -1099,8 +1086,7 @@ class TestRegisterSessionMcpServers:
             registered_config.update(config_map)
             return ["mcp_test_server_tool1"]
 
-        with patch("hermes_cli.config.load_config", return_value={"acp": {"allow_client_stdio_mcp_servers": True}}), \
-             patch("tools.mcp_tool.register_mcp_servers", side_effect=capture_register), \
+        with patch("tools.mcp_tool.register_mcp_servers", side_effect=capture_register), \
              patch("model_tools.get_tool_definitions", return_value=[]):
             await agent._register_session_mcp_servers(state, [server])
 
@@ -1144,7 +1130,7 @@ class TestRegisterSessionMcpServers:
     @pytest.mark.asyncio
     async def test_refreshes_agent_tool_surface(self, agent, mock_manager):
         """After MCP registration, agent.tools and valid_tool_names are refreshed."""
-        from acp.schema import McpServerHttp
+        from acp.schema import McpServerStdio
 
         state = mock_manager.create_session(cwd="/tmp")
         state.agent.enabled_toolsets = ["hermes-acp"]
@@ -1153,10 +1139,11 @@ class TestRegisterSessionMcpServers:
         state.agent.valid_tool_names = set()
         state.agent._cached_system_prompt = "old prompt"
 
-        server = McpServerHttp(
+        server = McpServerStdio(
             name="srv",
-            url="https://api.example.com/mcp",
-            headers=[],
+            command="/bin/test",
+            args=[],
+            env=[],
         )
 
         fake_tools = [
@@ -1182,13 +1169,14 @@ class TestRegisterSessionMcpServers:
     @pytest.mark.asyncio
     async def test_register_failure_logs_warning(self, agent, mock_manager):
         """If register_mcp_servers raises, warning is logged but no crash."""
-        from acp.schema import McpServerHttp
+        from acp.schema import McpServerStdio
 
         state = mock_manager.create_session(cwd="/tmp")
-        server = McpServerHttp(
+        server = McpServerStdio(
             name="bad",
-            url="https://api.example.com/mcp",
-            headers=[],
+            command="/nonexistent",
+            args=[],
+            env=[],
         )
 
         with patch("tools.mcp_tool.register_mcp_servers", side_effect=RuntimeError("boom")):

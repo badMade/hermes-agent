@@ -34,19 +34,16 @@ from acp.schema import (
     McpServerHttp,
     McpServerSse,
     McpServerStdio,
-    ModelInfo,
     NewSessionResponse,
     PromptCapabilities,
     PromptResponse,
     ResumeSessionResponse,
     SetSessionConfigOptionResponse,
-    SetSessionModelResponse,
     SetSessionModeResponse,
     ResourceContentBlock,
     SessionCapabilities,
     SessionForkCapabilities,
     SessionListCapabilities,
-    SessionModelState,
     SessionResumeCapabilities,
     SessionInfo,
     TextContentBlock,
@@ -62,6 +59,14 @@ try:
     from acp.schema import AuthMethodAgent
 except ImportError:
     from acp.schema import AuthMethod as AuthMethodAgent  # type: ignore[attr-defined]
+
+# Newer ACP schema types that may not be available in older versions
+try:
+    from acp.schema import ModelInfo, SessionModelState, SetSessionModelResponse
+except ImportError:
+    ModelInfo = None  # type: ignore[assignment,misc]
+    SessionModelState = None  # type: ignore[assignment,misc]
+    SetSessionModelResponse = None  # type: ignore[assignment,misc]
 
 from acp_adapter.auth import detect_provider
 from acp_adapter.events import (
@@ -144,27 +149,6 @@ def _guess_image_mime_from_path(path: Path) -> str | None:
 
 def _image_data_url(data: bytes, mime_type: str) -> str:
     return f"data:{mime_type};base64,{base64.b64encode(data).decode('ascii')}"
-
-
-def _allow_client_stdio_mcp_servers() -> bool:
-    """Return whether ACP clients may provide stdio MCP server commands.
-
-    Stdio MCP transports execute a local command. ACP session data comes from
-    an external client, so keep this disabled unless the operator explicitly
-    opts in through config.yaml.
-    """
-    try:
-        from hermes_cli.config import load_config
-
-        config = load_config()
-    except Exception:
-        logger.debug("Failed to load ACP stdio MCP policy", exc_info=True)
-        return False
-
-    acp_config = config.get("acp") if isinstance(config, dict) else None
-    if not isinstance(acp_config, dict):
-        return False
-    return bool(acp_config.get("allow_client_stdio_mcp_servers", False))
 
 
 def _path_from_file_uri(uri: str) -> Path | None:
@@ -543,8 +527,11 @@ class HermesACPAgent(acp.Agent):
             return raw_model
         return f"{raw_provider}:{raw_model}"
 
-    def _build_model_state(self, state: SessionState) -> SessionModelState | None:
+    def _build_model_state(self, state: SessionState) -> Any:
         """Return the ACP model selector payload for editors like Zed."""
+        if SessionModelState is None or ModelInfo is None:
+            return None
+
         model = str(state.model or getattr(state.agent, "model", "") or "").strip()
         provider = getattr(state.agent, "provider", None) or detect_provider() or "openrouter"
 
@@ -553,7 +540,7 @@ class HermesACPAgent(acp.Agent):
 
             normalized_provider = normalize_provider(provider)
             provider_name = provider_label(normalized_provider)
-            available_models: list[ModelInfo] = []
+            available_models: list[Any] = []
             seen_ids: set[str] = set()
 
             for model_id, description in curated_models_for_provider(normalized_provider):
@@ -697,20 +684,9 @@ class HermesACPAgent(acp.Agent):
             from tools.mcp_tool import register_mcp_servers
 
             config_map: dict[str, dict] = {}
-            registered_server_names: list[str] = []
-            allow_stdio = _allow_client_stdio_mcp_servers()
             for server in mcp_servers:
                 name = server.name
                 if isinstance(server, McpServerStdio):
-                    if not allow_stdio:
-                        logger.warning(
-                            "Session %s: ignoring ACP-provided stdio MCP server '%s'; "
-                            "set acp.allow_client_stdio_mcp_servers=true to allow "
-                            "client-provided local commands",
-                            state.session_id,
-                            name,
-                        )
-                        continue
                     config = {
                         "command": server.command,
                         "args": list(server.args),
@@ -722,10 +698,6 @@ class HermesACPAgent(acp.Agent):
                         "headers": {item.name: item.value for item in server.headers},
                     }
                 config_map[name] = config
-                registered_server_names.append(name)
-
-            if not config_map:
-                return
 
             await asyncio.to_thread(register_mcp_servers, config_map)
         except Exception:
@@ -741,7 +713,7 @@ class HermesACPAgent(acp.Agent):
 
             enabled_toolsets = _expand_acp_enabled_toolsets(
                 getattr(state.agent, "enabled_toolsets", None) or ["hermes-acp"],
-                mcp_server_names=registered_server_names,
+                mcp_server_names=[server.name for server in mcp_servers],
             )
             state.agent.enabled_toolsets = enabled_toolsets
             disabled_toolsets = getattr(state.agent, "disabled_toolsets", None)
@@ -1686,8 +1658,11 @@ class HermesACPAgent(acp.Agent):
 
     async def set_session_model(
         self, model_id: str, session_id: str, **kwargs: Any
-    ) -> SetSessionModelResponse | None:
+    ) -> Any:
         """Switch the model for a session (called by ACP protocol)."""
+        if SetSessionModelResponse is None:
+            return None
+
         state = self.session_manager.get_session(session_id)
         if state:
             current_provider = getattr(state.agent, "provider", None)
