@@ -323,7 +323,7 @@ class FileSyncManager:
                 with tarfile.open(tf.name) as tar:
                     for member in tar.getmembers():
                         name = member.name
-                        if name.startswith("/") or ".." in name.split("/"):
+                        if name.startswith("/") or name.startswith("\\") or ".." in name.replace("\\", "/").split("/"):
                             raise tarfile.TarError(
                                 f"refusing to extract unsafe path: {name!r}"
                             )

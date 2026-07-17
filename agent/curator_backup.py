@@ -605,7 +605,7 @@ def rollback(backup_id: Optional[str] = None) -> Tuple[bool, str, Optional[Path]
             # still reject absolute paths and .. components defensively.
             for member in tf.getmembers():
                 name = member.name
-                if name.startswith("/") or ".." in Path(name).parts:
+                if name.startswith("/") or name.startswith("\\") or ".." in name.replace("\\", "/").split("/"):
                     raise tarfile.TarError(
                         f"refusing to extract unsafe path: {name!r}"
                     )
