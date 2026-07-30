@@ -57,6 +57,7 @@ def _prompt(label: str, default: str | None = None, secret: bool = False) -> str
 
 def _install_dependencies(provider_name: str) -> None:
     """Install pip dependencies declared in plugin.yaml."""
+    import shlex
     import subprocess
     from plugins.memory import find_provider_dir
 
@@ -134,7 +135,7 @@ def _install_dependencies(provider_name: str) -> None:
         if check_cmd:
             try:
                 subprocess.run(
-                    check_cmd, shell=True, capture_output=True, timeout=5
+                    shlex.split(check_cmd), shell=False, capture_output=True, timeout=5
                 )
             except Exception:
                 if install_cmd:
