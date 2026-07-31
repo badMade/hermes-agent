@@ -161,6 +161,20 @@ def test_tool_add_resource_rejects_non_allowlisted_schemes(url):
     provider._client.post.assert_not_called()
 
 
+
+
+@pytest.mark.parametrize("url", [".", "..", ".env", "README.md", "docs"])
+def test_tool_add_resource_rejects_bare_relative_local_path_references(url):
+    provider = OpenVikingMemoryProvider()
+    provider._client = MagicMock()
+
+    result = json.loads(provider._tool_add_resource({"url": url}))
+
+    assert result["error"] == EXPECTED_LOCAL_PATH_ERROR
+    provider._client.upload_temp_file.assert_not_called()
+    provider._client.post.assert_not_called()
+
+
 def test_tool_add_resource_sends_remote_url_as_path():
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
