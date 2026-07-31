@@ -86,10 +86,22 @@ def main() -> int:
             for member in tar.getmembers():
                 name = member.name
                 if (
-                    name.startswith("/")
+                    Path(name).is_absolute()
+                    or name.startswith("/")
+                    or name.startswith("\\")
                     or ".." in Path(name).parts
                 ):
-                    raise tarfile.TarError(f"refusing to extract unsafe path: {name!r}")
+                    raise tarfile.TarError(
+                        f"refusing to extract unsafe path: {name!r}"
+                    )
+                if not (member.isreg() or member.isdir()):
+                    raise tarfile.TarError(
+                        f"refusing to extract unexpected member type: {name!r}"
+                    )
+            try:
+                tar.extractall(tmp_path, filter="data")
+            except TypeError:
+                tar.extractall(tmp_path)
             try:
                 tar.extractall(tmp_path, filter="data")
             except TypeError:
@@ -97,8 +109,7 @@ def main() -> int:
 
         try:
             src_root = next(
-                p
-                for p in tmp_path.iterdir()
+                p for p in tmp_path.iterdir()
                 if p.is_dir() and p.name.startswith("psutil-")
             )
         except StopIteration:
