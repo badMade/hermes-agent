@@ -8,6 +8,7 @@ the provider's config schema. Writes config to config.yaml + .env.
 from __future__ import annotations
 
 import getpass
+import shlex
 import os
 import sys
 from pathlib import Path
@@ -133,8 +134,10 @@ def _install_dependencies(provider_name: str) -> None:
         install_cmd = dep.get("install", "")
         if check_cmd:
             try:
+                if isinstance(check_cmd, str):
+                    check_cmd = shlex.split(check_cmd)
                 subprocess.run(
-                    check_cmd, shell=True, capture_output=True, timeout=5
+                    check_cmd, shell=False, capture_output=True, timeout=5
                 )
             except Exception:
                 if install_cmd:
