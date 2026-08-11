@@ -1,0 +1,83 @@
+name: Self-Heal Automation
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["ci"]
+    types:
+      - completed
+
+concurrency:
+  group: selfheal-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    if: >
+      !startsWith(github.ref, 'refs/heads/selfheal-') &&
+      (github.event_name != 'schedule' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'failure')
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
+
+      - name: Setup Python
+        run: uv python install
+
+      - name: Run healthcheck
+        id: healthcheck
+        run: |
+          if scripts/healthcheck.sh; then
+            echo "passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "passed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Self-Heal Pipeline
+        id: repair
+        if: steps.healthcheck.outputs.passed == 'false'
+        run: |
+          scripts/self_heal.py || true
+
+      - name: Check for diff
+        id: diff
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_diff=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_diff=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run post-repair healthcheck
+        id: post_healthcheck
+        if: steps.diff.outputs.has_diff == 'true'
+        run: |
+          if ! scripts/healthcheck.sh; then
+             echo "Healthcheck failed after repair!"
+             false
+          fi
+
+      - name: Create PR
+        if: steps.diff.outputs.has_diff == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "[Self-Heal] Drift fixes"
+          branch: selfheal-repair
+          branch-suffix: timestamp
+          delete-branch: true
+          title: "[Self-Heal] Drift fixes"
+          body: "Automated drift fixes to repair CI state. Triggered by ${{ github.event_name }}."
+          labels: automation,self-heal
