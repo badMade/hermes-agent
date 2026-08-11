@@ -44,7 +44,7 @@ def main() -> None:
     steps = [
         {"name": "Lockfile refresh", "cmd": ["uv", "lock"]},
         {"name": "Ruff lint auto-fix", "cmd": ["uv", "run", "ruff", "check", "--fix", "."]},
-        {"name": "Ruff format auto-fix", "cmd": ["uv", "run", "ruff", "format", "."]},
+        {"name": "Ruff format auto-fix", "cmd": ["uv", "run", "ruff", "format", "--check", "."]},
         {"name": "Ty type stub check", "cmd": ["uv", "run", "ty", "check"]},
     ]
 
