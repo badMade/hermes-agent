@@ -17,3 +17,8 @@
 **Vulnerability:** The `tools/environments/file_sync.py` script was extracting untrusted tarball archives fetched from remote environments using `tar.extractall(..., filter="data")` without an explicit pre-extraction path validation, and failing outright on older Python versions.
 **Learning:** Python's native `tarfile` module relies entirely on the `filter="data"` backward compatibility which might not be supported on older interpreter versions. Even with it, it's safer to always validate extraction paths natively when handling untrusted files to prevent arbitrary host file overwrites (Zip Slip/Path Traversal vulnerabilities) entirely.
 **Prevention:** Always manually validate each member using `tar.getmembers()` ensuring paths do not begin with `/` or contain `..` using `.split("/")`, and defensively wrap `tar.extractall` in a `try/except TypeError` with a fallback `extractall` call.
+
+## 2025-02-28 - [Fix Command Injection in external dependencies check/install]
+**Vulnerability:** External dependencies defined in a plugin's `plugin.yaml` via `check` or `install` were evaluated via `subprocess.run` with `shell=True`, making the main application vulnerable to shell injection if a malicious external dependency object defines a shell syntax exploit.
+**Learning:** Commands generated from untrusted plugin configurations should be tokenized with `shlex.split()` and set `shell=False` to avoid allowing an external entity to run arbitrary commands.
+**Prevention:** When evaluating strings from external sources as commands in Python, set `shell=False` and use `shlex.split` to parse them safely.
