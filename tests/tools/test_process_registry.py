@@ -336,7 +336,7 @@ class TestStdinHelpers:
         guard.assert_called_once()
 
     @patch(
-        "tools.approval.check_all_command_guards",
+        "tools.process_registry.check_all_command_guards",
         return_value={"approved": True, "message": None},
     )
     def test_close_stdin_allows_eof_driven_process_to_finish(self, _mock_guard, registry, tmp_path):
