@@ -21,7 +21,7 @@ try:
     import fcntl
 except ImportError:
     fcntl = None  # Windows — file locking skipped
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Callable
 
 from hermes_constants import get_hermes_home
@@ -97,6 +97,44 @@ def _sha256_file(path: str) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _safe_tar_destination(staging: str, member_name: str) -> Path:
+    """Return the extraction path for a safe relative tar member name."""
+    if (
+        not member_name
+        or "\\" in member_name
+        or PurePosixPath(member_name).is_absolute()
+        or PureWindowsPath(member_name).is_absolute()
+        or ".." in PurePosixPath(member_name).parts
+    ):
+        raise tarfile.TarError(f"refusing to extract unsafe path: {member_name!r}")
+
+    destination = Path(staging, member_name).resolve()
+    staging_root = Path(staging).resolve()
+    if not destination.is_relative_to(staging_root):
+        raise tarfile.TarError(f"refusing to extract unsafe path: {member_name!r}")
+    return destination
+
+
+def _extract_sync_tar(tar: tarfile.TarFile, staging: str) -> None:
+    """Extract only regular files and directories beneath *staging*."""
+    for member in tar.getmembers():
+        destination = _safe_tar_destination(staging, member.name)
+        if member.isdir():
+            destination.mkdir(parents=True, exist_ok=True)
+            continue
+        if not member.isfile():
+            raise tarfile.TarError(
+                f"refusing to extract unsupported tar member: {member.name!r}"
+            )
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        source = tar.extractfile(member)
+        if source is None:
+            raise tarfile.TarError(f"unable to read tar member: {member.name!r}")
+        with source, open(destination, "wb") as out:
+            shutil.copyfileobj(source, out)
 
 
 _SYNC_BACK_MAX_RETRIES = 3
@@ -321,16 +359,7 @@ class FileSyncManager:
 
             with tempfile.TemporaryDirectory(prefix="hermes-sync-back-") as staging:
                 with tarfile.open(tf.name) as tar:
-                    for member in tar.getmembers():
-                        name = member.name
-                        if name.startswith("/") or ".." in name.split("/"):
-                            raise tarfile.TarError(
-                                f"refusing to extract unsafe path: {name!r}"
-                            )
-                    try:
-                        tar.extractall(staging, filter="data")
-                    except TypeError:
-                        tar.extractall(staging)
+                    _extract_sync_tar(tar, staging)
 
                 applied = 0
                 for dirpath, _dirnames, filenames in os.walk(staging):

@@ -41,6 +41,13 @@ def _make_download_fn(files: dict[str, bytes]):
     return download
 
 
+def _make_download_fn_from_tar(build_tar):
+    """Return a bulk_download_fn that delegates tar construction."""
+    def download(dest: Path):
+        build_tar(dest)
+    return download
+
+
 def _sha256_bytes(data: bytes) -> str:
     """Compute SHA-256 hex digest of raw bytes (for test convenience)."""
     import hashlib
@@ -472,3 +479,59 @@ class TestSyncBackSizeCap:
         # Default cap (2 GiB) is far above our tiny tar; extraction should proceed
         mgr.sync_back(hermes_home=tmp_path / ".hermes")
         assert Path(host_file).read_bytes() == b"remote_version"
+
+
+class TestSyncBackTarSafety:
+    """Sync-back rejects unsafe tar members from remote environments."""
+
+    def test_sync_back_rejects_symlink_escape(self, tmp_path):
+        host_file = _write_file(tmp_path / "host" / "owned.txt", b"original")
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        outside_file = outside_dir / "owned.txt"
+
+        def build_tar(dest: Path):
+            with tarfile.open(dest, "w") as tar:
+                link = tarfile.TarInfo("root/.hermes/link")
+                link.type = tarfile.SYMTYPE
+                link.linkname = str(outside_dir)
+                tar.addfile(link)
+
+                payload = b"escaped"
+                info = tarfile.TarInfo("root/.hermes/link/owned.txt")
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+
+        mgr = _make_manager(
+            tmp_path,
+            file_mapping=[(host_file, "/root/.hermes/owned.txt")],
+            bulk_download_fn=_make_download_fn_from_tar(build_tar),
+        )
+
+        with pytest.raises(tarfile.TarError, match="unsupported tar member"):
+            mgr.sync_back(hermes_home=tmp_path / ".hermes")
+
+        assert not outside_file.exists()
+        assert Path(host_file).read_bytes() == b"original"
+
+    @pytest.mark.parametrize(
+        "member_name",
+        [
+            "../root/.hermes/owned.txt",
+            "root/.hermes/../owned.txt",
+            r"root\.hermes\owned.txt",
+            r"C:\Users\operator\.ssh\authorized_keys",
+        ],
+    )
+    def test_sync_back_rejects_unsafe_member_paths(self, tmp_path, member_name):
+        host_file = _write_file(tmp_path / "host" / "owned.txt", b"original")
+        mgr = _make_manager(
+            tmp_path,
+            file_mapping=[(host_file, "/root/.hermes/owned.txt")],
+            bulk_download_fn=_make_download_fn({member_name: b"remote"}),
+        )
+
+        with pytest.raises(tarfile.TarError, match="unsafe path"):
+            mgr.sync_back(hermes_home=tmp_path / ".hermes")
+
+        assert Path(host_file).read_bytes() == b"original"
