@@ -172,3 +172,15 @@ def test_dockerignore_excludes_nested_dependency_dirs():
 
     assert "**/node_modules" in text
     assert "**/.venv" in text
+
+
+def test_dockerignore_excludes_secret_env_and_log_files():
+    if not DOCKERIGNORE.exists():
+        pytest.skip(".dockerignore not present in this checkout")
+
+    text = DOCKERIGNORE.read_text()
+
+    assert ".env.*" in text
+    assert "!.env.example" in text
+    assert "logs/" in text
+    assert "**/*.log" in text
