@@ -750,19 +750,22 @@
           chmod 0644 ${cfg.stateDir}/.hermes/.managed
 
           # Container mode metadata — tells the host CLI to exec into the
-          # container instead of running locally. Removed when container mode
-          # is disabled so the host CLI falls back to native execution.
+          # container instead of running locally. Keep this outside shared
+          # HERMES_HOME so containerized code cannot rewrite host routing.
           ${if cfg.container.enable then ''
-            cat > ${cfg.stateDir}/.hermes/.container-mode <<'HERMES_CONTAINER_MODE_EOF'
+            install -o root -g root -m 0755 -d /etc/hermes-agent
+            cat > /etc/hermes-agent/container-mode <<'HERMES_CONTAINER_MODE_EOF'
     # Written by NixOS activation script. Do not edit manually.
     backend=${cfg.container.backend}
     container_name=${containerName}
     exec_user=${cfg.user}
     hermes_bin=${containerDataDir}/current-package/bin/hermes
     HERMES_CONTAINER_MODE_EOF
-            chown ${cfg.user}:${cfg.group} ${cfg.stateDir}/.hermes/.container-mode
-            chmod 0644 ${cfg.stateDir}/.hermes/.container-mode
+            chown root:root /etc/hermes-agent/container-mode
+            chmod 0644 /etc/hermes-agent/container-mode
+            rm -f ${cfg.stateDir}/.hermes/.container-mode
           '' else ''
+            rm -f /etc/hermes-agent/container-mode
             rm -f ${cfg.stateDir}/.hermes/.container-mode
 
             # Remove symlink bridge for hostUsers
