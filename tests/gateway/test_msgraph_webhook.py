@@ -46,6 +46,23 @@ class TestMSGraphWebhookConfig:
         assert Platform.MSGRAPH_WEBHOOK in config.platforms
         assert Platform.MSGRAPH_WEBHOOK in config.get_connected_platforms()
 
+    def test_gateway_config_requires_msgraph_webhook_client_state(self):
+        config = GatewayConfig.from_dict(
+            {"platforms": {"msgraph_webhook": {"enabled": True, "extra": {}}}}
+        )
+
+        assert Platform.MSGRAPH_WEBHOOK in config.platforms
+        assert Platform.MSGRAPH_WEBHOOK not in config.get_connected_platforms()
+
+    def test_env_enabled_without_client_state_is_not_connected(self, monkeypatch):
+        config = GatewayConfig()
+
+        monkeypatch.setenv("MSGRAPH_WEBHOOK_ENABLED", "true")
+        _apply_env_overrides(config)
+
+        assert config.platforms[Platform.MSGRAPH_WEBHOOK].enabled is True
+        assert Platform.MSGRAPH_WEBHOOK not in config.get_connected_platforms()
+
     def test_env_overrides_apply_to_existing_msgraph_webhook_platform(self, monkeypatch):
         config = GatewayConfig(
             platforms={Platform.MSGRAPH_WEBHOOK: PlatformConfig(enabled=True, extra={})}
@@ -72,6 +89,13 @@ class TestMSGraphWebhookConfig:
     def test_client_state_configured_tracks_secret_presence(self):
         assert _make_adapter().client_state_configured is True
         assert _make_adapter(client_state="").client_state_configured is False
+
+    @pytest.mark.anyio
+    async def test_connect_refuses_to_start_without_client_state(self):
+        adapter = _make_adapter(client_state="")
+
+        assert await adapter.connect() is False
+        assert adapter.is_connected is False
 
 
 class TestMSGraphValidationHandshake:
@@ -159,6 +183,33 @@ class TestMSGraphNotifications:
                     "changeType": "updated",
                     "resource": "communications/onlineMeetings/meeting-2",
                     "clientState": "wrong-state",
+                }
+            ]
+        }
+
+        resp = await adapter._handle_notification(_FakeRequest(json_payload=payload))
+        assert resp.status == 403
+
+        await asyncio.sleep(0.05)
+
+        assert scheduled == []
+
+    @pytest.mark.anyio
+    async def test_missing_configured_client_state_rejects_notifications(self):
+        adapter = _make_adapter(client_state="")
+        scheduled: list[tuple[dict, object]] = []
+
+        async def _capture(notification, event):
+            scheduled.append((notification, event))
+
+        adapter.set_notification_scheduler(_capture)
+        payload = {
+            "value": [
+                {
+                    "id": "notif-no-secret",
+                    "subscriptionId": "sub-1",
+                    "changeType": "updated",
+                    "resource": "communications/onlineMeetings/meeting-2",
                 }
             ]
         }
