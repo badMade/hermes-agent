@@ -28,6 +28,9 @@ def container_env(tmp_path, monkeypatch):
     hermes_home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.delenv("HERMES_DEV", raising=False)
+    monkeypatch.setattr(
+        "hermes_cli.config._CONTAINER_MODE_FILE", hermes_home / ".container-mode"
+    )
 
     container_mode = hermes_home / ".container-mode"
     container_mode.write_text(
@@ -66,6 +69,9 @@ def test_get_container_exec_info_none_without_file(tmp_path, monkeypatch):
     hermes_home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.delenv("HERMES_DEV", raising=False)
+    monkeypatch.setattr(
+        "hermes_cli.config._CONTAINER_MODE_FILE", hermes_home / ".container-mode"
+    )
 
     with patch("hermes_constants.is_container", return_value=False):
         info = get_container_exec_info()
@@ -105,7 +111,7 @@ def test_get_container_exec_info_defaults():
         )
 
         with patch("hermes_constants.is_container", return_value=False), \
-             patch.dict(get_container_exec_info.__globals__, {"get_hermes_home": lambda: hermes_home}), \
+             patch.dict(get_container_exec_info.__globals__, {"_CONTAINER_MODE_FILE": hermes_home / ".container-mode"}), \
              patch.dict(os.environ, {}, clear=False):
             os.environ.pop("HERMES_DEV", None)
             info = get_container_exec_info()
@@ -133,6 +139,20 @@ def test_get_container_exec_info_docker_backend(container_env):
     assert info["container_name"] == "hermes-custom"
     assert info["exec_user"] == "myuser"
     assert info["hermes_bin"] == "/opt/hermes/bin/hermes"
+
+
+def test_get_container_exec_info_rejects_path_like_backend(container_env):
+    """Rejects executable paths from metadata before host-side exec routing."""
+    (container_env / ".container-mode").write_text(
+        "backend=/tmp/payload\n"
+        "container_name=hermes-agent\n"
+        "exec_user=hermes\n"
+        "hermes_bin=/data/current-package/bin/hermes\n"
+    )
+
+    with patch("hermes_constants.is_container", return_value=False):
+        with pytest.raises(ValueError, match="Unsupported container backend"):
+            get_container_exec_info()
 
 
 def test_get_container_exec_info_crashes_on_permission_error(container_env):
@@ -166,6 +186,29 @@ def podman_container_info():
         "exec_user": "hermes",
         "hermes_bin": "/data/current-package/bin/hermes",
     }
+
+
+def test_exec_in_container_rejects_untrusted_backend_path():
+    """Defense in depth: never resolve path-like backend values for exec."""
+    from hermes_cli.main import _exec_in_container
+
+    container_info = {
+        "backend": "/tmp/payload",
+        "container_name": "hermes-agent",
+        "exec_user": "hermes",
+        "hermes_bin": "/data/current-package/bin/hermes",
+    }
+
+    with patch("shutil.which") as mock_which, \
+         patch("subprocess.run") as mock_run, \
+         patch("os.execvp") as mock_execvp, \
+         pytest.raises(SystemExit) as exc_info:
+        _exec_in_container(container_info, ["chat"])
+
+    mock_which.assert_not_called()
+    mock_run.assert_not_called()
+    mock_execvp.assert_not_called()
+    assert exc_info.value.code == 1
 
 
 def test_exec_in_container_calls_execvp(docker_container_info):

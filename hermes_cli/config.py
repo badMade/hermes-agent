@@ -241,16 +241,20 @@ def managed_error(action: str = "modify configuration"):
 # Container-aware CLI (NixOS container mode)
 # =============================================================================
 
+_CONTAINER_MODE_FILE = Path("/etc/hermes-agent/container-mode")
+_CONTAINER_MODE_ALLOWED_BACKENDS = frozenset({"docker", "podman"})
+
+
 def get_container_exec_info() -> Optional[dict]:
-    """Read container mode metadata from HERMES_HOME/.container-mode.
+    """Read trusted NixOS container mode metadata.
 
     Returns a dict with keys: backend, container_name, exec_user, hermes_bin
     or None if container mode is not active, we're already inside the
     container, or HERMES_DEV=1 is set.
 
-    The .container-mode file is written by the NixOS activation script when
-    container.enable = true. It tells the host CLI to exec into the container
-    instead of running locally.
+    The metadata file is written root-owned by the NixOS activation script
+    outside HERMES_HOME. HERMES_HOME is shared with the containerized agent and
+    must not control host-side executable selection.
     """
     if os.environ.get("HERMES_DEV") == "1":
         return None
@@ -259,7 +263,7 @@ def get_container_exec_info() -> Optional[dict]:
     if is_container():
         return None
 
-    container_mode_file = get_hermes_home() / ".container-mode"
+    container_mode_file = _CONTAINER_MODE_FILE
 
     try:
         info = {}
@@ -274,6 +278,11 @@ def get_container_exec_info() -> Optional[dict]:
     # All other exceptions (PermissionError, malformed data, etc.) propagate
 
     backend = info.get("backend", "docker")
+    if backend not in _CONTAINER_MODE_ALLOWED_BACKENDS:
+        raise ValueError(
+            f"Unsupported container backend in {container_mode_file}: {backend!r}"
+        )
+
     container_name = info.get("container_name", "hermes-agent")
     exec_user = info.get("exec_user", "hermes")
     hermes_bin = info.get("hermes_bin", "/data/current-package/bin/hermes")

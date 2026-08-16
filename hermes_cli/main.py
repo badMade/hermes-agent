@@ -695,6 +695,13 @@ def _exec_in_container(container_info: dict, cli_args: list):
     """
 
     backend = container_info["backend"]
+    if backend not in {"docker", "podman"}:
+        print(
+            f"Error: unsupported container backend {backend!r}. Expected docker or podman.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     container_name = container_info["container_name"]
     exec_user = container_info["exec_user"]
     hermes_bin = container_info["hermes_bin"]
