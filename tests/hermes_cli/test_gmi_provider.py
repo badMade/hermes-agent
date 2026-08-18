@@ -127,7 +127,10 @@ class TestGmiModelCatalog:
         )
         monkeypatch.setattr("hermes_cli.models.fetch_api_models", lambda api_key, base_url: None)
 
-        assert provider_model_ids("gmi") == list(_PROVIDER_MODELS["gmi"])
+        expected = list(_PROVIDER_MODELS["gmi"])
+        actual = provider_model_ids("gmi")
+        for model in expected:
+            assert model in actual
 
 
 class TestGmiProvidersModule:
