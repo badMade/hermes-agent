@@ -11,6 +11,7 @@ import getpass
 import os
 import sys
 from pathlib import Path
+import shlex
 
 from hermes_constants import get_hermes_home
 
@@ -134,7 +135,7 @@ def _install_dependencies(provider_name: str) -> None:
         if check_cmd:
             try:
                 subprocess.run(
-                    check_cmd, shell=True, capture_output=True, timeout=5
+                    shlex.split(check_cmd), shell=False, capture_output=True, timeout=5
                 )
             except Exception:
                 if install_cmd:
