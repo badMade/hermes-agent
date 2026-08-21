@@ -17,3 +17,8 @@
 **Vulnerability:** The `tools/environments/file_sync.py` script was extracting untrusted tarball archives fetched from remote environments using `tar.extractall(..., filter="data")` without an explicit pre-extraction path validation, and failing outright on older Python versions.
 **Learning:** Python's native `tarfile` module relies entirely on the `filter="data"` backward compatibility which might not be supported on older interpreter versions. Even with it, it's safer to always validate extraction paths natively when handling untrusted files to prevent arbitrary host file overwrites (Zip Slip/Path Traversal vulnerabilities) entirely.
 **Prevention:** Always manually validate each member using `tar.getmembers()` ensuring paths do not begin with `/` or contain `..` using `.split("/")`, and defensively wrap `tar.extractall` in a `try/except TypeError` with a fallback `extractall` call.
+
+## 2025-02-28 - [Subprocess run without check=True silently fails]
+**Vulnerability:** The `memory_setup.py` module executed external dependency check commands using `subprocess.run()` within a `try/except` block intended to catch failures, but omitted the `check=True` argument.
+**Learning:** Without `check=True`, `subprocess.run()` returns a `CompletedProcess` object on non-zero exit codes instead of raising a `CalledProcessError`. This causes the exception block to be silently bypassed, preventing the intended fallback logic (like printing installation instructions) from ever executing.
+**Prevention:** When using `subprocess.run()` inside a `try...except Exception:` block intended to catch command failures, explicitly include `check=True` to ensure failures properly raise exceptions.
