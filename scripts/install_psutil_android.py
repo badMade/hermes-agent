@@ -85,10 +85,7 @@ def main() -> int:
         with tarfile.open(archive) as tar:
             for member in tar.getmembers():
                 name = member.name
-                if (
-                    name.startswith("/")
-                    or ".." in Path(name).parts
-                ):
+                if name.startswith("/") or name.startswith("\\") or ".." in name.replace("\\", "/").split("/"):
                     raise tarfile.TarError(f"refusing to extract unsafe path: {name!r}")
             try:
                 tar.extractall(tmp_path, filter="data")
