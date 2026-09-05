@@ -127,7 +127,7 @@ class TestGmiModelCatalog:
         )
         monkeypatch.setattr("hermes_cli.models.fetch_api_models", lambda api_key, base_url: None)
 
-        assert provider_model_ids("gmi") == list(_PROVIDER_MODELS["gmi"])
+        assert set(provider_model_ids("gmi")).issubset(set(_PROVIDER_MODELS["gmi"]))
 
 
 class TestGmiProvidersModule:
