@@ -1,4 +1,4 @@
-## YYYY-MM-DD - [Fix Command Injection in Untrusted Configuration Execution]
+## 2026-09-06 - [Fix Command Injection in Untrusted Configuration Execution]
 **Vulnerability:** The codebase passed user-controlled configurations (dependency check commands from plugin.yaml) to `subprocess.run(..., shell=True)` without sanitization, leading to critical RCE command injection vulnerabilities.
 **Learning:** Setting `shell=True` on user-configurable arguments provides trivial arbitrary code execution payloads for attackers, even if credentials are obfuscated.
 **Prevention:** Always use `shlex.split()` and `shell=False` for subprocess execution relying on configurations or arbitrary input.
