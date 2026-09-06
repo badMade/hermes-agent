@@ -1,3 +1,8 @@
+## 2026-09-06 - [Fix Command Injection in Untrusted Configuration Execution]
+**Vulnerability:** The codebase passed user-controlled configurations (dependency check commands from plugin.yaml) to `subprocess.run(..., shell=True)` without sanitization, leading to critical RCE command injection vulnerabilities.
+**Learning:** Setting `shell=True` on user-configurable arguments provides trivial arbitrary code execution payloads for attackers, even if credentials are obfuscated.
+**Prevention:** Always use `shlex.split()` and `shell=False` for subprocess execution relying on configurations or arbitrary input.
+
 ## 2024-05-24 - [Sanitize Subprocess Environments for `quick_commands` and `shell.exec`]
 **Vulnerability:** The CLI and TUI Gateway executed user-defined `quick_commands` and arbitrary shell commands (`shell.exec`) using `subprocess.run(..., shell=True)` without sanitizing the environment variables passed to the child process.
 **Learning:** This exposed sensitive API keys and credentials contained in the main Hermes process environment to these child processes, allowing for easy credential exfiltration by a malicious config or user interaction.
