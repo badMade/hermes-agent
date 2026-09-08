@@ -57,7 +57,7 @@ def update_schedule_file(new_cron: str) -> None:
         print(f"Marker '{MARKER}' not found in {file_path}.")
         sys.exit(1)
 
-    # Replace the cron string
+    # Replace the cron string safely
     new_content = re.sub(
         r'cron:\s*".*?"',
         f'cron: "{new_cron}"',
@@ -67,6 +67,15 @@ def update_schedule_file(new_cron: str) -> None:
     if new_content == content:
         print("Schedule unchanged.")
         sys.exit(0)
+
+    # Validate output is parseable yaml
+    try:
+        import ruamel.yaml
+        yaml = ruamel.yaml.YAML(typ='safe', pure=True)
+        yaml.load(new_content)
+    except Exception as e:
+        print(f"Generated YAML is invalid: {e}")
+        sys.exit(1)
 
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(new_content)

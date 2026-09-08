@@ -1,31 +1,24 @@
-# Self-Heal Coding Agent Setup
+# Self-Heal Coding Agent Pipeline
 
-This document describes the setup and mechanics of the Self-Heal CI pipeline.
-
-## Overview
-The Self-Heal Agent continuously adapts to project drift by automatically running linters, formatters, lockfile updates, and type checks on failing CI runs or via a periodic schedule.
+This repository uses an automated Self-Heal Pipeline designed to safely repair code drift, regenerate lockfiles, apply linters, and keep the repository healthy without human intervention.
 
 ## Triggers
-1. **Scheduled:** Runs on a dynamic schedule based on telemetry (PR churn/failure rates).
-2. **Reactive:** Triggers on CI failure (via `workflow_run` on `Tests`).
-3. **Manual:** Triggered via `workflow_dispatch`.
+1. **Scheduled:** Runs periodically (configured in `.github/self-heal-schedule.yml`).
+2. **CI Failure:** Triggers on any failure of the main `ci` workflows.
+3. **Manual Dispatch:** Can be run manually from the GitHub Actions UI.
+
+## Components
+- `.github/workflows/self-heal.yml`: Main workflow executing the repair.
+- `.github/workflows/compute-schedule.yml`: Workflow that runs telemetry to update the self-heal schedule dynamically.
+- `.github/self-heal-schedule.yml`: Holds the current schedule, auto-updated by telemetry logic.
+- `scripts/healthcheck.sh`: Ensures tests/linters pass before and after applying fixes.
+- `scripts/self_heal.py`: Idempotent script running various automated repairs (e.g. `uv lock`, `ruff check --fix`, etc.).
+- `scripts/compute_schedule.py`: Logic calculating optimal schedule from repo metrics.
 
 ## Self-Scheduling
-The schedule cadence is dynamic. The `.github/workflows/compute-schedule.yml` workflow recalculates the necessary frequency weekly based on PR merge/churn telemetry and updates `.github/self-heal-schedule.yml`.
-* **Tiers:** High-churn (daily), Standard (weekly).
-
-### Overriding the Schedule
-To manually override the cadence:
-1. Open `.github/self-heal-schedule.yml`.
-2. Edit the `cron: "..."` string directly.
-3. The marker `# AUTO-UPDATED` allows the system to update around it, but if you change the value, the system will respect your edits as long as your changes match the valid cron pattern.
+The schedule is derived based on telemetry like PR merge frequency and CI failure rates. To override this behavior manually, edit `.github/self-heal-schedule.yml` directly—though manual edits will be respected, changes to the rest of the file format outside the `cron` parameter might break the auto-updater. The `# AUTO-UPDATED` marker is essential for this round-trip safety.
 
 ## Reviewer Checklist for Self-Heal PRs
-When the agent opens a PR labeled `self-heal`, verify:
-- [ ] No secrets or high-entropy patterns are in the diff.
-- [ ] Modifications are confined to allowed paths (e.g., lockfiles, formats).
-- [ ] CI workflow logic remains intact.
-- [ ] Tests successfully passed on the new branch.
-
-## Architecture
-The system relies on idempotent, side-effect-free scripts inside `scripts/`, generating safe edits and relying on GitHub Actions to securely open PRs without direct branch pushes.
+- [ ] Ensure only standard formatting or lockfile changes are present.
+- [ ] Confirm tests pass and no functional logic was modified.
+- [ ] Check if the changes indicate an underlying issue that needs to be permanently fixed in a development PR.

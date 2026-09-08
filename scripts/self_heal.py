@@ -13,8 +13,7 @@ End: exit 1 if no fix.
 import subprocess
 import sys
 import os
-
-SCHEDULE_FILE = ".github/self-heal-schedule.yml"
+import stat
 
 def run_cmd(cmd: list[str]) -> bool:
     print(f"Running: {' '.join(cmd)}")
@@ -41,11 +40,21 @@ def main() -> None:
 
     print("Starting Self-Heal Pipeline...")
 
+    # Allowed repair actions:
+    # 1. Dependency re-resolution / lockfile refresh
+    # 2. Rebuild/reinstall toolchain + dependencies
+    # 3. Lint auto-fix
+    # 4. Format auto-fix
+    # 5. Type stubs + analyzer config (noop fix, just check)
+    # 6. Static asset regeneration (docs/badges - noop for now)
+
     steps = [
         {"name": "Lockfile refresh", "cmd": ["uv", "lock"]},
+        {"name": "Reinstall dependencies", "cmd": ["uv", "sync"]},
         {"name": "Ruff lint auto-fix", "cmd": ["uv", "run", "ruff", "check", "--fix", "."]},
         {"name": "Ruff format auto-fix", "cmd": ["uv", "run", "ruff", "format", "."]},
-        {"name": "Ty type stub check", "cmd": ["uv", "run", "ty", "check"]},
+        {"name": "Type stubs check", "cmd": ["uv", "run", "ty", "check"]},
+        {"name": "Static asset regeneration", "cmd": ["echo", "No static assets to regenerate"]},
     ]
 
     for step in steps:
