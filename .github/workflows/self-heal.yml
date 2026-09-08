@@ -1,0 +1,112 @@
+name: Self-Heal Pipeline
+
+on:
+  schedule:
+    # Use dynamic expression if possible, but GHA requires hardcoded cron in YAML.
+    # The actual workflow file is mutated to update the cron.
+    - cron: '0 2 * * *'
+  workflow_run:
+    workflows: ["ci", "tests", "Tests"]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: selfheal-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  self-heal:
+    # Trigger conditions
+    if: >
+      (github.event_name == 'schedule' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure')
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
+
+      - name: Check for recent open selfheal PRs
+        id: check_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          count=$(gh pr list --state open --label "self-heal" --json number -q 'length')
+          if [ "$count" -gt 0 ]; then
+            echo "Open self-heal PR exists. Exiting."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run healthcheck (pre)
+        if: steps.check_pr.outputs.skip == 'false'
+        id: pre_healthcheck
+        run: |
+          if scripts/healthcheck.sh; then
+             echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+             echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+        continue-on-error: true
+
+      - name: Run Self-Heal Pipeline
+        if: steps.check_pr.outputs.skip == 'false'
+        id: repair
+        run: |
+          # Exit 0 if diff, 1 if no diff
+          python3 scripts/self_heal.py || true
+
+      - name: Check diff
+        if: steps.check_pr.outputs.skip == 'false'
+        id: check_diff
+        run: |
+          if git diff --quiet; then
+            echo "diff=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "diff=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        if: steps.check_pr.outputs.skip == 'false' && steps.check_diff.outputs.diff == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Differentiate title based on trigger
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            TITLE="[Self-Heal Scheduled] Drift fixes"
+            TRIGGER="Scheduled run"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            TITLE="[Self-Heal Reactive] CI fix"
+            TRIGGER="CI failure"
+          else
+            TITLE="[Self-Heal Manual] Repair"
+            TRIGGER="Manual dispatch"
+          fi
+
+          BRANCH_NAME="selfheal-$(date +%s)"
+          git checkout -b "$BRANCH_NAME"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git commit -m "Auto-repair drift"
+
+          gh pr create \
+            --title "$TITLE" \
+            --body "Trigger: $TRIGGER. Drift summary: $(git diff --stat HEAD~1). Link to Claude/Claude Code chat (per PR policy)." \
+            --label "automation,self-heal" \
+            --head "$BRANCH_NAME" \
+            --base main
