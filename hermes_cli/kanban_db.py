@@ -1835,24 +1835,33 @@ def recompute_ready(conn: sqlite3.Connection) -> int:
     """
     promoted = 0
     with write_txn(conn):
-        todo_rows = conn.execute(
-            "SELECT id FROM tasks WHERE status = 'todo'"
+        # ⚡ Bolt Optimization: Replace N+1 query loop with a single SELECT and executemany
+        promotable_rows = conn.execute(
+            "SELECT id FROM tasks "
+            "WHERE status = 'todo' "
+            "AND id NOT IN ("
+            "    SELECT l.child_id "
+            "    FROM task_links l "
+            "    JOIN tasks t ON l.parent_id = t.id "
+            "    WHERE t.status NOT IN ('done', 'archived')"
+            ")"
         ).fetchall()
-        for row in todo_rows:
-            task_id = row["id"]
-            parents = conn.execute(
-                "SELECT t.status FROM tasks t "
-                "JOIN task_links l ON l.parent_id = t.id "
-                "WHERE l.child_id = ?",
-                (task_id,),
-            ).fetchall()
-            if all(p["status"] in {"done", "archived"} for p in parents):
-                conn.execute(
-                    "UPDATE tasks SET status = 'ready' WHERE id = ? AND status = 'todo'",
-                    (task_id,),
-                )
-                _append_event(conn, task_id, "promoted", None)
-                promoted += 1
+
+        promoted_ids = [row["id"] for row in promotable_rows]
+
+        if promoted_ids:
+            conn.executemany(
+                "UPDATE tasks SET status = 'ready' WHERE id = ? AND status = 'todo'",
+                [(tid,) for tid in promoted_ids]
+            )
+
+            now = int(time.time())
+            conn.executemany(
+                "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) "
+                "VALUES (?, NULL, 'promoted', NULL, ?)",
+                [(tid, now) for tid in promoted_ids]
+            )
+            promoted = len(promoted_ids)
     return promoted
 
 
