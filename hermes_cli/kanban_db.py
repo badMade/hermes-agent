@@ -1835,24 +1835,31 @@ def recompute_ready(conn: sqlite3.Connection) -> int:
     """
     promoted = 0
     with write_txn(conn):
-        todo_rows = conn.execute(
-            "SELECT id FROM tasks WHERE status = 'todo'"
+        # ⚡ Bolt Optimization: Replaced N+1 queries with a single query to find tasks
+        # to promote, and batched updates and event insertions using executemany.
+        promotable_tasks = conn.execute(
+            """
+            SELECT id FROM tasks
+            WHERE status = 'todo'
+            AND NOT EXISTS (
+                SELECT 1 FROM task_links l
+                JOIN tasks p ON l.parent_id = p.id
+                WHERE l.child_id = tasks.id
+                AND p.status NOT IN ('done', 'archived')
+            )
+            """
         ).fetchall()
-        for row in todo_rows:
-            task_id = row["id"]
-            parents = conn.execute(
-                "SELECT t.status FROM tasks t "
-                "JOIN task_links l ON l.parent_id = t.id "
-                "WHERE l.child_id = ?",
-                (task_id,),
-            ).fetchall()
-            if all(p["status"] in {"done", "archived"} for p in parents):
-                conn.execute(
-                    "UPDATE tasks SET status = 'ready' WHERE id = ? AND status = 'todo'",
-                    (task_id,),
-                )
-                _append_event(conn, task_id, "promoted", None)
-                promoted += 1
+
+        if promotable_tasks:
+            task_ids = [(row["id"],) for row in promotable_tasks]
+            conn.executemany(
+                "UPDATE tasks SET status = 'ready' WHERE id = ? AND status = 'todo'",
+                task_ids
+            )
+            for task_id_tuple in task_ids:
+                _append_event(conn, task_id_tuple[0], "promoted", None)
+            promoted = len(task_ids)
+
     return promoted
 
 
