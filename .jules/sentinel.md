@@ -17,3 +17,8 @@
 **Vulnerability:** The `tools/environments/file_sync.py` script was extracting untrusted tarball archives fetched from remote environments using `tar.extractall(..., filter="data")` without an explicit pre-extraction path validation, and failing outright on older Python versions.
 **Learning:** Python's native `tarfile` module relies entirely on the `filter="data"` backward compatibility which might not be supported on older interpreter versions. Even with it, it's safer to always validate extraction paths natively when handling untrusted files to prevent arbitrary host file overwrites (Zip Slip/Path Traversal vulnerabilities) entirely.
 **Prevention:** Always manually validate each member using `tar.getmembers()` ensuring paths do not begin with `/` or contain `..` using `.split("/")`, and defensively wrap `tar.extractall` in a `try/except TypeError` with a fallback `extractall` call.
+
+## YYYY-MM-DD - [Fix Command Injection in Memory Plugin Dependency Checker]
+**Vulnerability:** In `hermes_cli/memory_setup.py`, the `_install_dependencies` function executed untrusted external `check_cmd` values sourced directly from external `plugin.yaml` files via `subprocess.run(check_cmd, shell=True)`.
+**Learning:** Using `shell=True` allows an attacker crafting a malicious `plugin.yaml` to execute arbitrary commands on the host by exploiting shell injection patterns (e.g. `bash -c`).
+**Prevention:** For any untrusted configuration commands, even dependency checks, use `shlex.split()` to tokenize the configuration string and disable `shell=True`. Include `check=True` if you expect the exception handler to process non-zero exit codes.
