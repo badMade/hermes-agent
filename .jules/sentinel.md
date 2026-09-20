@@ -17,3 +17,8 @@
 **Vulnerability:** The `tools/environments/file_sync.py` script was extracting untrusted tarball archives fetched from remote environments using `tar.extractall(..., filter="data")` without an explicit pre-extraction path validation, and failing outright on older Python versions.
 **Learning:** Python's native `tarfile` module relies entirely on the `filter="data"` backward compatibility which might not be supported on older interpreter versions. Even with it, it's safer to always validate extraction paths natively when handling untrusted files to prevent arbitrary host file overwrites (Zip Slip/Path Traversal vulnerabilities) entirely.
 **Prevention:** Always manually validate each member using `tar.getmembers()` ensuring paths do not begin with `/` or contain `..` using `.split("/")`, and defensively wrap `tar.extractall` in a `try/except TypeError` with a fallback `extractall` call.
+
+## YYYY-MM-DD - [Secure Plugin External Dependency Checks]
+**Vulnerability:** External dependency verification commands (`check_cmd`) specified in untrusted `plugin.yaml` configurations were being executed via `subprocess.run(..., shell=True)` without sanitization, posing a severe command injection (RCE) risk.
+**Learning:** Parsing and executing shell strings provided by external plugins with `shell=True` allows an attacker to easily run arbitrary code on the host machine.
+**Prevention:** Always parse untrusted command configurations using `shlex.split()` and execute them with `shell=False`. Also enforce `check=True` inside `try...except` block catching exceptions for `subprocess.run` as missing it would cause silent failure and swallow the output code check.
