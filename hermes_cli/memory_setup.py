@@ -126,6 +126,8 @@ def _install_dependencies(provider_name: str) -> None:
         print(f"  Run manually: uv pip install --python {sys.executable} {' '.join(missing)}")
 
     # Also show external dependencies (non-pip) if any
+    import shlex
+
     ext_deps = meta.get("external_dependencies", [])
     for dep in ext_deps:
         dep_name = dep.get("name", "")
@@ -134,7 +136,7 @@ def _install_dependencies(provider_name: str) -> None:
         if check_cmd:
             try:
                 subprocess.run(
-                    check_cmd, shell=True, capture_output=True, timeout=5
+                    shlex.split(check_cmd), shell=False, capture_output=True, timeout=5, check=True
                 )
             except Exception:
                 if install_cmd:
