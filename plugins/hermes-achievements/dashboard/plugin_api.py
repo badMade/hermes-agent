@@ -985,10 +985,9 @@ def evaluate_all(force: bool = False) -> Dict[str, Any]:
 
     # Non-force path: serve whatever we have and refresh in background.
     if _SNAPSHOT_CACHE is not None:
-        stale_cache = _SNAPSHOT_CACHE
         if not _cache_is_fresh(now):
             _start_background_scan()
-        return stale_cache
+        return _SNAPSHOT_CACHE
 
     # First-ever run on this machine — no snapshot yet. Kick off a scan
     # and return a pending placeholder. The UI polls /scan-status and
